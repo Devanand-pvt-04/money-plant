@@ -51,8 +51,17 @@ In the [Supabase dashboard](https://supabase.com/dashboard/project/dywcmxixmzeqh
 
 1. **SQL Editor** → New query → paste `supabase/migrations/20261021000000_accounts.sql` → Run. Do this again for each new migration file a PR adds. Or, from the repo root: `npx supabase login`, `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`, `npx supabase db push`.
 2. **Authentication → Sign In / Providers → Email**: make sure Email is enabled.
-3. **Authentication → Emails → Templates**: set **Magic Link** and **Confirm signup** to the HTML in `supabase/templates/`, so the email contains a 6-digit code instead of a link.
-4. Supabase's built-in sender only sends a few emails an hour. That's fine for you alone. Before inviting friends, add a free SMTP sender (Resend or Brevo) under **Authentication → Emails → SMTP Settings**.
+3. **Set up a free SMTP sender.** Supabase only lets you edit email templates once custom SMTP is on, and its built-in sender allows just a few emails an hour. Gmail is free and needs no domain:
+   1. Turn on 2-Step Verification for the Google account at [myaccount.google.com/security](https://myaccount.google.com/security).
+   2. Create an app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), named "Money Plant Supabase". Copy the 16-character password and keep it private.
+   3. In Supabase, open **Authentication → Emails → SMTP Settings** and turn on **Enable custom SMTP**:
+      - Sender email: your Gmail address. Sender name: `Money Plant`
+      - Host: `smtp.gmail.com`. Port: `587`
+      - Username: your Gmail address. Password: the app password
+   4. Optionally, in **Authentication → Rate Limits**, raise "emails sent per hour" (for example to 30).
+
+   Gmail allows about 500 emails a day, which is plenty for friends. Brevo's free plan (300 a day) also works, but mail sent through it "from" a Gmail address often lands in spam.
+4. **Authentication → Emails → Templates**: set **Magic Link** and **Confirm signup** to the HTML in `supabase/templates/`, so the email contains a 6-digit code instead of a link. The subject can be "Your Money Plant sign-in code".
 
 ## 5. Get the app on your phone (recommended: EAS cloud build)
 
@@ -116,7 +125,8 @@ If the app behaves strangely after switching branches, run `npx expo start --cle
 | Symptom | Fix |
 | --- | --- |
 | Warning "SQLCipher is not available" | You're in Expo Go. Use the development build from step 5 |
-| No email arrives | Check spam; the built-in sender's hourly limit may be used up (step 4.4) |
+| No email arrives | Check spam, then the SMTP settings (step 4.3) and the hourly rate limit |
+| The email has a link but no code | The templates weren't updated (step 4.4) |
 | "Sync failed: Could not find the table public.accounts" | The migration wasn't applied (step 4.1) |
 | `SDK location not found` | `ANDROID_HOME` isn't set (step 7.2); reopen the terminal |
 | Phone can't reach the dev server | Use `npx expo start --tunnel` |
