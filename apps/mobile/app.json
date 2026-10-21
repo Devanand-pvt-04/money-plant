@@ -33,6 +33,17 @@
         }
       ],
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "dd0e39dd-086f-40f0-b590-bc23dfb6644d"
+      }
+    },
+    "owner": "devanand_1508"
   }
 }
