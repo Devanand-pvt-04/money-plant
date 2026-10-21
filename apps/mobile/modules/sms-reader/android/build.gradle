@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.moneyplant'
+version = '0.1.0'
+
+android {
+  namespace "com.moneyplant.smsreader"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // HeadlessJsTaskService runs the capture task when the app is closed.
+  implementation 'com.facebook.react:react-android'
+}

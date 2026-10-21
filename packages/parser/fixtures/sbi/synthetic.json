@@ -1,0 +1,49 @@
+{
+  "cases": [
+    {
+      "sender": "BZ-SBIUPI-S",
+      "body": "Dear UPI user A/C X1234 debited by 450.0 on date 21Oct26 trf to SWIGGY Refno 629412345678. If not u? call 1800111109. -SBI",
+      "expect": { "template": "sbi.upi_debit", "direction": "debit", "amount": 45000, "accountLast": "1234", "counterparty": "SWIGGY", "reference": "629412345678" }
+    },
+    {
+      "sender": "VM-SBIUPI",
+      "body": "Dear SBI User, your A/c X1234-credited by Rs.2000 on 21Oct26 transfer from RAVI KUMAR Ref No 629412345679 -SBI",
+      "expect": { "template": "sbi.upi_credit", "direction": "credit", "amount": 200000, "accountLast": "1234", "counterparty": "RAVI KUMAR", "reference": "629412345679" }
+    },
+    {
+      "sender": "VM-CBSSBI",
+      "body": "Your A/C XXXXX1234 Debited INR 5,000.00 on 18/10/26 -Transferred to ACME RENTALS. Avl Balance INR 12,345.67-SBI",
+      "expect": { "template": "sbi.acct_debit", "direction": "debit", "amount": 500000, "accountLast": "1234", "counterparty": "Transferred to ACME RENTALS", "balance": 1234567 }
+    },
+    {
+      "sender": "VM-SBIINB",
+      "body": "Your a/c no. XXXXXXXX1234 is credited by Rs.50,000.00 on 01-10-26 by ACME CORP (NEFT Ref no SBIN226274123456)",
+      "expect": { "template": "sbi.acct_credit", "direction": "credit", "amount": 5000000, "accountLast": "1234", "counterparty": "ACME CORP", "reference": "SBIN226274123456" }
+    },
+    {
+      "sender": "AD-SBICRD",
+      "body": "Rs.1,299.00 spent on your SBI Credit Card ending 5678 at AMAZON on 21/10/26. Trxn. not done by you? Report at https://sbicard.com/Dispute",
+      "expect": { "template": "sbi.card_spent", "direction": "debit", "amount": 129900, "instrument": "credit_card", "accountLast": "5678", "counterparty": "AMAZON" }
+    },
+    {
+      "sender": "AD-SBICRD",
+      "body": "We have received payment of Rs.15,000.00 towards your SBI Credit Card ending 5678 on 14/10/26. Thank you.",
+      "expect": { "template": "sbi.card_payment", "direction": "credit", "amount": 1500000, "instrument": "credit_card", "accountLast": "5678" }
+    },
+    {
+      "sender": "VM-ATMSBI",
+      "body": "Dear Customer, Rs.2000 withdrawn at SBI ATM S1BW000123001 from A/cX1234 on 20Oct26 Transaction Number 4321. Available Balance Rs.10345.67. If not withdrawn by you, call 1800111109.",
+      "expect": { "template": "generic", "direction": "debit", "amount": 200000, "accountLast": "1234", "balance": 1034567, "channel": "atm" }
+    },
+    {
+      "sender": "VM-SBIMF",
+      "body": "Your SIP of Rs.5,000 in SBI Bluechip Fund has been processed.",
+      "expect": { "status": "ignored" }
+    },
+    {
+      "sender": "VM-SBIINB",
+      "body": "Your SBI Credit Card ending 5678 payment of Rs.12,400 is due on 05/11/26.",
+      "expect": { "status": "ignored" }
+    }
+  ]
+}
