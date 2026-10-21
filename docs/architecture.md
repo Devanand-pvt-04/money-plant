@@ -13,7 +13,7 @@ React Native app (Expo), on Android now and iOS later
   Capture: Android SMS (Kotlin receiver) | UPI alerts (notification listener)
            | iOS Shortcuts (Swift App Intent) | imports and manual entry
      -> Shared TypeScript core: parser, matcher, categoriser, ledger rules
-     -> Encrypted SQLite ledger (works offline)  <- Review inbox (uncertain items the user confirms)
+     -> Encrypted SQLite ledger (expo-sqlite + SQLCipher, works offline)  <- Review inbox (uncertain items the user confirms)
      -> Budgets | Net worth | Reminders | IOUs
         ^ sync: parsed rows only, never raw SMS
         v
@@ -36,7 +36,7 @@ Everything is TypeScript except a few small native modules. The parser and ledge
 | --- | --- | --- |
 | Mobile app | React Native with Expo (development builds), TypeScript | One codebase for Android and iOS; Expo modules make custom native code manageable |
 | Navigation and UI | Expo Router; a small in-house component set | File-based routes; keeps the bundle lean |
-| Local database | SQLite via op-sqlite with SQLCipher | Fast, encrypted at rest, works offline |
+| Local database | expo-sqlite with SQLCipher (`useSQLCipher` config plugin); key in SecureStore | Encrypted at rest, works offline, maintained with the Expo SDK, and also stores the auth session |
 | Local queries | Drizzle ORM | Typed schema shared with the server's Postgres schema |
 | State | TanStack Query for server data; Zustand for UI state | Simple, well-known patterns |
 | Native modules | Kotlin: SMS receiver and notification listener. Swift (later): App Intent for Shortcuts | The only platform-specific code |
@@ -144,7 +144,7 @@ The matcher runs these rules in order and stops at the first that fits. The thre
 The phone holds the working copy and Supabase holds the shared record. Sync works per row, and the last writer wins. That is enough when each user mostly edits only their own data.
 
 - Every row has a client-generated UUID plus updated_at and deleted_at, so the phone can create rows offline without ID clashes.
-- **Push:** the phone sends the rows changed since its last successful push to a sync edge function, which upserts them under row-level security.
+- **Push:** the phone sends the rows changed since its last successful push (local `dirty = 1`). In milestone 1 it upserts straight into the table under row-level security. A sync edge function takes over when push needs server-side validation (postings that must balance).
 - **Pull:** the phone asks for rows with updated_at after its last pull cursor and applies them locally.
 - **Conflicts:** the last writer wins per row, with two exceptions. In shared IOUs, changes to the amount or due date need the other person's confirmation. Postings are always replaced as a set together with their transaction.
 - **Triggers:** sync runs on app open, after each capture, and every 15 minutes in the background where the OS allows.
