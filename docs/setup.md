@@ -126,6 +126,7 @@ If the app behaves strangely after switching branches, run `npx expo start --cle
 | --- | --- |
 | Warning "SQLCipher is not available" | You're in Expo Go. Use the development build from step 5 |
 | No email arrives | Check spam, then the SMTP settings (step 4.3) and the hourly rate limit |
+| "Error sending confirmation email", and Logs → Auth shows `535 5.7.8 Username and Password not accepted` | Gmail rejected the SMTP login. Make a new app password for the same Gmail account, paste it without spaces, and set Username and Sender email to that full Gmail address (step 4.3) |
 | The email has a link but no code | The templates weren't updated (step 4.4) |
 | "Sync failed: Could not find the table public.accounts" | The migration wasn't applied (step 4.1) |
 | `SDK location not found` | `ANDROID_HOME` isn't set (step 7.2); reopen the terminal |
