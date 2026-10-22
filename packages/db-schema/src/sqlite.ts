@@ -1,5 +1,5 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AccountType } from '@money-plant/core';
+import type { AccountClass, AccountType } from '@money-plant/core';
 
 /**
  * Local copy of public.accounts (see supabase/migrations). Extra local-only
@@ -16,6 +16,12 @@ export const accounts = sqliteTable(
     last4: text('last4'),
     currency: text('currency').notNull().default('INR'),
     openingBalancePaise: integer('opening_balance_paise').notNull().default(0),
+    /** For `custom` accounts: the user-defined account type (ACC-6). */
+    accountTypeId: text('account_type_id'),
+    /** For categories: the parent category, one level up at most (CAT-5). */
+    parentId: text('parent_id'),
+    /** For categories: the standard category key the shared dictionary uses, e.g. "food.lunch". */
+    categoryKey: text('category_key'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -43,6 +49,11 @@ export const transactions = sqliteTable(
     status: text('status').$type<'pending' | 'confirmed'>().notNull(),
     confidence: real('confidence').notNull(),
     reviewReason: text('review_reason'),
+    categoryReason: text('category_reason'),
+    categoryRuleId: text('category_rule_id'),
+    /** JSON array of fields the user changed by hand (LED-8). */
+    userSetFields: text('user_set_fields').notNull().default('[]'),
+    note: text('note'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -141,7 +152,79 @@ export const captureLog = sqliteTable(
   (table) => [index('capture_log_sender_idx').on(table.sender)],
 );
 
+/** User-defined account types (ACC-6), on a fixed asset or liability class. */
+export const accountTypes = sqliteTable('account_types', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  class: text('class').$type<AccountClass>().notNull(),
+  inNetWorth: integer('in_net_worth').notNull().default(1),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at'),
+  deletedAt: text('deleted_at'),
+  dirty: integer('dirty').notNull().default(1),
+  rev: integer('rev').notNull().default(0),
+});
+
+/** User rules and learned patterns (CAT-3, CAT-7, CAT-8). `match` is JSON, see RuleMatch and PatternMatch. */
+export const rules = sqliteTable(
+  'rules',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<'rule' | 'pattern'>().notNull(),
+    status: text('status').$type<'active' | 'paused' | 'proposed' | 'declined'>().notNull(),
+    match: text('match').notNull(),
+    categoryAccountId: text('category_account_id').notNull(),
+    autoConfirm: integer('auto_confirm').notNull().default(1),
+    hits: integer('hits').notNull().default(0),
+    misses: integer('misses').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('rules_dirty_idx').on(table.dirty)],
+);
+
+/**
+ * Monthly budgets (BUD-1). A row applies from its month until a later row for
+ * the same category; a null category is the overall budget; a null limit
+ * removes the budget. Ids are derived from user, month and category.
+ */
+export const budgets = sqliteTable(
+  'budgets',
+  {
+    id: text('id').primaryKey(),
+    month: text('month').notNull(),
+    categoryAccountId: text('category_account_id'),
+    limitPaise: integer('limit_paise'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('budgets_dirty_idx').on(table.dirty)],
+);
+
+/**
+ * Local only: what the shared merchant dictionary and the AI said about each
+ * merchant this phone asked about, keyed by normalised name. A null key means
+ * nobody knew; `checked_at` decides when to ask again.
+ */
+export const merchantCache = sqliteTable('merchant_cache', {
+  merchant: text('merchant').primaryKey(),
+  categoryKey: text('category_key'),
+  displayName: text('display_name'),
+  confidence: real('confidence').notNull(),
+  source: text('source').$type<'dictionary' | 'ai'>().notNull(),
+  checkedAt: text('checked_at').notNull(),
+});
+
 export type LocalAccount = typeof accounts.$inferSelect;
+export type LocalAccountType = typeof accountTypes.$inferSelect;
+export type LocalRule = typeof rules.$inferSelect;
+export type LocalBudget = typeof budgets.$inferSelect;
 export type LocalTransaction = typeof transactions.$inferSelect;
 export type LocalPosting = typeof postings.$inferSelect;
 export type LocalSource = typeof sources.$inferSelect;
@@ -249,4 +332,60 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     raw_text TEXT
   );
   CREATE INDEX capture_log_sender_idx ON capture_log (sender);`,
+  // Milestone 3: categories, account types, rules, patterns and budgets.
+  `ALTER TABLE accounts ADD COLUMN account_type_id TEXT;
+  ALTER TABLE accounts ADD COLUMN parent_id TEXT;
+  ALTER TABLE accounts ADD COLUMN category_key TEXT;
+  ALTER TABLE transactions ADD COLUMN category_reason TEXT;
+  ALTER TABLE transactions ADD COLUMN category_rule_id TEXT;
+  ALTER TABLE transactions ADD COLUMN user_set_fields TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE transactions ADD COLUMN note TEXT;
+  CREATE TABLE account_types (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    class TEXT NOT NULL,
+    in_net_worth INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE rules (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    match TEXT NOT NULL,
+    category_account_id TEXT NOT NULL,
+    auto_confirm INTEGER NOT NULL DEFAULT 1,
+    hits INTEGER NOT NULL DEFAULT 0,
+    misses INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX rules_dirty_idx ON rules (dirty);
+  CREATE TABLE budgets (
+    id TEXT PRIMARY KEY NOT NULL,
+    month TEXT NOT NULL,
+    category_account_id TEXT,
+    limit_paise INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX budgets_dirty_idx ON budgets (dirty);
+  CREATE TABLE merchant_cache (
+    merchant TEXT PRIMARY KEY NOT NULL,
+    category_key TEXT,
+    display_name TEXT,
+    confidence REAL NOT NULL,
+    source TEXT NOT NULL,
+    checked_at TEXT NOT NULL
+  );
+  CREATE INDEX accounts_parent_idx ON accounts (parent_id);`,
 ];

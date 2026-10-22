@@ -200,6 +200,8 @@ Two edge functions call the Anthropic API. The app never holds the API key, and 
 
 ### Categorisation (categorise function)
 
+On the phone, `packages/categoriser` tries the user's rules, then learned patterns, then the built-in merchant dictionary and the local merchant cache. Only what's left goes to this function, in batches of up to 25. Spend is recorded in `ai_usage` and checked against a global and a per-user monthly cap before every call (decision 0004).
+
 1. The phone asks for a category for a merchant label it couldn't resolve locally.
 2. The function checks the global merchants table. On a hit, it returns immediately.
 3. On a miss, it calls claude-haiku-5-5 with the merchant label, the VPA handle if any, an amount band (for example ₹100 to ₹500), the time of day and the list of category names. It asks for structured output: category, normalised merchant name and confidence.

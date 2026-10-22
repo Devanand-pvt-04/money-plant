@@ -1,6 +1,6 @@
 import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { ACCOUNT_TYPE_LABELS, formatRupees, paise } from '@money-plant/core';
+import { formatRupees, paise } from '@money-plant/core';
 import { Button, colors } from '@/components/ui';
 import { formatDateTime } from '@/components/format';
 import { TransactionItem } from '@/components/transaction-item';
@@ -17,7 +17,7 @@ export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[] });
   if (!data.balance) return null;
-  const { account, balance, reconciliation } = data.balance;
+  const { account, balance, reconciliation, typeLabel } = data.balance;
 
   function confirmDelete() {
     Alert.alert('Delete account?', `${account.name} will be removed from all your devices.`, [
@@ -35,7 +35,7 @@ export default function AccountDetail() {
         <View style={styles.header}>
           <Stack.Screen options={{ title: account.name }} />
           <Text style={styles.meta}>
-            {ACCOUNT_TYPE_LABELS[account.type]}
+            {typeLabel}
             {account.institution ? ` · ${account.institution}` : ''}
             {account.last4 ? ` · ••${account.last4}` : ''}
           </Text>

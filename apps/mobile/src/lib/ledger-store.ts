@@ -1,4 +1,3 @@
-import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { paise, type Paise } from '@money-plant/core';
 import {
@@ -23,22 +22,17 @@ import {
   type ReviewReason,
   type SourceKind,
   type SystemAccountKey,
+  type UserSetField,
 } from '@money-plant/matcher';
+import type { CategoryReason } from '@money-plant/categoriser';
 import { getDb, type Database } from './db';
-import { supabase } from './supabase';
+import { derivedId } from './ids';
 
 const now = () => new Date().toISOString();
 
-/**
- * Category accounts get an id derived from the user id, so every device of the
- * same user creates the same row instead of a duplicate.
- */
-async function systemAccountId(key: SystemAccountKey): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  const userId = data.session?.user.id;
-  if (!userId) throw new Error('Not signed in');
-  const hex = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${userId}:system:${key}`);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+/** Category accounts the pipeline falls back to have an id derived from the user id, like the default categories. */
+export function systemAccountId(key: SystemAccountKey): Promise<string> {
+  return derivedId(`system:${key}`);
 }
 
 function toLedgerAccount(row: typeof accounts.$inferSelect): LedgerAccount {
@@ -59,6 +53,10 @@ export function loadTransactions(db: Database, rows: (typeof transactions.$infer
     status: row.status,
     confidence: row.confidence,
     reviewReason: row.reviewReason as ReviewReason | null,
+    categoryReason: row.categoryReason as CategoryReason | null,
+    categoryRuleId: row.categoryRuleId,
+    userSetFields: JSON.parse(row.userSetFields) as UserSetField[],
+    note: row.note,
     postings: postingRows
       .filter((p) => p.transactionId === row.id)
       .map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise) })),
@@ -95,6 +93,10 @@ export function writeTransaction(db: Database, tx: LedgerTransaction): void {
         status: tx.status,
         confidence: tx.confidence,
         reviewReason: tx.reviewReason,
+        categoryReason: tx.categoryReason,
+        categoryRuleId: tx.categoryRuleId,
+        userSetFields: JSON.stringify(tx.userSetFields),
+        note: tx.note,
         createdAt,
         dirty: 1,
       })
@@ -107,6 +109,10 @@ export function writeTransaction(db: Database, tx: LedgerTransaction): void {
           status: tx.status,
           confidence: tx.confidence,
           reviewReason: tx.reviewReason,
+          categoryReason: tx.categoryReason,
+          categoryRuleId: tx.categoryRuleId,
+          userSetFields: JSON.stringify(tx.userSetFields),
+          note: tx.note,
           dirty: 1,
           rev: sql`${transactions.rev} + 1`,
         },

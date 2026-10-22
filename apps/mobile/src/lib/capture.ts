@@ -9,6 +9,9 @@ import {
   parseSms,
 } from '@money-plant/parser';
 import { readInbox, type CaptureTaskData } from '../../modules/sms-reader';
+import { categoriseWithAi } from './ai-categorise';
+import { checkPaceAlerts } from './budgets';
+import { pipelineCategoriser } from './categories';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
 import { ensureBalanceRefs } from './ledger';
@@ -42,7 +45,7 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function context(): Promise<PipelineContext> {
-  return { store: await SqliteLedgerStore.open(), newId: () => Crypto.randomUUID() };
+  return { store: await SqliteLedgerStore.open(), newId: () => Crypto.randomUUID(), categorise: await pipelineCategoriser() };
 }
 
 async function fingerprintOf(...parts: (string | number)[]): Promise<string> {
@@ -215,7 +218,9 @@ export async function runCaptureTask(data: CaptureTaskData): Promise<void> {
       await captureNotification(data);
     }
     notifyLedgerChange();
+    await checkPaceAlerts().catch(() => {});
     await syncNow();
+    await categoriseWithAi();
   } catch (e) {
     // Keep message contents out of logs.
     console.warn('Capture task failed:', e instanceof Error ? e.name : 'unknown error');

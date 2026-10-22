@@ -27,7 +27,15 @@ export default function RootLayout() {
           <Stack.Screen name="account/balance" options={{ title: 'Set balance', presentation: 'modal' }} />
           <Stack.Screen name="transactions" options={{ title: 'Transactions' }} />
           <Stack.Screen name="transaction/[id]" options={{ title: 'Entry' }} />
+          <Stack.Screen name="transaction/edit" options={{ title: 'Edit entry', presentation: 'modal' }} />
           <Stack.Screen name="review" options={{ title: 'Review' }} />
+          <Stack.Screen name="categories" options={{ title: 'Categories' }} />
+          <Stack.Screen name="category/[id]" options={{ title: 'Category' }} />
+          <Stack.Screen name="rules" options={{ title: 'Rules and patterns' }} />
+          <Stack.Screen name="rule/[id]" options={{ title: 'Rule' }} />
+          <Stack.Screen name="budgets" options={{ title: 'Budgets' }} />
+          <Stack.Screen name="budget/[id]" options={{ title: 'Budget' }} />
+          <Stack.Screen name="account-types" options={{ title: 'Account types' }} />
           <Stack.Screen name="capture" options={{ title: 'Bank SMS' }} />
           <Stack.Screen name="upi-test" options={{ title: 'UPI hand-off test' }} />
         </Stack.Protected>

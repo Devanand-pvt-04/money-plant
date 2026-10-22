@@ -5,6 +5,7 @@ import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import type { TransactionRow } from '@/lib/ledger';
 import { colors } from './ui';
 import { formatDateTime } from './format';
+import { whyLabel } from './why';
 
 export function transactionTitle({ tx, legs }: TransactionRow): string {
   if (tx.kind === 'transfer') {
@@ -30,6 +31,12 @@ export function TransactionItem({ row, showReason = false }: { row: TransactionR
           {!isTransfer && legs[0] ? ` · ${legs[0].accountName}` : ''}
           {tx.status === 'pending' ? ' · to review' : ''}
         </Text>
+        {row.category && (
+          <Text style={styles.category} numberOfLines={1}>
+            {row.category.name}
+            {showReason ? ` · ${whyLabel(tx, row.aiConfidence)}` : ''}
+          </Text>
+        )}
         {showReason && reason && <Text style={styles.reason}>{reason}</Text>}
       </View>
       <Text style={[styles.amount, amount > 0 && !isTransfer && styles.credit]}>
@@ -54,6 +61,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '600', color: colors.text },
   meta: { fontSize: 13, color: colors.muted, marginTop: 2 },
   reason: { fontSize: 13, color: colors.warning, marginTop: 4 },
+  category: { fontSize: 13, color: colors.primary, marginTop: 2 },
   amount: { fontSize: 16, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
   credit: { color: colors.primary },
 });

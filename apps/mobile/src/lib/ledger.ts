@@ -1,15 +1,18 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
-import { paise, reconcile, type AccountType, type Paise, type Reconciliation } from '@money-plant/core';
+import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, paise, reconcile, type AccountType, type Paise, type Reconciliation } from '@money-plant/core';
 import {
+  accountTypes,
   accounts,
   balanceAnchors,
   balanceRefs,
   captureLog,
+  merchantCache,
   postings,
   transactions,
   type LocalAccount,
 } from '@money-plant/db-schema';
+import { normaliseMerchant } from '@money-plant/categoriser';
 import { rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
 import { getDb } from './db';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
@@ -23,6 +26,10 @@ export interface AccountBalance {
   /** Opening balance plus every posting, never a stored total. */
   balance: Paise;
   reconciliation: Reconciliation | null;
+  /** "Credit card", or the custom type's name (ACC-6). */
+  typeLabel: string;
+  liability: boolean;
+  inNetWorth: boolean;
 }
 
 export async function listAccountBalances(): Promise<AccountBalance[]> {
@@ -46,6 +53,7 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     .from(balanceAnchors)
     .where(and(inArray(balanceAnchors.accountId, ids), isNull(balanceAnchors.deletedAt)))
     .all();
+  const customTypes = new Map(db.select().from(accountTypes).all().map((t) => [t.id, t]));
 
   return rows.map((account) => {
     const own = dated.filter((p) => p.accountId === account.id).map((p) => ({ occurredAt: p.occurredAt, amount: paise(p.amount) }));
@@ -53,16 +61,29 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     const ownAnchors = anchors
       .filter((a) => a.accountId === account.id)
       .map((a) => ({ observedAt: a.observedAt, balance: paise(a.balancePaise) }));
+    const custom = account.accountTypeId ? customTypes.get(account.accountTypeId) : undefined;
     return {
       account,
       balance: paise(balance),
       reconciliation: reconcile(paise(account.openingBalancePaise), own, ownAnchors),
+      typeLabel: custom?.name ?? ACCOUNT_TYPE_LABELS[account.type],
+      liability: custom ? custom.class === 'liability' : LIABILITY_TYPES.has(account.type),
+      inNetWorth: custom ? custom.inNetWorth === 1 : true,
     };
   });
 }
 
+/** Net worth so far: balances are signed, so liabilities already count as negative (NW-1 comes in milestone 5). */
+export function netWorth(balances: readonly AccountBalance[]): Paise {
+  return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + b.balance, 0));
+}
+
 export interface TransactionRow {
   tx: LedgerTransaction;
+  /** The category the entry counts toward, as "Food > Lunch" (CAT-5, CAT-6). */
+  category: { id: string; name: string } | null;
+  /** For AI-categorised entries: how sure the AI was (CAT-6). */
+  aiConfidence: number | null;
   /** The posting on the user's own account(s), for display. */
   legs: { accountId: string; accountName: string; amount: Paise }[];
   /** Names of every account the postings touch, including categories. */
@@ -73,13 +94,26 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
   const db = await getDb();
   const accountRows = db.select().from(accounts).all();
   const byId = new Map(accountRows.map((a) => [a.id, a]));
-  return txs.map((tx) => ({
-    tx,
-    legs: tx.postings
-      .filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'))
-      .map((p) => ({ accountId: p.accountId, accountName: byId.get(p.accountId)?.name ?? 'Unknown account', amount: p.amount })),
-    accountNames: Object.fromEntries(tx.postings.map((p) => [p.accountId, byId.get(p.accountId)?.name ?? 'Unknown account'])),
-  }));
+  const merchants = txs.some((tx) => tx.categoryReason === 'ai')
+    ? new Map(db.select().from(merchantCache).all().map((m) => [m.merchant, m.confidence]))
+    : new Map<string, number>();
+  const path = (id: string) => {
+    const account = byId.get(id);
+    const parent = account?.parentId ? byId.get(account.parentId) : undefined;
+    return parent ? `${parent.name} > ${account!.name}` : (account?.name ?? 'Unknown category');
+  };
+  return txs.map((tx) => {
+    const categoryLeg = tx.kind === 'transfer' ? undefined : tx.postings.find((p) => byId.get(p.accountId)?.type === 'category');
+    return {
+      tx,
+      category: categoryLeg ? { id: categoryLeg.accountId, name: path(categoryLeg.accountId) } : null,
+      aiConfidence: tx.categoryReason === 'ai' && tx.counterparty ? (merchants.get(normaliseMerchant(tx.counterparty)) ?? null) : null,
+      legs: tx.postings
+        .filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'))
+        .map((p) => ({ accountId: p.accountId, accountName: byId.get(p.accountId)?.name ?? 'Unknown account', amount: p.amount })),
+      accountNames: Object.fromEntries(tx.postings.map((p) => [p.accountId, byId.get(p.accountId)?.name ?? 'Unknown account'])),
+    };
+  });
 }
 
 export async function listTransactions(options: { accountId?: string; pendingOnly?: boolean; limit?: number } = {}) {
@@ -122,15 +156,6 @@ export async function countPending(): Promise<number> {
   return Number(row?.n ?? 0);
 }
 
-export async function confirmTransaction(id: string): Promise<void> {
-  const db = await getDb();
-  db.update(transactions)
-    .set({ status: 'confirmed', reviewReason: null, dirty: 1, rev: sql`${transactions.rev} + 1` })
-    .where(eq(transactions.id, id))
-    .run();
-  notifyLedgerChange();
-}
-
 /** Soft delete. The sources stay, so re-reading the inbox never brings the entry back. */
 export async function deleteTransaction(id: string): Promise<void> {
   const db = await getDb();
@@ -162,8 +187,10 @@ export async function splitTransfer(id: string): Promise<void> {
   const spending = await store.systemAccount('uncategorised_expense');
   const income = await store.systemAccount('uncategorised_income');
   const newId = () => Crypto.randomUUID();
+  const reset = { categoryReason: null, categoryRuleId: null, userSetFields: ['kind' as const] };
   writeTransaction(db, {
     ...tx,
+    ...reset,
     occurredAt: debitSources[0]!.receivedAt,
     kind: 'expense',
     status: 'confirmed',
@@ -173,6 +200,7 @@ export async function splitTransfer(id: string): Promise<void> {
   });
   writeTransaction(db, {
     ...tx,
+    ...reset,
     id: newId(),
     occurredAt: creditSources[0]!.receivedAt,
     kind: 'income',

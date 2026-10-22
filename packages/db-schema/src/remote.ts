@@ -1,5 +1,14 @@
-import type { AccountType } from '@money-plant/core';
-import type { LocalAccount, LocalBalanceAnchor, LocalPosting, LocalSource, LocalTransaction } from './sqlite';
+import type { AccountClass, AccountType } from '@money-plant/core';
+import type {
+  LocalAccount,
+  LocalAccountType,
+  LocalBalanceAnchor,
+  LocalBudget,
+  LocalPosting,
+  LocalRule,
+  LocalSource,
+  LocalTransaction,
+} from './sqlite';
 
 /** A row of public.accounts as the Supabase API returns it. */
 export interface RemoteAccount {
@@ -11,6 +20,9 @@ export interface RemoteAccount {
   last4: string | null;
   currency: string;
   opening_balance_paise: number;
+  account_type_id: string | null;
+  parent_id: string | null;
+  category_key: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -28,6 +40,9 @@ export function toRemoteAccount(row: LocalAccount): RemoteAccountWrite {
     last4: row.last4,
     currency: row.currency,
     opening_balance_paise: row.openingBalancePaise,
+    account_type_id: row.accountTypeId,
+    parent_id: row.parentId,
+    category_key: row.categoryKey,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -42,6 +57,9 @@ export function fromRemoteAccount(row: RemoteAccount): LocalAccount {
     last4: row.last4,
     currency: row.currency,
     openingBalancePaise: Number(row.opening_balance_paise),
+    accountTypeId: row.account_type_id ?? null,
+    parentId: row.parent_id ?? null,
+    categoryKey: row.category_key ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -67,6 +85,10 @@ export interface RemoteTransaction {
   status: LocalTransaction['status'];
   confidence: number;
   review_reason: string | null;
+  category_reason: string | null;
+  category_rule_id: string | null;
+  user_set_fields: string[] | null;
+  note: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -107,6 +129,10 @@ export interface TransactionPush {
   status: LocalTransaction['status'];
   confidence: number;
   review_reason: string | null;
+  category_reason: string | null;
+  category_rule_id: string | null;
+  user_set_fields: string[];
+  note: string | null;
   created_at: string;
   deleted_at: string | null;
   postings: { id: string; account_id: string; amount_paise: number; created_at: string }[];
@@ -140,6 +166,10 @@ export function toTransactionPush(
     status: tx.status,
     confidence: tx.confidence,
     review_reason: tx.reviewReason,
+    category_reason: tx.categoryReason,
+    category_rule_id: tx.categoryRuleId,
+    user_set_fields: JSON.parse(tx.userSetFields) as string[],
+    note: tx.note,
     created_at: tx.createdAt,
     deleted_at: tx.deletedAt,
     postings: txPostings.map((p) => ({
@@ -176,6 +206,10 @@ export function fromRemoteTransaction(row: RemoteTransaction): {
       status: row.status,
       confidence: Number(row.confidence),
       reviewReason: row.review_reason,
+      categoryReason: row.category_reason ?? null,
+      categoryRuleId: row.category_rule_id ?? null,
+      userSetFields: JSON.stringify(row.user_set_fields ?? []),
+      note: row.note ?? null,
       createdAt: iso(row.created_at),
       updatedAt: row.updated_at,
       deletedAt: row.deleted_at,
@@ -241,6 +275,128 @@ export function fromRemoteAnchor(row: RemoteBalanceAnchor): LocalBalanceAnchor {
     balancePaise: Number(row.balance_paise),
     observedAt: iso(row.observed_at),
     sourceId: row.source_id,
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteAccountType {
+  id: string;
+  user_id: string;
+  name: string;
+  class: AccountClass;
+  in_net_worth: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteAccountType(row: LocalAccountType): Omit<RemoteAccountType, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    name: row.name,
+    class: row.class,
+    in_net_worth: row.inNetWorth === 1,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteAccountType(row: RemoteAccountType): LocalAccountType {
+  return {
+    id: row.id,
+    name: row.name,
+    class: row.class,
+    inNetWorth: row.in_net_worth ? 1 : 0,
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteRule {
+  id: string;
+  user_id: string;
+  kind: LocalRule['kind'];
+  status: LocalRule['status'];
+  match: Record<string, unknown>;
+  category_account_id: string;
+  auto_confirm: boolean;
+  hits: number;
+  misses: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteRule(row: LocalRule): Omit<RemoteRule, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    kind: row.kind,
+    status: row.status,
+    match: JSON.parse(row.match) as Record<string, unknown>,
+    category_account_id: row.categoryAccountId,
+    auto_confirm: row.autoConfirm === 1,
+    hits: row.hits,
+    misses: row.misses,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteRule(row: RemoteRule): LocalRule {
+  return {
+    id: row.id,
+    kind: row.kind,
+    status: row.status,
+    match: JSON.stringify(row.match),
+    categoryAccountId: row.category_account_id,
+    autoConfirm: row.auto_confirm ? 1 : 0,
+    hits: Number(row.hits),
+    misses: Number(row.misses),
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteBudget {
+  id: string;
+  user_id: string;
+  /** First day of the month, "2026-10-01". */
+  month: string;
+  category_account_id: string | null;
+  limit_paise: number | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+/** Locally a month is "2026-10"; Postgres stores the first day as a date. */
+export function toRemoteBudget(row: LocalBudget): Omit<RemoteBudget, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    month: `${row.month}-01`,
+    category_account_id: row.categoryAccountId,
+    limit_paise: row.limitPaise,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteBudget(row: RemoteBudget): LocalBudget {
+  return {
+    id: row.id,
+    month: row.month.slice(0, 7),
+    categoryAccountId: row.category_account_id,
+    limitPaise: row.limit_paise === null ? null : Number(row.limit_paise),
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
