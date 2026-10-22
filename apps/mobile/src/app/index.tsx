@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { AppState, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { ACCOUNT_TYPE_LABELS, formatRupees } from '@money-plant/core';
 import { Button, ErrorText, colors } from '@/components/ui';
@@ -87,6 +87,9 @@ export default function Home() {
                 <Button title="Bank SMS" variant="secondary" onPress={() => router.push('/capture')} />
               </View>
             </View>
+            {Platform.OS === 'android' && (
+              <Button title="UPI hand-off test" variant="secondary" onPress={() => router.push('/upi-test')} />
+            )}
           </View>
         }
         ListEmptyComponent={

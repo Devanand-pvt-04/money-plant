@@ -1,6 +1,6 @@
 # Money Plant architecture notes
 
-21 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
+21 Oct 2026, updated 22 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
 
 Money Plant is one React Native app (Expo, TypeScript) for Android, with iOS to follow. It has a Supabase backend in Mumbai and a shared TypeScript core for parsing and ledger rules. These notes describe how to build what `docs/PRD.md` specifies.
 
@@ -80,17 +80,25 @@ The core of the app is a double-entry ledger. Each transaction has two or more p
 
 **Account types.** Asset accounts (bank, cash, wallet, FD, RD, mutual fund, stock). Liability accounts (credit card, loan). People accounts (one per friend, for IOUs). Category accounts (Food, Rent, Salary and so on, for income and spending).
 
-Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two postings: HDFC savings −450, Food +450. Lending ₹2,000 to Ravi is HDFC savings −2,000, Ravi +2,000. When Ravi pays it back, the postings reverse.
+**Custom account types.** Users can add their own types (Chit fund, PF, Gold). Each one sits on a fixed class, asset or liability, which decides the sign of its balance and how net worth adds up. Built-in behaviour (FD interest, fund prices, card bill detection) stays attached to the built-in types; a custom type is a plain manual account.
+
+**Category tree.** A category account can have a parent category account, two levels deep (Food > Lunch). Postings may land on a parent. Reports and budgets roll children up into their parent. Because postings point at the category's id, moving, renaming or merging a category keeps its history. Each user category maps to a standard category key (for example `food.lunch`), so the shared merchant dictionary works across users whose trees differ.
+
+Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two postings: HDFC savings −450, Food +450. Lending ₹2,000 to Ravi is HDFC savings −2,000, Ravi +2,000. When Ravi pays it back, the postings reverse. A split is the same idea: a ₹1,200 dinner for four is HDFC savings −1,200, Food > Eating out +300, and +300 to each of three friends' person accounts. Converting an entry into a split replaces its postings and keeps its sources.
 
 | Table | Key fields | Notes |
 | --- | --- | --- |
 | users | id, phone, email, created_at | Supabase Auth owns identity |
-| accounts | id, user_id, type, name, institution, last4, currency, opening_balance_paise | Includes category and people accounts |
-| transactions | id, user_id, occurred_at, description, merchant_id, status (pending, confirmed), confidence, updated_at, deleted_at | One real-world money movement |
+| accounts | id, user_id, type, account_type_id, parent_id, category_key, name, institution, last4, currency, opening_balance_paise, auto_confirm | Includes category and people accounts. parent_id and category_key apply to categories; account_type_id to custom types |
+| account_types | id, user_id, name, icon, class (asset, liability), in_net_worth | User-defined account types |
+| transactions | id, user_id, occurred_at, description, merchant_id, status (pending, confirmed, ignored), confidence, category_reason (rule, pattern, dictionary, ai, user), user_set_fields, split_group_id, updated_at, deleted_at | One real-world money movement. user_set_fields lists the fields automation must not overwrite |
 | postings | id, transaction_id, account_id, amount_paise | Postings for each transaction sum to zero |
-| sources | id, transaction_id, kind (sms, notification, statement, cas, manual, shortcut), external_ref (UPI RRN, card auth code), parsed_fields (JSON), received_at | A transaction can have several after merging; raw text is never stored on the server |
+| sources | id, transaction_id, kind (sms, notification, statement, cas, manual, shortcut, app_payment), external_ref (UPI RRN, card auth code), parsed_fields (JSON), received_at | A transaction can have several after merging; raw text is never stored on the server |
 | merchants | id, normalised_name, upi_handles, default_category, created_by (dictionary, ai) | Global table shared across users |
-| rules | id, user_id, match (merchant, VPA, keyword, amount range), category_account_id | User rules win over everything |
+| rules | id, user_id, kind (rule, pattern), match (merchant, VPA, keyword, amount range; for patterns also time window, weekdays, account, payee kind), category_account_id, auto_confirm, paused, hits | User rules win over everything; learned patterns come next |
+| split_groups | id, user_id, name | A trip or flatmates; balances come from postings to its members' person accounts |
+| split_group_members | id, user_id, group_id, person_account_id | People in a group |
+| ignored_senders | id, user_id, sender | Senders whose messages never create entries |
 | budgets | id, user_id, month, category_account_id, limit_paise | One row per category per month |
 | recurring | id, user_id, payee, amount_paise, cadence, next_due, source_account_id, mandate_ref | Detected or added manually |
 | ious | id, lender_user_id, borrower_user_id or person account, amount_paise, reason, due_date, status | Shared row when both people use the app |
@@ -113,14 +121,48 @@ Every source ends in the same five steps on the phone: parse, match, categorise,
 - **Statement import.** The user shares a CSV, XLS or PDF into the app. CSV and XLS files are parsed on the phone. PDFs go to an edge function that extracts the tables and returns rows, and the file is then deleted.
 - **CAS import.** The PDF and its password go to the cas-parser service, which returns holdings and transactions. The file is deleted after parsing.
 - **Manual.** Quick add pre-fills the last-used account and guesses a category from the merchant the user types.
+- **Scan and pay.** The app hands a payment to the user's UPI app and logs it with an `app_payment` source (see Scan and pay below).
 
 **The five steps.**
 
 1. **Parse.** `packages/parser` tries the bank's templates (regex with named groups for amount, direction, account last 4, merchant or VPA, reference, balance and date). If none match, a generic parser looks for an amount and direction keywords. Failures are counted per sender for CAP-8.
 2. **Match.** `packages/matcher` checks whether this source belongs to an existing transaction (see the next section).
-3. **Categorise.** `packages/categoriser` applies user rules, then the merchant dictionary. If the merchant is still unknown, it queues an AI request.
-4. **Post.** A transaction with two postings is written to the local database. Its status is pending or confirmed, depending on confidence.
+3. **Categorise.** `packages/categoriser` applies user rules, then learned patterns, then the merchant dictionary. If the merchant is still unknown, it queues an AI request. Patterns run before the payments-to-people check (CAT-4), so a bus conductor's personal UPI ID that matches the morning pattern is not asked about.
+4. **Post.** A transaction with two postings is written to the local database. Its status is pending or confirmed, depending on confidence and the account's auto-confirm setting. If the transaction already exists, only fields not in user_set_fields are updated.
 5. **Queue for sync.** The change is pushed to Supabase on the next sync.
+
+## Learned patterns
+
+Learned patterns (CAT-8) are computed on the phone from the user's own corrections. No AI call is involved, so they cost nothing and can always explain themselves.
+
+1. Each category correction records the entry's features: local time of day, weekday, amount, paying account, and payee kind (person or business).
+2. After each correction, the app looks for 3 or more corrections to the same category in the last 30 days whose amounts fall in one band (±25%) and whose times fall in one 2-hour window.
+3. When it finds them, it proposes a pattern, for example "₹15 to ₹25 from HDFC, weekdays 8 to 10 am, is Transport > Bus". The user accepts, edits or declines it.
+4. An accepted pattern is stored as a rule of kind `pattern`. Matches arrive as pending suggestions labelled with the pattern, at confidence 0.7. Once the user turns on auto-confirm for that pattern, matches are confirmed directly.
+5. Each confirmation or correction updates the pattern's hit count, and the rules screen (CAT-7) shows it.
+
+## Splits and contacts
+
+Splits are personal: they exist only in the payer's ledger, so friends need not use the app.
+
+- **Converting an entry.** Splitting replaces the entry's postings with the user's share on the category and each friend's share on their person account. Sources stay attached, so dedupe and reconciliation are unaffected.
+- **Someone else paid.** The user's share goes to the category, and a negative posting on the payer's person account records what the user owes.
+- **Groups.** A group is a named set of person accounts. Its balances come from postings, and "who pays whom" is simplified on the phone.
+- **Settling** reuses IOU settlement: a UPI pay link and the matcher's IOU settlement rule.
+- **Contacts.** With the contacts permission (expo-contacts), the phone matches payees to contacts: by a 10-digit mobile number in the UPI ID (98xxxxxx10@ybl), then by fuzzy name match against the SMS or notification payee name. A match links the person account to the contact on the phone only. The contact list is never synced or uploaded.
+- **Finding friends on the app** is by email invite for now. Shared groups between app users come after the friends release.
+
+## Scan and pay
+
+The app never moves money (PAY-1, PAY-2). It reads a UPI QR, then hands the payment to the user's own UPI app.
+
+1. The camera (expo-camera barcode scanning) reads the QR. A UPI QR is a `upi://pay` link with `pa` (payee UPI ID), `pn` (name) and optionally `am` (amount), `tn` (note) and `mc` (merchant code). Other QR codes are rejected.
+2. The user confirms the amount, category and optional split. The app adds its own `tr` reference.
+3. On Android the app starts the `upi://pay` intent for the chosen app's package, or a chooser, and waits for the activity result. UPI apps return a response string with `Status`, `txnId` and `responseCode`, but not reliably.
+4. The app writes the entry with an `app_payment` source holding the payee, amount, our reference and the app's response. A SUCCESS response confirms it. No response leaves it pending and asks "Did it go through?"
+5. The entry has no account until the bank SMS arrives, because the user picks the bank inside the UPI app. The matcher merges the first debit of the same amount within 10 minutes into it, and the SMS supplies the account. Without SMS tracking, the user picks the account when confirming.
+
+Some UPI apps decline or limit payments started by another app, especially to personal UPI IDs. A test build checks Google Pay, PhonePe, a bank app and slice before milestone 3. Where an app refuses, the fallback is to log the entry and open that app's own scanner, or copy the UPI ID. IOU-3's pay links use the same hand-off and inherit the result.
 
 ## Matching and reconciliation
 
@@ -180,10 +222,11 @@ Data gets server-side protection for now, as decided. The design keeps a later m
 
 | Control | How |
 | --- | --- |
-| Row-level security | Every user table has a user_id = auth.uid() policy. ious rows are visible to both lender and borrower. merchants and prices are read-only for clients |
+| Row-level security | Every user table (including account_types, split_groups and ignored_senders) has a user_id = auth.uid() policy. ious rows are visible to both lender and borrower. merchants and prices are read-only for clients |
 | Encryption at rest | Supabase-managed for Postgres and Storage. SQLCipher on the phone, with its key in Android Keystore or iOS Keychain |
 | App lock | PIN plus biometrics before any screen shows money |
 | Raw SMS | Never synced or logged; only parsed fields leave the parser |
+| Contacts | Read and matched only on the phone; never synced or uploaded |
 | Uploaded files | Statements and CAS PDFs are kept for at most 1 hour and deleted after parsing; passwords are never stored |
 | Secrets | AI and SMTP keys live only in edge function secrets |
 | Logging | Sentry, with amount, merchant and account fields scrubbed |

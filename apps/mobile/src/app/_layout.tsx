@@ -29,6 +29,7 @@ export default function RootLayout() {
           <Stack.Screen name="transaction/[id]" options={{ title: 'Entry' }} />
           <Stack.Screen name="review" options={{ title: 'Review' }} />
           <Stack.Screen name="capture" options={{ title: 'Bank SMS' }} />
+          <Stack.Screen name="upi-test" options={{ title: 'UPI hand-off test' }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
