@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "sender": "VM-HSBCIN",
+      "body": "Thank you for using HSBC Credit Card ending 5678 for INR 1,299.00 on 21 Oct 2026 at AMAZON. Your available limit is INR 98,701.00.",
+      "expect": { "template": "hsbc.card_spent", "direction": "debit", "amount": 129900, "instrument": "credit_card", "accountLast": "5678", "counterparty": "AMAZON", "availableLimit": 9870100 }
+    },
+    {
+      "sender": "VM-HSBCIN-S",
+      "body": "INR 450.00 is debited from your HSBC A/C XXXXXX1234 on 21OCT26 to VPA swiggy@icici, UPI Ref 629412345678. Not you? Call 18002673456",
+      "expect": { "template": "hsbc.acct_debit", "direction": "debit", "amount": 45000, "accountLast": "1234", "counterparty": "swiggy@icici", "reference": "629412345678", "vpa": "swiggy@icici" }
+    },
+    {
+      "sender": "VM-HSBCIN",
+      "body": "INR 2,000.00 is credited to your HSBC A/C XXXXXX1234 on 21OCT26 from VPA ravi@okicici, UPI Ref 629412345679.",
+      "expect": { "template": "hsbc.acct_credit", "direction": "credit", "amount": 200000, "accountLast": "1234", "counterparty": "ravi@okicici", "reference": "629412345679" }
+    },
+    {
+      "sender": "VM-HSBCIN",
+      "body": "Your HSBC A/c XXXXXX1234 has been credited with INR 50,000.00 on 01OCT26 towards NEFT from ACME CORP. Available balance INR 62,345.67.",
+      "expect": { "template": "generic", "direction": "credit", "amount": 5000000, "accountLast": "1234", "balance": 6234567, "channel": "neft" }
+    },
+    {
+      "sender": "VM-HSBCIN",
+      "body": "OTP for your HSBC Credit Card transaction of INR 2,000.00 at FLIPKART is 123456. Do not share it with anyone.",
+      "expect": { "status": "ignored" }
+    }
+  ]
+}

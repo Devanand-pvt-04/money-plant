@@ -1,0 +1,54 @@
+{
+  "cases": [
+    {
+      "sender": "AX-ICICIT-S",
+      "body": "ICICI Bank Acct XX234 debited for Rs 450.00 on 21-Oct-26; SWIGGY credited. UPI:629412345678. Call 18002662 for dispute. SMS BLOCK 234 to 9215676766.",
+      "expect": { "template": "icici.upi_debit", "direction": "debit", "amount": 45000, "instrument": "account", "accountLast": "234", "counterparty": "SWIGGY", "reference": "629412345678", "channel": "upi" }
+    },
+    {
+      "sender": "AX-ICICIB",
+      "body": "Dear Customer, Acct XX234 is credited with Rs 2,000.00 on 21-Oct-26 from RAVI KUMAR. UPI:629412345679-ICICI Bank.",
+      "expect": { "template": "icici.upi_credit", "direction": "credit", "amount": 200000, "accountLast": "234", "counterparty": "RAVI KUMAR", "reference": "629412345679" }
+    },
+    {
+      "sender": "VM-ICICIT",
+      "body": "INR 1,299.00 spent using ICICI Bank Card XX5678 on 21-Oct-26 on AMAZON. Avl Limit: INR 98,701.00. If not you, call 1800 2662/SMS BLOCK 5678 to 9215676766",
+      "expect": { "template": "icici.card_spent", "direction": "debit", "amount": 129900, "instrument": "credit_card", "accountLast": "5678", "counterparty": "AMAZON", "availableLimit": 9870100 }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "ICICI Bank Account XX234 credited:Rs. 50,000.00 on 01-Oct-26. Info NEFT-ACME CORP. Available Balance is Rs. 62,345.67.",
+      "expect": { "template": "icici.acct_credit", "direction": "credit", "amount": 5000000, "accountLast": "234", "counterparty": "NEFT-ACME CORP", "balance": 6234567 }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "ICICI Bank Acct XX234 debited with Rs 10,000.00 on 05-Oct-26. Info ATM*CASH WDL. Available Balance is Rs. 52,345.67.",
+      "expect": { "template": "icici.acct_debit", "direction": "debit", "amount": 1000000, "accountLast": "234", "balance": 5234567 }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "Payment of INR 18,500.00 towards ICICI Bank Credit Card XX5678 has been received on 12-Oct-26. Thank you.",
+      "expect": { "template": "icici.card_payment", "direction": "credit", "amount": 1850000, "instrument": "credit_card", "accountLast": "5678" }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "Dear Customer, your ICICI Bank Acct XX234 has been debited with INR 799.00 on 10-Oct-26 towards NETFLIX for e-mandate. Avl Bal INR 41,546.67.",
+      "expect": { "template": "generic", "direction": "debit", "amount": 79900, "accountLast": "234", "balance": 4154667 }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "ICICI Bank: RAVI KUMAR has requested money of Rs 300.00 on your UPI ID. Approve only if you know the person.",
+      "expect": { "status": "ignored" }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "Your transaction of Rs 450.00 on ICICI Bank Acct XX234 has failed. Any amount debited will be refunded in 3 working days.",
+      "expect": { "status": "ignored" }
+    },
+    {
+      "sender": "VM-ICICIP",
+      "body": "ICICI Prudential: premium of Rs 12,000 received for policy 12345678.",
+      "expect": { "status": "ignored" }
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "cases": [
+    {
+      "sender": "VM-HDFCBK-S",
+      "body": "Sent Rs.450.00\nFrom HDFC Bank A/C *1234\nTo SWIGGY\nOn 21/10/26\nRef 629412345678\nNot You?\nCall 18002586161/SMS BLOCK UPI to 7308080808",
+      "expect": { "template": "hdfc.upi_sent", "direction": "debit", "amount": 45000, "instrument": "account", "accountLast": "1234", "counterparty": "SWIGGY", "reference": "629412345678", "channel": "upi" }
+    },
+    {
+      "sender": "AD-HDFCBK",
+      "body": "Received Rs.2000.00 in your HDFC Bank A/c xx1234 from RAVI KUMAR (ravi@okicici) on 21-10-26. UPI Ref No 629412345679",
+      "expect": { "template": "hdfc.upi_received", "direction": "credit", "amount": 200000, "accountLast": "1234", "counterparty": "RAVI KUMAR", "vpa": "ravi@okicici", "reference": "629412345679", "channel": "upi" }
+    },
+    {
+      "sender": "JD-HDFCBK-S",
+      "body": "Rs. 500.00 credited to HDFC Bank A/c XX1234 on 20-10-26 by a/c linked to VPA 9876543210@ybl (UPI Ref No 629412340000).",
+      "expect": { "template": "hdfc.upi_credit_vpa", "direction": "credit", "amount": 50000, "accountLast": "1234", "vpa": "9876543210@ybl", "counterparty": "9876543210@ybl", "reference": "629412340000" }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Spent Rs.1,299.00 On HDFC Bank Card 5678 At AMAZON PAY INDIA On 2026-10-21:14:32:10.Avl Lmt Rs.98,701.00 Not You? Call 18002586161/SMS BLOCK CC 5678 to 7308080808",
+      "expect": { "template": "hdfc.card_spent", "direction": "debit", "amount": 129900, "instrument": "credit_card", "accountLast": "5678", "counterparty": "AMAZON PAY INDIA", "availableLimit": 9870100, "balance": null }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Spent Rs.250.00 From HDFC Bank Card x9012 At UBER INDIA On 2026-10-19:22:10:01 Bal Rs.45,000.00 Not You? Call 18002586161",
+      "expect": { "template": "hdfc.card_spent", "direction": "debit", "amount": 25000, "instrument": "debit_card", "accountLast": "9012", "counterparty": "UBER INDIA", "balance": 4500000 }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Update! INR 5,000.00 debited from HDFC Bank XX1234 on 18-OCT-26. Info: NEFT-HDFCN52026101812345-ACME RENTALS. Avl bal:INR 12,345.67",
+      "expect": { "template": "hdfc.update_debit", "direction": "debit", "amount": 500000, "accountLast": "1234", "counterparty": "NEFT-HDFCN52026101812345-ACME RENTALS", "balance": 1234567, "channel": "neft" }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Update! INR 50,000.00 deposited in HDFC Bank A/c XX1234 on 01-OCT-26 for NEFT Cr-ABCD0001234-ACME CORP-SALARY OCT. Avl bal INR 62,345.67. Cheque deposits in A/C are subject to clearing",
+      "expect": { "template": "hdfc.update_credit", "direction": "credit", "amount": 5000000, "accountLast": "1234", "balance": 6234567 }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Payment of Rs 25,000.00 has been received on your HDFC Bank Credit Card ending 5678 on 15-10-2026. Thank you.",
+      "expect": { "template": "hdfc.card_payment", "direction": "credit", "amount": 2500000, "instrument": "credit_card", "accountLast": "5678" }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "OTP is 482913 for txn of INR 1,299.00 at AMAZON on HDFC Bank card ending 5678. Valid till 14:40. Do not share OTP for security reasons",
+      "expect": { "status": "ignored" }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Your HDFC Bank Credit Card ending 5678 statement is ready. Total due Rs.12,400.00, minimum due Rs.620.00. Pay by 05-11-2026.",
+      "expect": { "status": "ignored" }
+    },
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Get a pre-approved personal loan of up to Rs.5,00,000 at attractive rates. Apply now on HDFC Bank MobileBanking.",
+      "expect": { "status": "ignored" }
+    },
+    {
+      "sender": "VM-HDFCLI",
+      "body": "Your HDFC Life premium of Rs.2,500 has been received. Thank you.",
+      "expect": { "status": "ignored" }
+    }
+  ]
+}

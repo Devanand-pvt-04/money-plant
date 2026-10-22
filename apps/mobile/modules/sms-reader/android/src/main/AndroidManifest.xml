@@ -1,0 +1,33 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECEIVE_SMS" />
+  <uses-permission android:name="android.permission.READ_SMS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+  <application>
+    <!-- New bank SMS (CAP-1). Only the system can send SMS_RECEIVED. -->
+    <receiver
+      android:name="com.moneyplant.smsreader.SmsReceiver"
+      android:exported="true"
+      android:permission="android.permission.BROADCAST_SMS">
+      <intent-filter>
+        <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+      </intent-filter>
+    </receiver>
+
+    <!-- Runs the JavaScript capture pipeline, also when the app is closed. -->
+    <service
+      android:name="com.moneyplant.smsreader.CaptureTaskService"
+      android:exported="false" />
+
+    <!-- UPI app notifications (CAP-3). The user turns this on in Android settings. -->
+    <service
+      android:name="com.moneyplant.smsreader.PaymentNotificationListener"
+      android:exported="true"
+      android:label="Money Plant payment alerts"
+      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+      <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

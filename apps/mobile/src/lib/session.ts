@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { accounts, kv } from '@money-plant/db-schema';
+import {
+  accounts,
+  balanceAnchors,
+  balanceRefs,
+  captureLog,
+  kv,
+  pendingNotifications,
+  postings,
+  sources,
+  transactions,
+} from '@money-plant/db-schema';
 import { getDb } from './db';
 import { supabase } from './supabase';
 
@@ -25,6 +35,7 @@ export function useSession() {
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
   const db = await getDb();
-  await db.delete(accounts);
-  await db.delete(kv);
+  for (const table of [accounts, transactions, postings, sources, balanceAnchors, balanceRefs, pendingNotifications, captureLog, kv]) {
+    await db.delete(table);
+  }
 }

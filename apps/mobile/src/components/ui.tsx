@@ -9,6 +9,8 @@ export const colors = {
   border: '#D9DED8',
   primary: '#1F7A4D',
   danger: '#B3261E',
+  warning: '#8A5A00',
+  warningSurface: '#FFF4DB',
 };
 
 export function Button(props: {

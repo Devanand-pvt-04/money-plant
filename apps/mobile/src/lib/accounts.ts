@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
-import { asc, eq, isNull } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { AccountType, Paise } from '@money-plant/core';
-import { accounts, type LocalAccount } from '@money-plant/db-schema';
+import { accounts, balanceRefs } from '@money-plant/db-schema';
 import { getDb } from './db';
 
 export interface AccountInput {
@@ -12,21 +12,20 @@ export interface AccountInput {
   openingBalance: Paise;
 }
 
-export async function listAccounts(): Promise<LocalAccount[]> {
-  const db = await getDb();
-  return db.select().from(accounts).where(isNull(accounts.deletedAt)).orderBy(asc(accounts.name));
-}
-
 export async function createAccount(input: AccountInput): Promise<void> {
   const db = await getDb();
+  const id = Crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  // The balance the user typed is the balance now; SMS imported later for earlier dates must not change it.
+  await db.insert(balanceRefs).values({ accountId: id, kind: 'user', balancePaise: input.openingBalance, at: createdAt });
   await db.insert(accounts).values({
-    id: Crypto.randomUUID(),
+    id,
     type: input.type,
     name: input.name,
     institution: input.institution,
     last4: input.last4,
     openingBalancePaise: input.openingBalance,
-    createdAt: new Date().toISOString(),
+    createdAt,
     dirty: 1,
   });
 }
@@ -36,6 +35,6 @@ export async function deleteAccount(id: string): Promise<void> {
   const db = await getDb();
   await db
     .update(accounts)
-    .set({ deletedAt: new Date().toISOString(), dirty: 1 })
+    .set({ deletedAt: new Date().toISOString(), dirty: 1, rev: sql`${accounts.rev} + 1` })
     .where(eq(accounts.id, id));
 }

@@ -33,7 +33,6 @@ Android Studio is **only** needed for an emulator or for local native builds (se
 ```
 git clone https://github.com/Devanand-pvt-04/money-plant.git
 cd money-plant
-git checkout milestone-1-foundation   # until PR #1 is merged; then stay on main
 pnpm install
 pnpm typecheck
 pnpm test
@@ -108,7 +107,26 @@ Try it: sign in with your email, enter the code, add an account, then sign in on
 
 The emulator can't receive real bank SMS. For SMS features (milestone 2), test on your real phone. The emulator's Extended controls → Phone can send fake SMS for quick checks.
 
-## 8. Day to day
+## 8. Bank SMS capture (milestone 2)
+
+Milestone 2 adds native Android code (the SMS reader in `apps/mobile/modules/sms-reader`), so the development build from step 5 must be rebuilt once. Apply the new migration first.
+
+1. Supabase: run `supabase/migrations/20261022000000_ledger.sql` in the SQL Editor (or `npx supabase db push`).
+2. Rebuild and reinstall the dev app: `npx eas-cli@latest build --profile development --platform android`, then install the new APK over the old one.
+3. `npx expo start`, open the app and sign in.
+4. Tap **Bank SMS** → **Allow reading SMS**, then **Import last 6 months**. Accounts and cards appear on the home screen with balances.
+5. Optional: **Turn on in Android settings** under UPI app notifications, and enable Money Plant there.
+6. Send yourself a small UPI payment (₹1 to a friend, or between your own accounts). The entry should appear within a few seconds, also with the app closed.
+
+What to check against your bank app:
+
+- Each account's balance. A yellow "Off from the bank by ₹X" line means the ledger and the last balance in an SMS disagree. Open **Review** to see the window where an entry is probably missing.
+- **Review** lists entries the app wasn't sure about: payments to people, possible transfers between your accounts, and messages it read with low confidence.
+- **Bank SMS → How each bank is read** counts messages per sender. Anything under "Messages the app couldn't read" is a format the parser doesn't know yet. Copy it, anonymise it (see `packages/parser/fixtures/README.md`) and add it to the fixtures.
+
+If Android shows **Restricted setting** when you allow SMS or notification access (Android 13 and later do this for apps installed from a browser): open Settings → Apps → Money Plant, tap the ⋮ menu → **Allow restricted settings**, then try again.
+
+## 9. Day to day
 
 ```
 git fetch
@@ -129,5 +147,7 @@ If the app behaves strangely after switching branches, run `npx expo start --cle
 | "Error sending confirmation email", and Logs → Auth shows `535 5.7.8 Username and Password not accepted` | Gmail rejected the SMTP login. Make a new app password for the same Gmail account, paste it without spaces, and set Username and Sender email to that full Gmail address (step 4.3) |
 | The email has a link but no code | The templates weren't updated (step 4.4) |
 | "Sync failed: Could not find the table public.accounts" | The migration wasn't applied (step 4.1) |
+| "Sync failed: Could not find the function public.push_transactions" | The milestone 2 migration wasn't applied (step 8.1) |
+| Bank SMS screen says it needs the development build | The installed dev app predates milestone 2. Rebuild it (step 8.2) |
 | `SDK location not found` | `ANDROID_HOME` isn't set (step 7.2); reopen the terminal |
 | Phone can't reach the dev server | Use `npx expo start --tunnel` |
