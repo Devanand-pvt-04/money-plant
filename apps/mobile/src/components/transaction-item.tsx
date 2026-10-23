@@ -1,11 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { formatRupees, paise } from '@money-plant/core';
-import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import type { TransactionRow } from '@/lib/ledger';
-import { colors } from './ui';
-import { formatDateTime } from './format';
-import { whyLabel } from './why';
+import { Initial, colors } from './ui';
+import { formatAmount, formatSigned } from './format';
 
 export function transactionTitle({ tx, legs }: TransactionRow): string {
   if (tx.kind === 'transfer') {
@@ -16,52 +13,46 @@ export function transactionTitle({ tx, legs }: TransactionRow): string {
   return tx.counterparty ?? (tx.kind === 'income' ? 'Money in' : 'Money out');
 }
 
-/** One ledger entry in a list. Transfers show as neutral; money out is plain, money in is green. */
-export function TransactionItem({ row, showReason = false }: { row: TransactionRow; showReason?: boolean }) {
+/** The entry's amount as shown in lists: transfers unsigned, money out with a minus, money in with a plus. */
+export function displayAmount({ tx, legs }: TransactionRow): { text: string; color: string } {
+  const amount = legs[0]?.amount ?? 0;
+  if (tx.kind === 'transfer') return { text: formatAmount(Math.abs(amount)), color: colors.muted };
+  return { text: formatSigned(amount), color: amount > 0 ? colors.primary : colors.text };
+}
+
+/** One ledger entry in a list. Transfers are muted; money out is plain, money in is green. */
+export function TransactionItem({ row }: { row: TransactionRow }) {
   const { tx, legs } = row;
-  const isTransfer = tx.kind === 'transfer';
-  const amount = isTransfer ? Math.abs(legs[0]?.amount ?? 0) : (legs[0]?.amount ?? 0);
-  const reason = tx.reviewReason ? REVIEW_REASON_LABELS[tx.reviewReason] : null;
+  const title = transactionTitle(row);
+  const { text, color } = displayAmount(row);
+  const detail = tx.kind === 'transfer' ? 'Transfer' : (row.category?.name ?? 'No category');
   return (
-    <Pressable onPress={() => router.push(`/transaction/${tx.id}`)} style={styles.row}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => router.push(`/transaction/${tx.id}`)}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    >
+      <Initial name={title} />
       <View style={styles.text}>
-        <Text style={styles.title} numberOfLines={1}>{transactionTitle(row)}</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
         <Text style={styles.meta} numberOfLines={1}>
-          {formatDateTime(tx.occurredAt)}
-          {!isTransfer && legs[0] ? ` · ${legs[0].accountName}` : ''}
+          {detail}
+          {tx.kind !== 'transfer' && legs[0] ? ` · ${legs[0].accountName}` : ''}
           {tx.status === 'pending' ? ' · to review' : ''}
         </Text>
-        {row.category && (
-          <Text style={styles.category} numberOfLines={1}>
-            {row.category.name}
-            {showReason ? ` · ${whyLabel(tx, row.aiConfidence)}` : ''}
-          </Text>
-        )}
-        {showReason && reason && <Text style={styles.reason}>{reason}</Text>}
       </View>
-      <Text style={[styles.amount, amount > 0 && !isTransfer && styles.credit]}>
-        {formatRupees(paise(amount))}
-      </Text>
+      <Text style={[styles.amount, { color }]}>{text}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  text: { flex: 1, marginRight: 12 },
-  title: { fontSize: 16, fontWeight: '600', color: colors.text },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8 },
+  pressed: { opacity: 0.6 },
+  text: { flex: 1, minWidth: 0 },
+  title: { fontSize: 15, fontWeight: '500', color: colors.text },
   meta: { fontSize: 13, color: colors.muted, marginTop: 2 },
-  reason: { fontSize: 13, color: colors.warning, marginTop: 4 },
-  category: { fontSize: 13, color: colors.primary, marginTop: 2 },
-  amount: { fontSize: 16, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
-  credit: { color: colors.primary },
+  amount: { fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
 });

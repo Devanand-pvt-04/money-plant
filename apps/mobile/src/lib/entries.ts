@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import { eq } from 'drizzle-orm';
 import { paise, type Paise } from '@money-plant/core';
 import { normaliseMerchant, ruleFromEntry, ruleMatches, type RuleMatch } from '@money-plant/categoriser';
@@ -167,4 +168,63 @@ export async function editEntry(id: string, edit: EntryEdit): Promise<void> {
   const store = new SqliteLedgerStore(db);
   for (const accountId of touched) await rebaseOpening(store, accountId);
   notifyLedgerChange();
+}
+
+export interface ManualEntry {
+  direction: 'debit' | 'credit';
+  /** Positive. */
+  amount: Paise;
+  accountId: string;
+  categoryId: string;
+  counterparty?: string | null;
+  note?: string | null;
+  occurredAt?: string;
+}
+
+/**
+ * CAP-7: a cash or other entry the user types in. The user picked every
+ * field, so it is confirmed, marked user-set, and its source is a `manual`
+ * row holding the same fields.
+ */
+export async function addManualEntry(entry: ManualEntry): Promise<string> {
+  if (!Number.isSafeInteger(entry.amount) || entry.amount <= 0) throw new Error('Enter an amount above zero');
+  const db = await getDb();
+  if (!ownedAccountIds(db).has(entry.accountId)) throw new Error('Pick one of your accounts');
+  const id = Crypto.randomUUID();
+  const occurredAt = entry.occurredAt ?? new Date().toISOString();
+  const signed = paise(entry.direction === 'debit' ? -entry.amount : entry.amount);
+  const counterparty = entry.counterparty?.trim() || null;
+  writeTransaction(db, {
+    id,
+    occurredAt,
+    counterparty,
+    kind: entry.direction === 'debit' ? 'expense' : 'income',
+    status: 'confirmed',
+    confidence: 1,
+    reviewReason: null,
+    categoryReason: 'user',
+    categoryRuleId: null,
+    userSetFields: ['category', 'amount', 'account', 'occurredAt', ...(counterparty ? (['counterparty'] as const) : [])],
+    note: entry.note?.trim() || null,
+    postings: [
+      { id: Crypto.randomUUID(), accountId: entry.accountId, amount: signed },
+      { id: Crypto.randomUUID(), accountId: entry.categoryId, amount: paise(-signed) },
+    ],
+    sources: [
+      {
+        id: Crypto.randomUUID(),
+        kind: 'manual',
+        sender: null,
+        externalRef: null,
+        fingerprint: `manual:${id}`,
+        parsedFields: { direction: entry.direction, amount: entry.amount, counterparty },
+        receivedAt: new Date().toISOString(),
+        confidence: 1,
+        rawText: null,
+      },
+    ],
+  });
+  await rebaseOpening(new SqliteLedgerStore(db), entry.accountId);
+  notifyLedgerChange();
+  return id;
 }

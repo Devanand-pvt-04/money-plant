@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   },
   row: { paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   child: { paddingLeft: 28 },
-  pressed: { backgroundColor: '#E3F1E8' },
+  pressed: { backgroundColor: colors.pressed },
   name: { fontSize: 16, color: colors.text },
   parent: { fontWeight: '600' },
 });

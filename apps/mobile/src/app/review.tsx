@@ -1,10 +1,14 @@
 import { useState } from 'react';
-import { Alert, FlatList, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { router } from 'expo-router';
+import Feather from '@expo/vector-icons/Feather';
 import { formatRupees, paise } from '@money-plant/core';
+import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
-import { Button, colors } from '@/components/ui';
-import { formatDateTime } from '@/components/format';
-import { TransactionItem } from '@/components/transaction-item';
+import { Button, Card, colors, radius } from '@/components/ui';
+import { formatDateTime, formatDay, formatTime } from '@/components/format';
+import { displayAmount, transactionTitle } from '@/components/transaction-item';
+import { whyLabel } from '@/components/why';
 import { useCategoryChange } from '@/components/use-category-change';
 import { categoryNames } from '@/lib/categories';
 import { acceptPattern, confirmEntry, declinePattern } from '@/lib/entries';
@@ -59,13 +63,28 @@ export default function Review() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           <>
+            {data.pending.length > 0 && (
+              <Text style={styles.count}>
+                {data.pending.length} left · about {Math.max(10, Math.ceil((data.pending.length * 8) / 10) * 10)} seconds
+              </Text>
+            )}
             {data.proposals.map((p) => (
               <PatternCard key={p.rule.id} proposal={p} />
             ))}
             {data.gaps.length > 0 && <Gaps gaps={data.gaps} />}
           </>
         }
-        ListEmptyComponent={nothing ? <Text style={styles.empty}>Nothing to review.</Text> : undefined}
+        ListEmptyComponent={
+          nothing ? (
+            <View style={styles.done}>
+              <View style={styles.doneIcon}>
+                <Feather name="check" size={30} color={colors.primary} />
+              </View>
+              <Text style={styles.doneTitle}>All caught up</Text>
+              <Text style={styles.doneText}>New entries from your bank SMS will show up here.</Text>
+            </View>
+          ) : undefined
+        }
         renderItem={({ item }) => <ReviewCard row={item} onChangeCategory={change} />}
       />
     </>
@@ -73,45 +92,68 @@ export default function Review() {
 }
 
 function ReviewCard({ row, onChangeCategory }: { row: TransactionRow; onChangeCategory: (id: string, flow: 'expense' | 'income', merchant: string | null) => void }) {
-  const isTransfer = row.tx.kind === 'transfer';
+  const { tx, legs } = row;
+  const isTransfer = tx.kind === 'transfer';
+  const amount = displayAmount(row);
+  const reason = tx.reviewReason ? REVIEW_REASON_LABELS[tx.reviewReason] : null;
+  const why = whyLabel(tx, row.aiConfidence);
   return (
-    <View style={styles.card}>
-      <TransactionItem row={row} showReason />
-      <View style={styles.actions}>
-        <View style={styles.action}>
-          <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={() => confirmEntry(row.tx.id)} />
+    <Card style={styles.card}>
+      <Pressable accessibilityRole="button" onPress={() => router.push(`/transaction/${tx.id}`)} style={styles.top}>
+        <View style={styles.grow}>
+          <Text style={styles.title} numberOfLines={1}>
+            {transactionTitle(row)}
+          </Text>
+          <Text style={styles.meta} numberOfLines={1}>
+            {!isTransfer && legs[0] ? `${legs[0].accountName} · ` : ''}
+            {formatDay(tx.occurredAt)}, {formatTime(tx.occurredAt)}
+          </Text>
         </View>
-        {!isTransfer && row.category && (
-          <View style={styles.action}>
-            <Button
-              title="Category…"
-              variant="secondary"
-              onPress={() => onChangeCategory(row.tx.id, row.tx.kind === 'income' ? 'income' : 'expense', row.tx.counterparty)}
-            />
-          </View>
-        )}
+        <Text style={[styles.amount, { color: amount.color }]}>{amount.text}</Text>
+      </Pressable>
+      {!isTransfer && (
+        <View style={styles.why}>
+          <Text style={styles.category}>{row.category?.name ?? 'No category yet'}</Text>
+          {(why || reason) && <Text style={styles.meta}>{[why, reason].filter(Boolean).join('. ')}</Text>}
+        </View>
+      )}
+      {isTransfer && reason && <Text style={styles.meta}>{reason}</Text>}
+      <View style={styles.actions}>
         <View style={styles.action}>
           {isTransfer ? (
             <Button
               title="Not a transfer"
               variant="secondary"
-              onPress={() => splitTransfer(row.tx.id).catch((e) => Alert.alert("Couldn't split", String(e?.message ?? e)))}
+              onPress={() => splitTransfer(tx.id).catch((e) => Alert.alert("Couldn't split", String(e?.message ?? e)))}
             />
           ) : (
             <Button
-              title="Not a payment"
+              title={row.category ? 'Change' : 'Pick category'}
               variant="secondary"
-              onPress={() =>
-                Alert.alert('Remove this entry?', 'Use this for messages that were not a real payment.', [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(row.tx.id) },
-                ])
-              }
+              onPress={() => onChangeCategory(tx.id, tx.kind === 'income' ? 'income' : 'expense', tx.counterparty)}
             />
           )}
         </View>
+        <View style={styles.action}>
+          <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={() => confirmEntry(tx.id)} />
+        </View>
       </View>
-    </View>
+      {!isTransfer && (
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          style={styles.quiet}
+          onPress={() =>
+            Alert.alert('Remove this entry?', 'Use this for messages that were not a real payment.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+            ])
+          }
+        >
+          <Text style={styles.quietText}>Not a real payment</Text>
+        </Pressable>
+      )}
+    </Card>
   );
 }
 
@@ -165,15 +207,37 @@ function Gaps({ gaps }: { gaps: AccountBalance[] }) {
 }
 
 const styles = StyleSheet.create({
-  list: { padding: 16, gap: 12 },
-  empty: { textAlign: 'center', color: colors.muted, fontSize: 16, marginTop: 48 },
-  card: { gap: 8 },
+  list: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 32, gap: 12 },
+  count: { fontSize: 13, color: colors.muted, marginBottom: 4 },
+  card: { padding: 16, gap: 12 },
+  top: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  grow: { flex: 1, minWidth: 0 },
+  title: { fontSize: 16, fontWeight: '600', color: colors.text },
+  meta: { fontSize: 13, color: colors.muted, marginTop: 3, lineHeight: 18 },
+  amount: { fontSize: 17, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  why: { alignItems: 'flex-start' },
+  category: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+    backgroundColor: colors.subtle,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+  },
   actions: { flexDirection: 'row', gap: 8 },
   action: { flex: 1 },
+  quiet: { alignSelf: 'center', paddingVertical: 4 },
+  quietText: { fontSize: 13, fontWeight: '500', color: colors.muted },
+  done: { alignItems: 'center', gap: 10, marginTop: 96, paddingHorizontal: 40 },
+  doneIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
+  doneTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
+  doneText: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20 },
   gaps: { gap: 12, marginBottom: 12 },
-  gapCard: { padding: 16, borderRadius: 12, backgroundColor: colors.warningSurface, gap: 8 },
-  patternCard: { padding: 16, borderRadius: 12, backgroundColor: '#E3F1E8', gap: 8, marginBottom: 12 },
-  gapTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
+  gapCard: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.warningSurface, gap: 8 },
+  patternCard: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.primarySurface, gap: 8, marginBottom: 12 },
+  gapTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   gapText: { fontSize: 14, color: colors.text, lineHeight: 20 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   switchLabel: { fontSize: 14, color: colors.text, flex: 1 },

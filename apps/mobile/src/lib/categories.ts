@@ -127,7 +127,7 @@ export function flatten(tree: readonly CategoryNode[]): CategoryNode[] {
 export async function categoryNames(): Promise<Map<string, string>> {
   const all = flatten(await listCategories());
   const byId = new Map(all.map((c) => [c.id, c]));
-  return new Map(all.map((c) => [c.id, c.parentId && byId.get(c.parentId) ? `${byId.get(c.parentId)!.name} > ${c.name}` : c.name]));
+  return new Map(all.map((c) => [c.id, c.parentId && byId.get(c.parentId) ? `${byId.get(c.parentId)!.name} › ${c.name}` : c.name]));
 }
 
 /**

@@ -56,7 +56,7 @@ export default function Rules() {
 const styles = StyleSheet.create({
   container: { padding: 16, gap: 8 },
   row: { padding: 12, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 2 },
-  pressed: { backgroundColor: '#E3F1E8' },
+  pressed: { backgroundColor: colors.pressed },
   title: { fontSize: 15, fontWeight: '600', color: colors.text },
   category: { fontSize: 14, color: colors.primary },
   meta: { fontSize: 13, color: colors.muted },
