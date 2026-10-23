@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
   actions: { marginTop: 8 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
-  chipSelected: { borderColor: colors.primary, backgroundColor: '#E3F1E8' },
+  chipSelected: { borderColor: colors.primary, backgroundColor: colors.pressed },
   chipText: { color: colors.text },
   chipTextSelected: { color: colors.primary, fontWeight: '600' },
 });

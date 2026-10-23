@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import Feather from '@expo/vector-icons/Feather';
 import { formatRupees, paise } from '@money-plant/core';
 import { describePattern, type Rule } from '@money-plant/categoriser';
 import { REVIEW_REASON_LABELS, USER_SET_FIELDS, type LedgerSource, type UserSetField } from '@money-plant/matcher';
-import { Button, colors } from '@/components/ui';
-import { formatDateTime } from '@/components/format';
-import { transactionTitle } from '@/components/transaction-item';
+import { Button, Card, Initial, colors, radius } from '@/components/ui';
+import { formatDateTime, formatDay, formatTime } from '@/components/format';
+import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { useCategoryChange } from '@/components/use-category-change';
 import { whyLabel } from '@/components/why';
 import { confirmEntry } from '@/lib/entries';
@@ -50,114 +51,161 @@ export default function TransactionDetail() {
         ? (rule.match.merchant ?? rule.match.vpa ?? rule.match.keyword ?? '')
         : null;
 
+  const amount = displayAmount(row);
+  const isTransfer = tx.kind === 'transfer';
+  const why = whyLabel(tx, row.aiConfidence);
+  const accounts = [...row.legs].sort((a, b) => a.amount - b.amount).map((leg) => leg.accountName).join(' → ');
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Stack.Screen options={{ title: KIND_LABELS[tx.kind] }} />
       {picker}
-      <Text style={styles.title}>{transactionTitle(row)}</Text>
-      <Text style={styles.meta}>
-        {formatDateTime(tx.occurredAt)} · {tx.status === 'pending' ? 'to review' : 'confirmed'} · confidence{' '}
-        {Math.round(tx.confidence * 100)}%
-      </Text>
-      {tx.reviewReason && <Text style={styles.reason}>{REVIEW_REASON_LABELS[tx.reviewReason]}</Text>}
-
-      {row.category && (
-        <>
-          <Text style={styles.section}>Category</Text>
-          <View style={styles.card}>
-            <Text style={styles.lineText}>{row.category.name}</Text>
-            <Text style={styles.meta}>
-              {whyLabel(tx, row.aiConfidence)}
-              {ruleText ? `: ${ruleText}` : ''}
-            </Text>
-            <Button title="Change category" variant="secondary" onPress={() => change(tx.id, flow, tx.counterparty)} />
-          </View>
-        </>
-      )}
-
-      {tx.note && (
-        <>
-          <Text style={styles.section}>Note</Text>
-          <Text style={styles.lineText}>{tx.note}</Text>
-        </>
-      )}
-      {userSet.length > 0 && <Text style={styles.meta}>You set the {userSet.join(', ')}; automation won't change it.</Text>}
-
-      <Text style={styles.section}>Postings</Text>
-      <View style={styles.card}>
-        {tx.postings.map((p) => (
-          <View key={p.id} style={styles.line}>
-            <Text style={styles.lineText}>{row.accountNames[p.accountId]}</Text>
-            <Text style={styles.amount}>{formatRupees(p.amount)}</Text>
-          </View>
-        ))}
+      <View style={styles.hero}>
+        <Initial name={transactionTitle(row)} size={56} />
+        <Text style={styles.title}>{transactionTitle(row)}</Text>
+        <Text style={[styles.heroAmount, { color: isTransfer ? colors.text : amount.color }]}>{amount.text}</Text>
+        <Text style={styles.meta}>
+          {KIND_LABELS[tx.kind]} · {formatDay(tx.occurredAt)}, {formatTime(tx.occurredAt)}
+        </Text>
       </View>
 
-      <Text style={styles.section}>Sources</Text>
+      {tx.status === 'pending' && (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{tx.reviewReason ? REVIEW_REASON_LABELS[tx.reviewReason] : 'Waiting for review'}</Text>
+          <Button title="Confirm" onPress={() => confirmEntry(tx.id)} />
+        </View>
+      )}
+
+      <Card>
+        {row.category && (
+          <Row
+            label="Category"
+            value={row.category.name}
+            note={why ? `Why: ${why.charAt(0).toLowerCase()}${why.slice(1)}${ruleText ? `, ${ruleText}` : ''}` : undefined}
+            onPress={() => change(tx.id, flow, tx.counterparty)}
+            first
+          />
+        )}
+        <Row label={isTransfer ? 'Accounts' : 'Account'} value={accounts} first={!row.category} onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
+        <Row label="Note" value={tx.note ?? 'Add a note'} muted={!tx.note} onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
+      </Card>
+      {userSet.length > 0 && <Text style={styles.small}>You set the {userSet.join(', ')}; automation won't change it.</Text>}
+
       {tx.sources.map((s) => (
         <SourceCard key={s.id} source={s} />
       ))}
 
+      <Text style={styles.section}>Postings · confidence {Math.round(tx.confidence * 100)}%</Text>
+      <Card style={styles.postings}>
+        {tx.postings.map((p) => (
+          <View key={p.id} style={styles.line}>
+            <Text style={styles.lineText}>{row.accountNames[p.accountId]}</Text>
+            <Text style={styles.lineAmount}>{formatRupees(p.amount)}</Text>
+          </View>
+        ))}
+      </Card>
+
       <View style={styles.actions}>
-        {tx.status === 'pending' && <Button title="Confirm" onPress={() => confirmEntry(tx.id)} />}
         <Button title="Edit entry" variant="secondary" onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
-        {tx.kind === 'transfer' && (
+        {isTransfer && (
           <Button
             title="Not a transfer: split it"
             variant="secondary"
             onPress={() => splitTransfer(tx.id).then(() => router.back(), (e) => Alert.alert("Couldn't split", String(e?.message ?? e)))}
           />
         )}
-        <Button
-          title="Remove entry"
-          variant="secondary"
+        <Pressable
+          accessibilityRole="button"
+          style={styles.remove}
           onPress={() =>
             Alert.alert('Remove this entry?', 'It disappears from balances on all your devices. The message will not be imported again.', [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id).then(() => router.back()) },
             ])
           }
-        />
+        >
+          <Text style={styles.removeText}>Remove entry</Text>
+        </Pressable>
       </View>
     </ScrollView>
   );
 }
 
+function Row(props: { label: string; value: string; note?: string; muted?: boolean; first?: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={props.onPress}
+      style={({ pressed }) => [styles.row, !props.first && styles.divided, pressed && styles.pressed]}
+    >
+      <View style={styles.grow}>
+        <Text style={styles.small}>{props.label}</Text>
+        <Text style={[styles.rowValue, props.muted && styles.mutedValue]}>{props.value}</Text>
+        {props.note && <Text style={styles.small}>{props.note}</Text>}
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 function SourceCard({ source }: { source: LedgerSource }) {
   const fields = source.parsedFields as { template?: string; reference?: string | null; accountLast?: string | null; amount?: number; counterparty?: string | null };
+  const what = source.kind === 'sms' ? 'an SMS' : source.kind === 'notification' ? 'an app notification' : source.kind === 'manual' ? 'your quick add' : `a ${source.kind}`;
   return (
-    <View style={styles.card}>
-      <Text style={styles.lineText}>
-        {source.kind === 'sms' ? 'SMS' : source.kind === 'notification' ? 'App notification' : source.kind} from {source.sender ?? 'unknown'}
-      </Text>
-      <Text style={styles.meta}>
-        {formatDateTime(source.receivedAt)} · read by {fields.template ?? 'app'} · {Math.round(source.confidence * 100)}%
-        {fields.reference ? ` · ref ${fields.reference}` : ''}
-      </Text>
-      {/* LED-8: what the message said, even after the user edited the entry. */}
-      <Text style={styles.meta}>
-        Read as {typeof fields.amount === 'number' ? formatRupees(paise(fields.amount)) : '?'}
-        {fields.counterparty ? ` · ${fields.counterparty}` : ''}
-      </Text>
-      {source.rawText && (
-        <Text selectable style={styles.raw}>
-          {source.rawText}
+    <View style={styles.source}>
+      <Feather name={source.kind === 'manual' ? 'edit-3' : 'message-circle'} size={18} color="#3E4440" style={styles.sourceIcon} />
+      <View style={styles.grow}>
+        <Text style={styles.sourceTitle}>
+          From {what}
+          {source.sender ? ` by ${source.sender}` : ''}
         </Text>
-      )}
+        <Text style={styles.small}>
+          {formatDateTime(source.receivedAt)}
+          {source.kind !== 'manual' ? ` · read by ${fields.template ?? 'app'} · ${Math.round(source.confidence * 100)}%` : ''}
+          {fields.reference ? ` · ref ${fields.reference}` : ''}
+        </Text>
+        {/* LED-8: what the message said, even after the user edited the entry. */}
+        {source.kind !== 'manual' && (
+          <Text style={styles.small}>
+            Read as {typeof fields.amount === 'number' ? formatRupees(paise(fields.amount)) : '?'}
+            {fields.counterparty ? ` · ${fields.counterparty}` : ''}
+          </Text>
+        )}
+        {source.rawText && (
+          <Text selectable style={styles.raw}>
+            {source.rawText}
+          </Text>
+        )}
+        {source.kind === 'sms' && <Text style={styles.small}>The SMS text stays on this phone.</Text>}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, paddingBottom: 48, gap: 8 },
-  title: { fontSize: 22, fontWeight: '700', color: colors.text },
+  container: { paddingHorizontal: 20, paddingBottom: 48, gap: 12 },
+  hero: { alignItems: 'center', gap: 4, paddingBottom: 12 },
+  title: { fontSize: 17, fontWeight: '600', color: colors.text, marginTop: 10, textAlign: 'center' },
+  heroAmount: { fontSize: 40, fontWeight: '700', letterSpacing: -1, fontVariant: ['tabular-nums'] },
   meta: { fontSize: 13, color: colors.muted },
-  reason: { fontSize: 14, color: colors.warning },
-  section: { fontSize: 14, color: colors.muted, marginTop: 16 },
-  card: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 12, gap: 6 },
-  line: { flexDirection: 'row', justifyContent: 'space-between' },
-  lineText: { fontSize: 15, color: colors.text, flex: 1 },
-  amount: { fontSize: 15, color: colors.text, fontVariant: ['tabular-nums'] },
-  raw: { fontSize: 13, color: colors.text, marginTop: 4 },
-  actions: { marginTop: 24, gap: 12 },
+  small: { fontSize: 12, color: colors.muted, marginTop: 2, lineHeight: 17 },
+  banner: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.warningSurface, gap: 12 },
+  bannerText: { fontSize: 14, fontWeight: '500', color: colors.text },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 16, paddingVertical: 12 },
+  divided: { borderTopWidth: 1, borderTopColor: colors.divider },
+  pressed: { backgroundColor: colors.pressed },
+  grow: { flex: 1, minWidth: 0 },
+  rowValue: { fontSize: 15, fontWeight: '600', color: colors.text, marginTop: 2 },
+  mutedValue: { fontWeight: '400', color: colors.muted },
+  source: { flexDirection: 'row', gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: colors.subtle },
+  sourceIcon: { marginTop: 1 },
+  sourceTitle: { fontSize: 13, fontWeight: '600', color: colors.text },
+  raw: { fontSize: 13, color: colors.text, marginTop: 6, lineHeight: 19 },
+  section: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 8 },
+  postings: { padding: 16, gap: 8 },
+  line: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  lineText: { fontSize: 14, color: colors.text, flex: 1 },
+  lineAmount: { fontSize: 14, color: colors.text, fontVariant: ['tabular-nums'] },
+  actions: { marginTop: 12, gap: 10 },
+  remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },
+  removeText: { fontSize: 14, fontWeight: '600', color: colors.danger },
 });

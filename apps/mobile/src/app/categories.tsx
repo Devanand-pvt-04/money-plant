@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
   group: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 16 },
   child: { paddingLeft: 32, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  pressed: { backgroundColor: '#E3F1E8' },
+  pressed: { backgroundColor: colors.pressed },
   name: { fontSize: 16, color: colors.text },
   parent: { fontWeight: '600' },
   meta: { fontSize: 13, color: colors.muted },
