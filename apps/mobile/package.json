@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@money-plant/categoriser": "workspace:*",
     "@money-plant/core": "workspace:*",
     "@money-plant/db-schema": "workspace:*",

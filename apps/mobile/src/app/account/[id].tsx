@@ -73,7 +73,7 @@ export default function AccountDetail() {
 }
 
 const styles = StyleSheet.create({
-  list: { padding: 16, gap: 8 },
+  list: { paddingHorizontal: 20, paddingVertical: 12 },
   header: { gap: 6, marginBottom: 4 },
   meta: { fontSize: 14, color: colors.muted },
   warn: { color: colors.warning },

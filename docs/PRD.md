@@ -215,6 +215,10 @@ Accuracy and privacy rank above speed of delivery. A fast app with wrong totals 
 | Security | Row-level security, so each user reads only their own rows and the IOUs they are part of. Encryption at rest, and an encrypted local database |
 | Security | Secrets (AI keys, SMS provider keys) live only on the backend, never in the app |
 | Offline | Capture, review and all screens work offline; sync catches up when the phone is back online |
+| UX | Home answers "is this month on track?" within 3 seconds of opening (HOME-1) |
+| UX | A daily review takes under 2 minutes, with one tap or swipe per entry. Quick add takes 3 taps (CAP-7) |
+| UX | Every automatic entry shows its source and why it got its category. Rupees use Indian grouping (₹1,25,000), with one consistent colour for money in and one for money out |
+| UX | One design system across all screens, in light and dark mode. Text scales with the phone's font size, and tap targets are at least 48dp |
 | Performance | The home screen opens in under 1 second with 2 years of data. An SMS becomes an entry within 5 seconds |
 | Battery | No constant background service. Work is triggered by incoming SMS and notifications |
 | Platforms | Android 10 and later. iOS 17 and later (needed for the Shortcuts message trigger) |
@@ -248,6 +252,7 @@ There are seven milestones, in order. Each one ends with something Deva can use 
 4. **Recurring payments, IOUs, splits and scan to pay.** Recurring detection, reminders, IOU book, shared IOUs, UPI pay links, auto-settle, personal splits and groups, contact matching, QR scan and pay. *Exit:* a real loan between two testers settles end to end, and a real restaurant bill is split and settled.
 
 Before milestone 3, a one-day test build checks how Google Pay, PhonePe, a bank app and slice handle a payment handed off from another app, for a shop QR and a friend's QR. It decides whether PAY-1 and IOU-3 open the UPI app directly or fall back to its own scanner.
+Between milestones 3 and 4, a short design step (about a week) sets the look and navigation before the screen count grows. It adds a design system (colours, type, spacing and core components, light and dark), bottom tabs (Home, Activity, Budgets, Money, with a badge for items to review) and a redesign of the four daily screens: home, review inbox, transaction list and detail, and quick add. Clickable mockups come first, and Deva signs them off before any code. Later milestones build on the design system, and milestone 7, the friends release, adds a polish pass (onboarding, empty states, app icon, accessibility). *Exit:* the UX goals below hold on Deva's phone for the four daily screens.
 5. **Net worth, imports and month review.** CAS import, FDs, daily prices, statement import, month review with numbers (no AI yet). *Exit:* net worth matches the user's own sum within 1%.
 6. **AI.** A self-hosted open model on Deva's PC (decision 0006): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.

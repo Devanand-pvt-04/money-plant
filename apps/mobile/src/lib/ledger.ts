@@ -80,7 +80,7 @@ export function netWorth(balances: readonly AccountBalance[]): Paise {
 
 export interface TransactionRow {
   tx: LedgerTransaction;
-  /** The category the entry counts toward, as "Food > Lunch" (CAT-5, CAT-6). */
+  /** The category the entry counts toward, as "Food › Lunch" (CAT-5, CAT-6). */
   category: { id: string; name: string } | null;
   /** For AI-categorised entries: how sure the AI was (CAT-6). */
   aiConfidence: number | null;
@@ -100,7 +100,7 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
   const path = (id: string) => {
     const account = byId.get(id);
     const parent = account?.parentId ? byId.get(account.parentId) : undefined;
-    return parent ? `${parent.name} > ${account!.name}` : (account?.name ?? 'Unknown category');
+    return parent ? `${parent.name} › ${account!.name}` : (account?.name ?? 'Unknown category');
   };
   return txs.map((tx) => {
     const categoryLeg = tx.kind === 'transfer' ? undefined : tx.postings.find((p) => byId.get(p.accountId)?.type === 'category');
