@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   segmentTextOn: { color: colors.text, fontWeight: '600' },
   amountBox: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 8 },
   amount: { fontSize: 52, fontWeight: '700', letterSpacing: -1.5, color: colors.text, fontVariant: ['tabular-nums'] },
-  amountEmpty: { color: '#9AA19C' },
+  amountEmpty: { color: colors.placeholder },
   amountIn: { color: colors.primary },
   hint: { fontSize: 13, color: colors.muted, textAlign: 'center', lineHeight: 19 },
   pickers: { gap: 10, paddingBottom: 12 },

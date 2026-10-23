@@ -1,21 +1,27 @@
 import type { ReactNode } from 'react';
+import { scheme } from '@/lib/theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 
 /**
- * Design tokens. Minimal and light: a white ground, near-black ink, and one
- * green that only marks money coming in or being on track.
+ * Design tokens. Minimal: a plain ground, near-black (or near-white) ink, and
+ * one green that only marks money coming in or being on track.
  */
-export const colors = {
+const light = {
   background: '#FFFFFF',
   surface: '#FFFFFF',
   /** Tinted panels: the month card, search field, icon tiles. */
   subtle: '#F3F6F4',
   text: '#111412',
+  /** Body text on tinted panels. */
+  secondary: '#3E4440',
   muted: '#5C625E',
+  placeholder: '#9AA19C',
   border: '#E6E8E5',
   divider: '#EEF0ED',
-  /** Main buttons and selected chips. */
+  track: '#DCE3DE',
+  /** Main buttons and selected chips, and the text on them. */
   ink: '#111412',
+  onInk: '#FFFFFF',
   /** Money in, on track, the active tab. */
   primary: '#0B7A55',
   primarySurface: '#DDEFE6',
@@ -24,6 +30,29 @@ export const colors = {
   warning: '#B45309',
   warningSurface: '#FDF1E3',
 };
+
+const dark: typeof light = {
+  background: '#0F1211',
+  surface: '#161A18',
+  subtle: '#1C211F',
+  text: '#ECEFED',
+  secondary: '#C2C8C4',
+  muted: '#9AA39E',
+  placeholder: '#6B736F',
+  border: '#2A302D',
+  divider: '#222826',
+  track: '#2A302D',
+  ink: '#ECEFED',
+  onInk: '#0F1211',
+  primary: '#3DBE8B',
+  primarySurface: '#16382A',
+  pressed: '#1F2522',
+  danger: '#F2827A',
+  warning: '#F0A35E',
+  warningSurface: '#3A2A17',
+};
+
+export const colors = scheme === 'dark' ? dark : light;
 
 export const radius = { sm: 10, md: 14, lg: 18, pill: 999 };
 
@@ -49,7 +78,7 @@ export function Button(props: {
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={primary ? '#fff' : colors.ink} />
+        <ActivityIndicator color={primary ? colors.onInk : colors.ink} />
       ) : (
         <Text style={[styles.buttonText, !primary && styles.buttonTextSecondary]}>{title}</Text>
       )}
@@ -134,7 +163,7 @@ const styles = StyleSheet.create({
   },
   buttonPrimary: { backgroundColor: colors.ink },
   buttonSecondary: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  buttonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  buttonText: { color: colors.onInk, fontSize: 15, fontWeight: '600' },
   buttonTextSecondary: { color: colors.ink },
   disabled: { opacity: 0.4 },
   pressed: { opacity: 0.75 },
@@ -162,12 +191,12 @@ const styles = StyleSheet.create({
   },
   chipSelected: { borderColor: colors.ink, backgroundColor: colors.ink },
   chipText: { color: colors.text, fontSize: 14, fontWeight: '500' },
-  chipTextSelected: { color: '#fff', fontWeight: '600' },
-  track: { height: 8, borderRadius: 4, backgroundColor: '#DCE3DE' },
+  chipTextSelected: { color: colors.onInk, fontWeight: '600' },
+  track: { height: 8, borderRadius: 4, backgroundColor: colors.track },
   fill: { height: 8, borderRadius: 4 },
   marker: { position: 'absolute', top: -4, width: 2, height: 16, marginLeft: -1, borderRadius: 1, backgroundColor: colors.ink },
   section: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 20, marginBottom: 4 },
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: 'hidden' },
   initial: { backgroundColor: colors.subtle, alignItems: 'center', justifyContent: 'center' },
-  initialText: { fontWeight: '700', color: '#3E4440' },
+  initialText: { fontWeight: '700', color: colors.secondary },
 });
