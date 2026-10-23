@@ -4,12 +4,14 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMonth, formatWholeRupees } from '@/components/format';
+import { UpcomingRow } from '@/components/recurring-rows';
 import { Card, ErrorText, ProgressBar, colors, radius } from '@/components/ui';
 import { categoriseWithAi } from '@/lib/ai-categorise';
 import { ensureDefaultCategories } from '@/lib/categories';
 import { currentMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
 import { hasImportedInbox, importInbox } from '@/lib/capture';
 import { countPending, listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
+import { refreshRecurring, upcomingPayments, type UpcomingPayment } from '@/lib/recurring';
 import { syncNow } from '@/lib/sync';
 import { useLedger } from '@/lib/use-ledger';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-reader';
@@ -19,13 +21,14 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 async function loadHome() {
   await ensureDefaultCategories();
-  const [balances, pending, imported, overview] = await Promise.all([
+  const [balances, pending, imported, overview, upcoming] = await Promise.all([
     listAccountBalances(),
     countPending(),
     hasImportedInbox(),
     monthOverview(currentMonth()),
+    upcomingPayments(7),
   ]);
-  return { balances, pending, imported, month: overview.overall, elapsed: overview.elapsed };
+  return { balances, pending, imported, month: overview.overall, elapsed: overview.elapsed, upcoming };
 }
 
 function greeting(now: Date): string {
@@ -42,6 +45,7 @@ export default function Home() {
     imported: true,
     month: null as BudgetLine | null,
     elapsed: 0,
+    upcoming: [] as UpcomingPayment[],
   });
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +57,8 @@ export default function Home() {
       if (isSmsReaderAvailable && hasSmsPermission() && (await hasImportedInbox())) await importInbox();
       await syncNow();
       setError(null);
+      // REC-1, REC-4: new debits mark payments paid, steady ones become suggestions, reminders follow.
+      refreshRecurring().catch(() => {});
       // CAT-2: only merchants that rules, patterns and the dictionary couldn't place; capped on the server.
       categoriseWithAi().catch(() => {});
     } catch (e) {
@@ -116,6 +122,22 @@ export default function Home() {
             </View>
             <Feather name="chevron-right" size={20} color={colors.muted} />
           </Pressable>
+        )}
+
+        {data.upcoming.length > 0 && (
+          <View>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>Coming up</Text>
+              <Pressable accessibilityRole="link" hitSlop={8} onPress={() => router.push('/recurring')}>
+                <Text style={styles.sectionLink}>See all</Text>
+              </Pressable>
+            </View>
+            <Card>
+              {data.upcoming.slice(0, 3).map((u, i) => (
+                <UpcomingRow key={u.item.id} upcoming={u} first={i === 0} />
+              ))}
+            </Card>
+          </View>
         )}
 
         <View style={styles.tiles}>
@@ -229,6 +251,9 @@ const styles = StyleSheet.create({
   grow: { flex: 1 },
   rowTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   meta: { fontSize: 13, color: colors.muted },
+  sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  sectionTitle: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  sectionLink: { fontSize: 13, fontWeight: '600', color: colors.primary },
   tiles: { flexDirection: 'row', gap: 12 },
   tile: { flex: 1 },
   tileCard: { padding: 16, gap: 6 },

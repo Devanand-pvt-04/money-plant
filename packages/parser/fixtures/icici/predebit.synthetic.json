@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {
+      "sender": "AX-ICICIT",
+      "body": "Dear Customer, your ICICI Bank Credit Card XX5678 will be debited with INR 199.00 on 25-Oct-26 towards Google Play as per your e-mandate. To cancel, visit iMobile.",
+      "expect": { "status": "ignored", "preDebit": { "bank": "icici", "amount": 19900, "payee": "Google Play", "dueDate": "2026-10-25", "instrument": "credit_card", "accountLast": "5678" } }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "ICICI Bank Acct XX234 will be debited for Rs 12,500.00 on 05-Nov-26 towards HOME LOAN EMI. Please maintain sufficient balance.",
+      "expect": { "status": "ignored", "preDebit": { "amount": 1250000, "payee": "HOME LOAN EMI", "dueDate": "2026-11-05", "instrument": "account", "accountLast": "234" } }
+    }
+  ]
+}

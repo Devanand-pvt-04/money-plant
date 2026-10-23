@@ -148,7 +148,7 @@ export function ignoreReason(text: string): IgnoreReason | null {
   if (/\bOTP\b|one[- ]time password|verification code|\bCVV\b/i.test(text)) return 'otp';
   if (/\b(?:declined|failed|unsuccessful|could not be (?:processed|completed)|was not (?:processed|completed)|insufficient)\b/i.test(text)) return 'failed_payment';
   if (/\b(?:has requested|requested money|collect request|request(?:ed)? (?:of|for) (?:Rs|INR|₹))/i.test(text)) return 'request';
-  if (/\bwill be (?:debited|deducted|charged|auto-?debited)\b|\b(?:is|are) due\b|\bdue (?:date|on|by)\b|\bminimum (?:amount )?due\b|\btotal (?:amount )?due\b|\bstatement (?:for|of|is)\b|\bmandate (?:registered|created|set ?up)\b|\bupcoming\b/i.test(text)) return 'reminder';
+  if (/\b(?:will be|shall be|is scheduled to be|to be) (?:auto-?)?(?:debited|deducted|charged)\b|\bpre-?debit\b|\b(?:is|are) due\b|\bdue (?:date|on|by)\b|\bminimum (?:amount )?due\b|\btotal (?:amount )?due\b|\bstatement (?:for|of|is)\b|\bmandate (?:registered|created|set ?up)\b|\bupcoming\b/i.test(text)) return 'reminder';
   if (/\b(?:pre-?approved|offer|eligible|apply now|click here to (?:apply|avail)|loan (?:of|up ?to)|lowest (?:emi|rate)|win |congratulations|reward points? (?:worth|expir))/i.test(text)) return 'promotion';
   return null;
 }

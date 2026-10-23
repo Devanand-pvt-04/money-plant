@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {
+      "sender": "VM-HSBCIN",
+      "body": "Your HSBC account XXXXXX1234 will be debited with INR 1,500.00 on 01-11-2026 towards ACT FIBERNET under standing instruction.",
+      "expect": { "status": "ignored", "preDebit": { "bank": "hsbc", "amount": 150000, "payee": "ACT FIBERNET", "dueDate": "2026-11-01", "instrument": "account", "accountLast": "1234" } }
+    }
+  ]
+}

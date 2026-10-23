@@ -8,16 +8,19 @@ import {
   fromRemoteAccountType,
   fromRemoteAnchor,
   fromRemoteBudget,
+  fromRemoteRecurring,
   fromRemoteRule,
   fromRemoteTransaction,
   nextCursor,
   postings,
+  recurring,
   rules,
   sources,
   toRemoteAccount,
   toRemoteAccountType,
   toRemoteAnchor,
   toRemoteBudget,
+  toRemoteRecurring,
   toRemoteRule,
   toTransactionPush,
   transactions,
@@ -25,6 +28,7 @@ import {
   type RemoteAccountType,
   type RemoteBalanceAnchor,
   type RemoteBudget,
+  type RemoteRecurring,
   type RemoteRule,
   type RemoteTransaction,
 } from '@money-plant/db-schema';
@@ -39,6 +43,7 @@ const ANCHORS_CURSOR = 'sync.balance_anchors.cursor';
 const ACCOUNT_TYPES_CURSOR = 'sync.account_types.cursor';
 const RULES_CURSOR = 'sync.rules.cursor';
 const BUDGETS_CURSOR = 'sync.budgets.cursor';
+const RECURRING_CURSOR = 'sync.recurring.cursor';
 const PUSH_BATCH = 200;
 const PULL_PAGE = 500;
 
@@ -146,6 +151,13 @@ async function pushBudgets(): Promise<number> {
   const db = await getDb();
   return pushSimple('budgets', db.select().from(budgets).where(eq(budgets.dirty, 1)).all(), toRemoteBudget, (row) =>
     db.update(budgets).set({ dirty: 0 }).where(and(eq(budgets.id, row.id), eq(budgets.rev, row.rev))).run(),
+  );
+}
+
+async function pushRecurring(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('recurring', db.select().from(recurring).where(eq(recurring.dirty, 1)).all(), toRemoteRecurring, (row) =>
+    db.update(recurring).set({ dirty: 0 }).where(and(eq(recurring.id, row.id), eq(recurring.rev, row.rev))).run(),
   );
 }
 
@@ -262,6 +274,18 @@ async function pullBudgets(): Promise<number> {
   });
 }
 
+async function pullRecurring(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteRecurring>('recurring', '*', RECURRING_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: recurring.dirty }).from(recurring).where(eq(recurring.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteRecurring(row);
+      db.insert(recurring).values(incoming).onConflictDoUpdate({ target: recurring.id, set: incoming }).run();
+    }
+  });
+}
+
 export interface SyncResult {
   pushed: number;
   pulled: number;
@@ -271,9 +295,9 @@ let running: Promise<SyncResult> | null = null;
 
 /**
  * Push then pull, in reference order: account types, accounts (including
- * categories), rules, transactions, anchors, budgets. Postings point at
- * accounts, rules and budgets at categories, anchors at sources. Concurrent
- * calls share one run.
+ * categories), rules, transactions, anchors, budgets, recurring payments.
+ * Postings point at accounts, rules, budgets and recurring payments at
+ * accounts and categories, anchors at sources. Concurrent calls share one run.
  */
 export function syncNow(): Promise<SyncResult> {
   running ??= (async () => {
@@ -287,14 +311,16 @@ export function syncNow(): Promise<SyncResult> {
         (await pushRules()) +
         (await pushTransactions()) +
         (await pushAnchors()) +
-        (await pushBudgets());
+        (await pushBudgets()) +
+        (await pushRecurring());
       const pulled =
         (await pullAccountTypes()) +
         (await pullAccounts()) +
         (await pullRules()) +
         (await pullTransactions()) +
         (await pullAnchors()) +
-        (await pullBudgets());
+        (await pullBudgets()) +
+        (await pullRecurring());
       return { pushed, pulled };
     } finally {
       running = null;

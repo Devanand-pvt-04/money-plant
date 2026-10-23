@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { identifyBankSender, normaliseSender } from './senders';
 import { parseBankText } from './sms';
 import { parseNotification } from './notification';
+import { extractDate, parsePreDebitText } from './predebit';
 
 describe('senders', () => {
   it.each([
@@ -85,5 +86,31 @@ describe('parseNotification', () => {
     expect(parseNotification({ packageName: 'com.whatsapp', title: 'Paid ₹450 to Swiggy', text: '' })).toBeNull();
     expect(parseNotification({ packageName: 'com.phonepe.app', title: 'Get ₹50 cashback offer', text: 'Pay bills now' })).toBeNull();
     expect(parseNotification({ packageName: 'com.phonepe.app', title: 'Ravi Kumar has requested ₹300', text: '' })).toBeNull();
+  });
+});
+
+describe('parsePreDebit', () => {
+  const now = new Date(2026, 9, 23, 10, 0);
+
+  it('reads dates in the formats banks use', () => {
+    expect(extractDate('on 25-Oct-26 towards', now)).toBe('2026-10-25');
+    expect(extractDate('on 05/11/26.', now)).toBe('2026-11-05');
+    expect(extractDate('due 2026-11-01', now)).toBe('2026-11-01');
+    expect(extractDate('on 31-02-2026', now)).toBeNull();
+  });
+
+  it('ignores bill reminders, statements and old notices', () => {
+    expect(parsePreDebitText('hdfc', 'Your HDFC Bank Credit Card ending 5678 statement is ready. Total due Rs.12,400.00. Pay by 05-11-2026.', now)).toBeNull();
+    expect(parsePreDebitText('hdfc', 'Rs.649.00 will be debited from your card 5678 on 01-09-2026 towards NETFLIX.', now)).toBeNull();
+    expect(parsePreDebitText('hdfc', 'Rs.649.00 debited from your card 5678 on 22-10-2026 towards NETFLIX.', now)).toBeNull();
+  });
+
+  it('leaves the payee empty when the notice names none', () => {
+    expect(parsePreDebitText('sbi', 'Rs 1,000 will be debited from A/c XX1234 on 28-10-2026 as per your mandate.', now)).toMatchObject({
+      amount: 100000,
+      payee: null,
+      dueDate: '2026-10-28',
+      accountLast: '1234',
+    });
   });
 });

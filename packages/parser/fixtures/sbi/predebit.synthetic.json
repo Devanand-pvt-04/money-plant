@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {
+      "sender": "AD-SBICRD",
+      "body": "Dear Cardholder, as per the e-mandate registered on your SBI Credit Card ending 5678, Rs.499.00 will be debited on 27/10/2026 for YOUTUBE PREMIUM.",
+      "expect": { "status": "ignored", "preDebit": { "bank": "sbi", "amount": 49900, "payee": "YOUTUBE PREMIUM", "dueDate": "2026-10-27", "instrument": "credit_card", "accountLast": "5678" } }
+    }
+  ]
+}

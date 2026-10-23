@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { useEffect, useRef } from 'react';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { ActivityIndicator, View } from 'react-native';
@@ -23,12 +24,25 @@ const navigationTheme = {
 
 export default function RootLayout() {
   const { session, loading } = useSession();
+  const lastResponse = Notifications.useLastNotificationResponse();
+  const handledResponse = useRef<string | null>(null);
 
   useEffect(() => {
     // The window behind the app, so screen transitions never flash white in dark mode.
     SystemUI.setBackgroundColorAsync(colors.background).catch(() => {});
     return followSystemScheme();
   }, []);
+
+  // A tapped reminder or budget alert opens the screen it is about.
+  useEffect(() => {
+    if (loading || !session || !lastResponse) return;
+    if (lastResponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    const { identifier, content } = lastResponse.notification.request;
+    const url = content.data?.url;
+    if (typeof url !== 'string' || handledResponse.current === identifier) return;
+    handledResponse.current = identifier;
+    router.push(url as never);
+  }, [lastResponse, loading, session]);
 
   if (loading) {
     return (
@@ -68,6 +82,8 @@ export default function RootLayout() {
           <Stack.Screen name="account-types" options={{ title: 'Account types' }} />
           <Stack.Screen name="capture" options={{ title: 'Bank SMS' }} />
           <Stack.Screen name="upi-test" options={{ title: 'UPI hand-off test' }} />
+          <Stack.Screen name="recurring/index" options={{ title: 'Recurring payments' }} />
+          <Stack.Screen name="recurring/[id]" options={{ title: 'Recurring payment' }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />

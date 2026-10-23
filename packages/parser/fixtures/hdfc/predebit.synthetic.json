@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {
+      "sender": "VM-HDFCBK",
+      "body": "Dear Customer, Rs.649.00 will be debited from your HDFC Bank Credit Card ending 5678 on 25-10-2026 towards NETFLIX as per Standing Instruction. SI ID: SI1234567890. To opt out, visit MyCards.",
+      "expect": { "status": "ignored", "preDebit": { "bank": "hdfc", "amount": 64900, "payee": "NETFLIX", "dueDate": "2026-10-25", "instrument": "credit_card", "accountLast": "5678", "mandateRef": "SI1234567890" } }
+    },
+    {
+      "sender": "AD-HDFCBK",
+      "body": "UPI Mandate: Rs 299.00 will be auto-debited from HDFC Bank A/c XX1234 on 26/10/26 for SPOTIFY INDIA. UMN: abcd1234ef@hdfcbank",
+      "expect": { "status": "ignored", "preDebit": { "amount": 29900, "payee": "SPOTIFY INDIA", "dueDate": "2026-10-26", "instrument": "account", "accountLast": "1234", "mandateRef": "abcd1234ef@hdfcbank" } }
+    }
+  ]
+}

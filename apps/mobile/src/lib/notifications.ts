@@ -6,7 +6,7 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }),
 });
 
-const CHANNELS = { budgets: 'Budget alerts' } as const;
+const CHANNELS = { budgets: 'Budget alerts', reminders: 'Payment reminders' } as const;
 type Channel = keyof typeof CHANNELS;
 
 let channelsReady: Promise<void> | null = null;
@@ -37,4 +37,36 @@ export async function notify(input: { channel: Channel; title: string; body: str
     content: { title: input.title, body: input.body, data: input.data ?? {} },
     trigger: Platform.OS === 'android' ? { channelId: input.channel } : null,
   });
+}
+
+/**
+ * Schedules a local notification for a moment in the future, replacing any
+ * earlier one with the same id. Does nothing without permission or for a past date.
+ */
+export async function notifyAt(input: {
+  id: string;
+  channel: Channel;
+  at: Date;
+  title: string;
+  body: string;
+  data?: Record<string, string>;
+}): Promise<void> {
+  await ensureChannels();
+  if (input.at.getTime() <= Date.now()) return;
+  if (!(await Notifications.getPermissionsAsync()).granted) return;
+  await Notifications.scheduleNotificationAsync({
+    identifier: input.id,
+    content: { title: input.title, body: input.body, data: input.data ?? {} },
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: input.at, channelId: input.channel },
+  });
+}
+
+/** Cancels every scheduled notification whose id starts with `prefix`. */
+export async function cancelScheduled(prefix: string): Promise<void> {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter((n) => n.identifier.startsWith(prefix))
+      .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
+  );
 }
