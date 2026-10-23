@@ -5,11 +5,15 @@ import {
   balanceAnchors,
   balanceRefs,
   captureLog,
+  iouPayments,
+  ious,
   kv,
   pendingNotifications,
+  personContacts,
   postings,
   recurring,
   sources,
+  splitGroups,
   transactions,
 } from '@money-plant/db-schema';
 import { getDb } from './db';
@@ -39,7 +43,7 @@ export async function signOut(): Promise<void> {
   // Reminders name payees and amounts; they belong to the signed-out user.
   await cancelScheduled('').catch(() => {});
   const db = await getDb();
-  for (const table of [accounts, transactions, postings, sources, balanceAnchors, balanceRefs, pendingNotifications, captureLog, recurring, kv]) {
+  for (const table of [accounts, transactions, postings, sources, balanceAnchors, balanceRefs, pendingNotifications, captureLog, recurring, ious, iouPayments, splitGroups, personContacts, kv]) {
     await db.delete(table);
   }
 }

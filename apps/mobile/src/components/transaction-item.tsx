@@ -15,7 +15,8 @@ export function transactionTitle({ tx, legs }: TransactionRow): string {
 
 /** The entry's amount as shown in lists: transfers unsigned, money out with a minus, money in with a plus. */
 export function displayAmount({ tx, legs }: TransactionRow): { text: string; color: string } {
-  const amount = legs[0]?.amount ?? 0;
+  // Someone else paid (SPL-2): no account of the user's moved, so show their share as money out.
+  const amount = legs[0]?.amount ?? -tx.postings.reduce((sum, p) => sum + Math.max(0, p.amount), 0);
   if (tx.kind === 'transfer') return { text: formatAmount(Math.abs(amount)), color: colors.muted };
   return { text: formatSigned(amount), color: amount > 0 ? colors.primary : colors.text };
 }

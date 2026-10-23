@@ -46,7 +46,7 @@ export interface LedgerPosting {
   amount: Paise;
 }
 
-export type TransactionKind = 'expense' | 'income' | 'transfer' | 'adjustment';
+export type TransactionKind = 'expense' | 'income' | 'transfer' | 'adjustment' | 'iou';
 export type TransactionStatus = 'pending' | 'confirmed';
 
 /** Why an entry is waiting in the review inbox (LED-6). */

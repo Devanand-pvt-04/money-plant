@@ -15,7 +15,7 @@ import { deleteTransaction, getTransaction, splitTransfer, type TransactionRow }
 import { getRule } from '@/lib/rules-store';
 import { useLedger } from '@/lib/use-ledger';
 
-const KIND_LABELS = { expense: 'Money out', income: 'Money in', transfer: 'Transfer', adjustment: 'Adjustment' } as const;
+const KIND_LABELS = { expense: 'Money out', income: 'Money in', transfer: 'Transfer', adjustment: 'Adjustment', iou: 'Loan or repayment' } as const;
 
 const FIELD_LABELS: Record<UserSetField, string> = {
   category: 'category',
@@ -54,7 +54,9 @@ export default function TransactionDetail() {
   const amount = displayAmount(row);
   const isTransfer = tx.kind === 'transfer';
   const why = whyLabel(tx, row.aiConfidence);
-  const accounts = [...row.legs].sort((a, b) => a.amount - b.amount).map((leg) => leg.accountName).join(' → ');
+  const accounts = [...row.legs].sort((a, b) => a.amount - b.amount).map((leg) => leg.accountName).join(' → ') || 'Paid by someone else';
+  // SPL-1: a split has legs for people besides the category; its category is changed in the split editor.
+  const split = tx.postings.length > 2 && tx.kind === 'expense';
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -81,7 +83,7 @@ export default function TransactionDetail() {
             label="Category"
             value={row.category.name}
             note={why ? `Why: ${why.charAt(0).toLowerCase()}${why.slice(1)}${ruleText ? `, ${ruleText}` : ''}` : undefined}
-            onPress={() => change(tx.id, flow, tx.counterparty)}
+            onPress={() => (split ? router.push(`/split/${tx.id}`) : change(tx.id, flow, tx.counterparty))}
             first
           />
         )}
@@ -106,6 +108,16 @@ export default function TransactionDetail() {
 
       <View style={styles.actions}>
         <Button title="Edit entry" variant="secondary" onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
+        {tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0 && (
+          <Button title={split ? 'Change the split' : 'Split with people'} variant="secondary" onPress={() => router.push(`/split/${tx.id}`)} />
+        )}
+        {(tx.kind === 'expense' || tx.kind === 'income') && !split && row.legs.length === 1 && tx.postings.length === 2 && (
+          <Button
+            title={row.legs[0]!.amount < 0 ? 'I lent this to someone' : 'I borrowed this from someone'}
+            variant="secondary"
+            onPress={() => router.push(`/iou/new?from=${tx.id}`)}
+          />
+        )}
         {tx.kind === 'expense' && row.legs.length === 1 && (
           <Button title="Track as a recurring payment" variant="secondary" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />
         )}
