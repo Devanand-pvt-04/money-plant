@@ -1,4 +1,5 @@
 import { validatePostings, type AccountType, type Paise } from '@money-plant/core';
+import type { CategoryDecision, PayeeKind } from '@money-plant/categoriser';
 import type { Direction, ParsedNotification, ParsedTransaction } from '@money-plant/parser';
 import { looksLikePerson, resolveAccount } from './accounts';
 import type {
@@ -20,9 +21,26 @@ export const CARD_PAYMENT_WINDOW = 3 * 24 * HOUR;
 /** Below this, an entry waits in the review inbox. */
 export const CONFIRM_THRESHOLD = 0.8;
 
+/** What the pipeline tells the categoriser about a new entry. Amount is positive. */
+export interface CategoriseRequest {
+  direction: Direction;
+  amount: Paise;
+  counterparty: string | null;
+  vpa: string | null;
+  accountId: string;
+  occurredAt: string;
+  payeeKind: PayeeKind;
+}
+
 export interface PipelineContext {
   store: LedgerStore;
   newId: () => string;
+  /**
+   * Step 3 of the capture pipeline: user rules, learned patterns, then the
+   * merchant dictionary (CAT-2). Null leaves the entry uncategorised; the AI
+   * runs later, outside the pipeline, because it needs the network.
+   */
+  categorise?: (request: CategoriseRequest) => Promise<CategoryDecision | null>;
 }
 
 export interface SmsCapture {
@@ -95,9 +113,7 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
   const transfer = duplicate ? null : findTransferLeg(recent, accountsById, { account, amount, at, reference: parsed.reference });
 
   if (duplicate) {
-    await store.saveTransaction(
-      withExtraSource(duplicate, source, { counterparty: duplicate.counterparty ?? parsed.counterparty }),
-    );
+    await store.saveTransaction(withExtraSource(duplicate, source, { counterparty: duplicate.counterparty ?? parsed.counterparty }));
     result = { outcome: 'attached', transactionId: duplicate.id };
   } else if (transfer) {
     const { transaction, refsMatch } = transfer;
@@ -115,6 +131,8 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
       confidence,
       reviewReason,
       status: reviewReason ? 'pending' : 'confirmed',
+      categoryReason: null,
+      categoryRuleId: null,
     });
     result = { outcome: 'transfer', transactionId: transaction.id };
   } else {
@@ -127,6 +145,10 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
       status: 'confirmed',
       confidence: parsed.confidence,
       reviewReason: null,
+      categoryReason: null,
+      categoryRuleId: null,
+      userSetFields: [],
+      note: null,
       postings: [
         { id: newId(), accountId: account.id, amount },
         { id: newId(), accountId: other.id, amount: -amount as Paise },
@@ -143,10 +165,23 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
       transaction.confidence = bumpConfidence(transaction.confidence, held.source.confidence);
       await store.removePendingNotification(held.id);
     }
+    const person = looksLikePerson({ channel: parsed.channel, counterparty: transaction.counterparty, vpa: parsed.vpa });
+    const decision = await ctx.categorise?.({
+      direction: parsed.direction,
+      amount: parsed.amount,
+      counterparty: transaction.counterparty,
+      vpa: parsed.vpa,
+      accountId: account.id,
+      occurredAt: transaction.occurredAt,
+      payeeKind: person ? 'person' : 'business',
+    });
+    if (decision) applyDecision(transaction, decision);
     transaction.reviewReason =
       !resolution.certain ? 'unknown_account'
       : transaction.confidence < CONFIRM_THRESHOLD ? 'low_confidence'
-      : looksLikePerson(parsed) ? 'person'
+      : decision ? decisionReview(decision)
+      // Learned patterns ran first, so a person they recognised is not asked about (CAT-4).
+      : person ? 'person'
       : null;
     transaction.status = transaction.reviewReason ? 'pending' : 'confirmed';
     await store.saveTransaction(transaction);
@@ -197,7 +232,10 @@ export async function ingestNotification(ctx: PipelineContext, capture: Notifica
     at,
   );
   if (match) {
-    await store.saveTransaction(withExtraSource(match, source, { counterparty: parsed.counterparty ?? match.counterparty }));
+    const updated = withExtraSource(match, source, { counterparty: parsed.counterparty ?? match.counterparty });
+    // The app's payee name often names the merchant the bank SMS didn't.
+    if (updated.counterparty !== match.counterparty) await recategorise(ctx, updated, accountsById);
+    await store.saveTransaction(updated);
     return { outcome: 'attached', transactionId: match.id };
   }
   await store.addPendingNotification({
@@ -218,10 +256,58 @@ export async function rebaseOpening(store: LedgerStore, accountId: string): Prom
   await store.setOpeningBalance(accountId, (ref.balance - before) as Paise);
 }
 
-/** A second source raises confidence, which can clear a low-confidence review item. */
+/** Puts the entry's category posting on the decided category. */
+function applyDecision(tx: LedgerTransaction, decision: CategoryDecision): void {
+  const categoryLeg = tx.postings[1];
+  if (!categoryLeg) return;
+  categoryLeg.accountId = decision.categoryId;
+  tx.categoryReason = decision.reason;
+  tx.categoryRuleId = decision.ruleId;
+}
+
+/** A confident decision needs no review; a pattern match or an unsure answer waits as a suggestion. */
+export function decisionReview(decision: CategoryDecision): ReviewReason | null {
+  if (decision.autoConfirm) return null;
+  return decision.reason === 'pattern' ? 'pattern' : 'category_unsure';
+}
+
+/**
+ * Categorises an uncategorised entry again after it learned a better payee
+ * name. Leaves alone anything the user set or another layer already decided.
+ */
+async function recategorise(ctx: PipelineContext, tx: LedgerTransaction, accountsById: ReadonlyMap<string, LedgerAccount>): Promise<void> {
+  if (!ctx.categorise || tx.categoryReason !== null || tx.userSetFields.includes('category')) return;
+  if ((tx.kind !== 'expense' && tx.kind !== 'income') || tx.postings.length !== 2) return;
+  const own = tx.postings[0]!;
+  if (!OWNED.has(accountsById.get(own.accountId)?.type ?? 'category')) return;
+  const sms = tx.sources.find((s) => s.kind === 'sms')?.parsedFields as Partial<ParsedTransaction> | undefined;
+  const vpa = sms?.vpa ?? null;
+  const person = looksLikePerson({ channel: sms?.channel ?? 'upi', counterparty: tx.counterparty, vpa });
+  const decision = await ctx.categorise({
+    direction: own.amount < 0 ? 'debit' : 'credit',
+    amount: Math.abs(own.amount) as Paise,
+    counterparty: tx.counterparty,
+    vpa,
+    accountId: own.accountId,
+    occurredAt: tx.occurredAt,
+    payeeKind: person ? 'person' : 'business',
+  });
+  if (!decision) return;
+  applyDecision(tx, decision);
+  if (tx.reviewReason === null || tx.reviewReason === 'person') {
+    tx.reviewReason = decisionReview(decision);
+    tx.status = tx.reviewReason ? 'pending' : 'confirmed';
+  }
+}
+
+/**
+ * A second source raises confidence, which can clear a low-confidence review
+ * item. Fields the user set (LED-8) keep the user's value.
+ */
 function withExtraSource(tx: LedgerTransaction, source: LedgerSource, changes: Partial<LedgerTransaction>): LedgerTransaction {
   const confidence = bumpConfidence(tx.confidence, source.confidence);
   const cleared = tx.reviewReason === 'low_confidence' && confidence >= CONFIRM_THRESHOLD;
+  if (tx.userSetFields.includes('counterparty')) delete changes.counterparty;
   return {
     ...tx,
     ...changes,
@@ -278,6 +364,8 @@ function findTransferLeg(
   const candidates: { transaction: LedgerTransaction; refsMatch: boolean }[] = [];
   for (const tx of recent) {
     if (tx.kind !== 'expense' && tx.kind !== 'income') continue;
+    // The user already said what this entry is.
+    if (tx.userSetFields.includes('category') || tx.userSetFields.includes('kind')) continue;
     const owned = tx.postings.filter((p) => OWNED.has(accountsById.get(p.accountId)?.type ?? 'category'));
     if (owned.length !== 1 || tx.postings.length !== 2) continue;
     const leg = owned[0]!;

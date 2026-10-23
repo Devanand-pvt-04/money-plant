@@ -1,21 +1,34 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import {
+  accountTypes,
   accounts,
   balanceAnchors,
+  budgets,
   fromRemoteAccount,
+  fromRemoteAccountType,
   fromRemoteAnchor,
+  fromRemoteBudget,
+  fromRemoteRule,
   fromRemoteTransaction,
   nextCursor,
   postings,
+  rules,
   sources,
   toRemoteAccount,
+  toRemoteAccountType,
   toRemoteAnchor,
+  toRemoteBudget,
+  toRemoteRule,
   toTransactionPush,
   transactions,
   type RemoteAccount,
+  type RemoteAccountType,
   type RemoteBalanceAnchor,
+  type RemoteBudget,
+  type RemoteRule,
   type RemoteTransaction,
 } from '@money-plant/db-schema';
+import { ensureDefaultCategories } from './categories';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
 import { supabase } from './supabase';
@@ -23,6 +36,9 @@ import { supabase } from './supabase';
 const ACCOUNTS_CURSOR = 'sync.accounts.cursor';
 const TRANSACTIONS_CURSOR = 'sync.transactions.cursor';
 const ANCHORS_CURSOR = 'sync.balance_anchors.cursor';
+const ACCOUNT_TYPES_CURSOR = 'sync.account_types.cursor';
+const RULES_CURSOR = 'sync.rules.cursor';
+const BUDGETS_CURSOR = 'sync.budgets.cursor';
 const PUSH_BATCH = 200;
 const PULL_PAGE = 500;
 
@@ -32,7 +48,15 @@ async function pushAccounts(): Promise<number> {
   const dirty = db.select().from(accounts).where(eq(accounts.dirty, 1)).all();
   if (dirty.length === 0) return 0;
 
-  const { error } = await supabase.from('accounts').upsert(dirty.map(toRemoteAccount));
+  // Default categories this phone seeded but never synced may already exist on the server,
+  // renamed or moved on another phone. Insert those only if missing, so the other phone's edits win.
+  const seeded = dirty.filter((row) => row.type === 'category' && row.updatedAt === null && row.categoryKey !== null);
+  const edited = dirty.filter((row) => !seeded.includes(row));
+  if (seeded.length > 0) {
+    const { error } = await supabase.from('accounts').upsert(seeded.map(toRemoteAccount), { ignoreDuplicates: true });
+    if (error) throw error;
+  }
+  const { error } = edited.length > 0 ? await supabase.from('accounts').upsert(edited.map(toRemoteAccount)) : { error: null };
   if (error) throw error;
   // Only clear rows unchanged since they were read; a capture may have edited one meanwhile.
   for (const row of dirty) {
@@ -88,6 +112,41 @@ async function pushAnchors(): Promise<number> {
       .run();
   }
   return dirty.length;
+}
+
+/** Pushes rows of a simple synced table (one row, no children), clearing dirty only for the version sent. */
+async function pushSimple<Row extends { id: string; rev: number }>(
+  table: string,
+  rows: Row[],
+  toRemote: (row: Row) => object,
+  clear: (row: Row) => void,
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const { error } = await supabase.from(table).upsert(rows.map(toRemote));
+  if (error) throw error;
+  rows.forEach(clear);
+  return rows.length;
+}
+
+async function pushAccountTypes(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('account_types', db.select().from(accountTypes).where(eq(accountTypes.dirty, 1)).all(), toRemoteAccountType, (row) =>
+    db.update(accountTypes).set({ dirty: 0 }).where(and(eq(accountTypes.id, row.id), eq(accountTypes.rev, row.rev))).run(),
+  );
+}
+
+async function pushRules(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('rules', db.select().from(rules).where(eq(rules.dirty, 1)).all(), toRemoteRule, (row) =>
+    db.update(rules).set({ dirty: 0 }).where(and(eq(rules.id, row.id), eq(rules.rev, row.rev))).run(),
+  );
+}
+
+async function pushBudgets(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('budgets', db.select().from(budgets).where(eq(budgets.dirty, 1)).all(), toRemoteBudget, (row) =>
+    db.update(budgets).set({ dirty: 0 }).where(and(eq(budgets.id, row.id), eq(budgets.rev, row.rev))).run(),
+  );
 }
 
 /** Pages through rows changed since the cursor, oldest first, and applies each page. */
@@ -167,6 +226,42 @@ async function pullAnchors(): Promise<number> {
   });
 }
 
+async function pullAccountTypes(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteAccountType>('account_types', '*', ACCOUNT_TYPES_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: accountTypes.dirty }).from(accountTypes).where(eq(accountTypes.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteAccountType(row);
+      db.insert(accountTypes).values(incoming).onConflictDoUpdate({ target: accountTypes.id, set: incoming }).run();
+    }
+  });
+}
+
+async function pullRules(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteRule>('rules', '*', RULES_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: rules.dirty }).from(rules).where(eq(rules.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteRule(row);
+      db.insert(rules).values(incoming).onConflictDoUpdate({ target: rules.id, set: incoming }).run();
+    }
+  });
+}
+
+async function pullBudgets(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteBudget>('budgets', '*', BUDGETS_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: budgets.dirty }).from(budgets).where(eq(budgets.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteBudget(row);
+      db.insert(budgets).values(incoming).onConflictDoUpdate({ target: budgets.id, set: incoming }).run();
+    }
+  });
+}
+
 export interface SyncResult {
   pushed: number;
   pulled: number;
@@ -175,16 +270,31 @@ export interface SyncResult {
 let running: Promise<SyncResult> | null = null;
 
 /**
- * Push then pull. Accounts go first and anchors last, because postings point
- * at accounts and anchors point at sources. Concurrent calls share one run.
+ * Push then pull, in reference order: account types, accounts (including
+ * categories), rules, transactions, anchors, budgets. Postings point at
+ * accounts, rules and budgets at categories, anchors at sources. Concurrent
+ * calls share one run.
  */
 export function syncNow(): Promise<SyncResult> {
   running ??= (async () => {
     try {
       const { data } = await supabase.auth.getSession();
       if (!data.session) return { pushed: 0, pulled: 0 };
-      const pushed = (await pushAccounts()) + (await pushTransactions()) + (await pushAnchors());
-      const pulled = (await pullAccounts()) + (await pullTransactions()) + (await pullAnchors());
+      await ensureDefaultCategories();
+      const pushed =
+        (await pushAccountTypes()) +
+        (await pushAccounts()) +
+        (await pushRules()) +
+        (await pushTransactions()) +
+        (await pushAnchors()) +
+        (await pushBudgets());
+      const pulled =
+        (await pullAccountTypes()) +
+        (await pullAccounts()) +
+        (await pullRules()) +
+        (await pullTransactions()) +
+        (await pullAnchors()) +
+        (await pullBudgets());
       return { pushed, pulled };
     } finally {
       running = null;

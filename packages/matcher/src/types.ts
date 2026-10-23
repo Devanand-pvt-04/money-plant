@@ -1,4 +1,5 @@
 import type { AccountType, Paise } from '@money-plant/core';
+import type { CategoryReason } from '@money-plant/categoriser';
 import type { Direction } from '@money-plant/parser';
 
 export interface LedgerAccount {
@@ -53,14 +54,25 @@ export type ReviewReason =
   | 'low_confidence'
   | 'unknown_account'
   | 'person'
-  | 'possible_transfer';
+  | 'possible_transfer'
+  | 'pattern'
+  | 'category_unsure';
 
 export const REVIEW_REASON_LABELS: Record<ReviewReason, string> = {
   low_confidence: 'The message was hard to read',
   unknown_account: 'Not sure which account this was',
   person: 'Payment to or from a person',
   possible_transfer: 'Looks like a transfer between your accounts',
+  pattern: 'Matched one of your patterns',
+  category_unsure: 'Not sure about the category',
 };
+
+/**
+ * LED-8: fields the user changed by hand. Re-parsing, dedupe, sync and AI
+ * never overwrite them.
+ */
+export const USER_SET_FIELDS = ['category', 'counterparty', 'amount', 'account', 'occurredAt', 'note', 'kind'] as const;
+export type UserSetField = (typeof USER_SET_FIELDS)[number];
 
 export interface LedgerTransaction {
   id: string;
@@ -70,6 +82,12 @@ export interface LedgerTransaction {
   status: TransactionStatus;
   confidence: number;
   reviewReason: ReviewReason | null;
+  /** Why the entry has its category (CAT-6); null while it is uncategorised. */
+  categoryReason: CategoryReason | null;
+  /** The rule or pattern that set the category, when categoryReason is rule or pattern. */
+  categoryRuleId: string | null;
+  userSetFields: UserSetField[];
+  note: string | null;
   postings: LedgerPosting[];
   sources: LedgerSource[];
 }

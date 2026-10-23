@@ -12,6 +12,7 @@ export const ACCOUNT_TYPES = [
   'stock',
   'person',
   'category',
+  'custom',
 ] as const;
 
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -28,12 +29,22 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   stock: 'Stocks',
   person: 'Person',
   category: 'Category',
+  custom: 'Custom',
 };
 
-/** Account types the user creates directly; people and categories come from other flows. */
+/**
+ * Account types the user creates directly. People and categories come from
+ * other flows; `custom` accounts are created from a user-defined account type (ACC-6).
+ */
 export const USER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(
-  (type) => type !== 'person' && type !== 'category',
+  (type) => type !== 'person' && type !== 'category' && type !== 'custom',
 );
+
+/** Built-in types whose balance is money owed rather than money held. */
+export const LIABILITY_TYPES: ReadonlySet<AccountType> = new Set(['credit_card', 'loan']);
+
+/** ACC-6: a custom account type sits on one of these fixed classes. */
+export type AccountClass = 'asset' | 'liability';
 
 export function isAccountType(value: string): value is AccountType {
   return (ACCOUNT_TYPES as readonly string[]).includes(value);

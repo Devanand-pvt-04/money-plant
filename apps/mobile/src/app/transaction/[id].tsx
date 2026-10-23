@@ -1,31 +1,87 @@
+import { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { formatRupees } from '@money-plant/core';
-import { REVIEW_REASON_LABELS, type LedgerSource } from '@money-plant/matcher';
+import { formatRupees, paise } from '@money-plant/core';
+import { describePattern, type Rule } from '@money-plant/categoriser';
+import { REVIEW_REASON_LABELS, USER_SET_FIELDS, type LedgerSource, type UserSetField } from '@money-plant/matcher';
 import { Button, colors } from '@/components/ui';
 import { formatDateTime } from '@/components/format';
 import { transactionTitle } from '@/components/transaction-item';
-import { confirmTransaction, deleteTransaction, getTransaction, splitTransfer, type TransactionRow } from '@/lib/ledger';
+import { useCategoryChange } from '@/components/use-category-change';
+import { whyLabel } from '@/components/why';
+import { confirmEntry } from '@/lib/entries';
+import { deleteTransaction, getTransaction, splitTransfer, type TransactionRow } from '@/lib/ledger';
+import { getRule } from '@/lib/rules-store';
 import { useLedger } from '@/lib/use-ledger';
 
 const KIND_LABELS = { expense: 'Money out', income: 'Money in', transfer: 'Transfer', adjustment: 'Adjustment' } as const;
 
-/** LED-2: an entry with its postings, sources and confidence. */
+const FIELD_LABELS: Record<UserSetField, string> = {
+  category: 'category',
+  counterparty: 'payee',
+  amount: 'amount',
+  account: 'account',
+  occurredAt: 'date',
+  note: 'note',
+  kind: 'type',
+};
+
+/** LED-2: an entry with its postings, sources and confidence. CAT-6: why it has its category. */
 export default function TransactionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: row } = useLedger(() => getTransaction(id), null as TransactionRow | null);
+  const [rule, setRule] = useState<Rule | null>(null);
+  const { picker, change } = useCategoryChange();
+  const ruleId = row?.tx.categoryRuleId ?? null;
+
+  useEffect(() => {
+    if (ruleId) getRule(ruleId).then(setRule);
+    else setRule(null);
+  }, [ruleId]);
+
   if (!row) return null;
   const { tx } = row;
+  const flow = tx.kind === 'income' ? 'income' : 'expense';
+  const userSet = USER_SET_FIELDS.filter((f) => tx.userSetFields.includes(f)).map((f) => FIELD_LABELS[f]);
+  const ruleText =
+    rule?.match.kind === 'pattern'
+      ? describePattern(rule.match, row.legs[0]?.accountName ?? null)
+      : rule?.match.kind === 'rule'
+        ? (rule.match.merchant ?? rule.match.vpa ?? rule.match.keyword ?? '')
+        : null;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Stack.Screen options={{ title: KIND_LABELS[tx.kind] }} />
+      {picker}
       <Text style={styles.title}>{transactionTitle(row)}</Text>
       <Text style={styles.meta}>
         {formatDateTime(tx.occurredAt)} · {tx.status === 'pending' ? 'to review' : 'confirmed'} · confidence{' '}
         {Math.round(tx.confidence * 100)}%
       </Text>
       {tx.reviewReason && <Text style={styles.reason}>{REVIEW_REASON_LABELS[tx.reviewReason]}</Text>}
+
+      {row.category && (
+        <>
+          <Text style={styles.section}>Category</Text>
+          <View style={styles.card}>
+            <Text style={styles.lineText}>{row.category.name}</Text>
+            <Text style={styles.meta}>
+              {whyLabel(tx, row.aiConfidence)}
+              {ruleText ? `: ${ruleText}` : ''}
+            </Text>
+            <Button title="Change category" variant="secondary" onPress={() => change(tx.id, flow, tx.counterparty)} />
+          </View>
+        </>
+      )}
+
+      {tx.note && (
+        <>
+          <Text style={styles.section}>Note</Text>
+          <Text style={styles.lineText}>{tx.note}</Text>
+        </>
+      )}
+      {userSet.length > 0 && <Text style={styles.meta}>You set the {userSet.join(', ')}; automation won't change it.</Text>}
 
       <Text style={styles.section}>Postings</Text>
       <View style={styles.card}>
@@ -43,7 +99,8 @@ export default function TransactionDetail() {
       ))}
 
       <View style={styles.actions}>
-        {tx.status === 'pending' && <Button title="Confirm" onPress={() => confirmTransaction(tx.id)} />}
+        {tx.status === 'pending' && <Button title="Confirm" onPress={() => confirmEntry(tx.id)} />}
+        <Button title="Edit entry" variant="secondary" onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
         {tx.kind === 'transfer' && (
           <Button
             title="Not a transfer: split it"
@@ -67,7 +124,7 @@ export default function TransactionDetail() {
 }
 
 function SourceCard({ source }: { source: LedgerSource }) {
-  const fields = source.parsedFields as { template?: string; reference?: string | null; accountLast?: string | null };
+  const fields = source.parsedFields as { template?: string; reference?: string | null; accountLast?: string | null; amount?: number; counterparty?: string | null };
   return (
     <View style={styles.card}>
       <Text style={styles.lineText}>
@@ -76,6 +133,11 @@ function SourceCard({ source }: { source: LedgerSource }) {
       <Text style={styles.meta}>
         {formatDateTime(source.receivedAt)} · read by {fields.template ?? 'app'} · {Math.round(source.confidence * 100)}%
         {fields.reference ? ` · ref ${fields.reference}` : ''}
+      </Text>
+      {/* LED-8: what the message said, even after the user edited the entry. */}
+      <Text style={styles.meta}>
+        Read as {typeof fields.amount === 'number' ? formatRupees(paise(fields.amount)) : '?'}
+        {fields.counterparty ? ` · ${fields.counterparty}` : ''}
       </Text>
       {source.rawText && (
         <Text selectable style={styles.raw}>

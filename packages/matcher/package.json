@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@money-plant/categoriser": "workspace:*",
     "@money-plant/core": "workspace:*",
     "@money-plant/parser": "workspace:*"
   },

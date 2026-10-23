@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  fromRemoteBudget,
+  fromRemoteRule,
+  toRemoteBudget,
+  toRemoteRule,
   fromRemoteAccount,
   fromRemoteTransaction,
   nextCursor,
@@ -17,6 +21,9 @@ const remote: RemoteAccount = {
   last4: '1234',
   currency: 'INR',
   opening_balance_paise: 1250000,
+  account_type_id: null,
+  parent_id: null,
+  category_key: null,
   created_at: '2026-10-21T10:00:00.000Z',
   updated_at: '2026-10-21T10:05:00.000Z',
   deleted_at: null,
@@ -67,6 +74,10 @@ describe('transaction push', () => {
     status: 'confirmed' as const,
     confidence: 0.95,
     reviewReason: null,
+    categoryReason: 'user',
+    categoryRuleId: null,
+    userSetFields: '["category"]',
+    note: 'Team lunch',
     createdAt: '2026-10-21T10:00:01.000Z',
     updatedAt: null,
     deletedAt: null,
@@ -99,6 +110,7 @@ describe('transaction push', () => {
     expect(json).not.toContain('raw');
     expect(json).not.toContain('Sent Rs.450.00');
     expect(payload.sources[0]!.parsed_fields).toEqual({ amount: 45000, direction: 'debit' });
+    expect(payload).toMatchObject({ category_reason: 'user', user_set_fields: ['category'], note: 'Team lunch' });
   });
 
   it('round-trips a pulled transaction, dropping deleted postings', () => {
@@ -111,6 +123,10 @@ describe('transaction push', () => {
       status: 'confirmed',
       confidence: 0.95,
       review_reason: null,
+      category_reason: 'dictionary',
+      category_rule_id: null,
+      user_set_fields: ['counterparty'],
+      note: null,
       created_at: tx.createdAt,
       updated_at: '2026-10-21T10:05:00.000Z',
       deleted_at: null,
@@ -123,5 +139,48 @@ describe('transaction push', () => {
     });
     expect(pulled.postings.map((p) => p.amountPaise)).toEqual([-45000, 45000]);
     expect(pulled.transaction.dirty).toBe(0);
+    expect(pulled.transaction.userSetFields).toBe('["counterparty"]');
+  });
+});
+
+describe('budget mapping', () => {
+  it('stores months as the first day of the month on the server', () => {
+    const local = {
+      id: 'b-1',
+      month: '2026-10',
+      categoryAccountId: null,
+      limitPaise: 5000000,
+      createdAt: '2026-10-22T10:00:00.000Z',
+      updatedAt: null,
+      deletedAt: null,
+      dirty: 1,
+      rev: 0,
+    };
+    const remote = toRemoteBudget(local);
+    expect(remote.month).toBe('2026-10-01');
+    const back = fromRemoteBudget({ ...remote, user_id: 'u', updated_at: '2026-10-22T10:00:01+00:00', limit_paise: '5000000' as unknown as number });
+    expect(back).toMatchObject({ month: '2026-10', limitPaise: 5000000, dirty: 0 });
+  });
+});
+
+describe('rule mapping', () => {
+  it('sends match as JSON and booleans as booleans', () => {
+    const remote = toRemoteRule({
+      id: 'r-1',
+      kind: 'pattern',
+      status: 'proposed',
+      match: '{"kind":"pattern","minAmount":1500}',
+      categoryAccountId: 'cat',
+      autoConfirm: 0,
+      hits: 2,
+      misses: 0,
+      createdAt: '2026-10-22T10:00:00.000Z',
+      updatedAt: null,
+      deletedAt: null,
+      dirty: 1,
+      rev: 0,
+    });
+    expect(remote).toMatchObject({ match: { kind: 'pattern', minAmount: 1500 }, auto_confirm: false });
+    expect(fromRemoteRule({ ...remote, user_id: 'u', updated_at: 'x' }).match).toBe('{"kind":"pattern","minAmount":1500}');
   });
 });

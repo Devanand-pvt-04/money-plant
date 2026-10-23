@@ -6,9 +6,12 @@ import { getDb } from './db';
 
 export interface AccountInput {
   type: AccountType;
+  /** For `custom` accounts (ACC-6). */
+  accountTypeId?: string | null;
   name: string;
   institution: string | null;
   last4: string | null;
+  /** Signed: money owed on a card, loan or liability type is negative. */
   openingBalance: Paise;
 }
 
@@ -24,6 +27,7 @@ export async function createAccount(input: AccountInput): Promise<void> {
     name: input.name,
     institution: input.institution,
     last4: input.last4,
+    accountTypeId: input.accountTypeId ?? null,
     openingBalancePaise: input.openingBalance,
     createdAt,
     dirty: 1,
