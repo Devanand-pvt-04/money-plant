@@ -134,7 +134,17 @@ Milestone 3 adds `expo-notifications` (budget alerts), so the development build 
 2. AI categorising (optional, the app works without it): `npx supabase secrets set ANTHROPIC_API_KEY=<key>`, then `npx supabase functions deploy categorise`. Optional caps: `npx supabase secrets set AI_MONTHLY_CAP_USD=5 AI_USER_MONTHLY_CAP_USD=1`. Also set a monthly spend limit in the Anthropic console.
 3. Rebuild and reinstall the dev app: `npx eas-cli@latest build --profile development --platform android`.
 
-## 10. Day to day
+## 10. Preview build for multi-day tests
+
+A preview build carries the app's code inside the APK, so it runs for days without `npx expo start`. It installs as a separate app, **Money Plant (preview)**, next to the development build.
+
+1. Once: `cd apps/mobile && npx eas-cli@latest build --profile preview --platform android`, then install the APK and sign in. Your data syncs down.
+2. Give SMS and notification access to the preview app, and turn both off for the development build (Settings → Apps → Money Plant → Permissions). If both apps read the same SMS, the second one's sync is rejected as a duplicate.
+3. To ship a JavaScript fix to the phone without rebuilding: `cd apps/mobile && npx eas-cli@latest update --channel preview --message "<what changed>"`. The app downloads it on the next launch and uses it from the launch after that, so close and reopen the app twice.
+
+Updates only reach builds with the same `version` in `app.json`. A PR that changes native code (a new native package or config plugin) bumps that version, and then you need a new preview build.
+
+## 11. Day to day
 
 ```
 git fetch
