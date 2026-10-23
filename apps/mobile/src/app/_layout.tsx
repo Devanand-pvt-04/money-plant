@@ -85,7 +85,7 @@ export default function RootLayout() {
           <Stack.Screen name="budget/[id]" options={{ title: 'Budget' }} />
           <Stack.Screen name="account-types" options={{ title: 'Account types' }} />
           <Stack.Screen name="capture" options={{ title: 'Bank SMS' }} />
-          <Stack.Screen name="upi-test" options={{ title: 'UPI hand-off test' }} />
+          <Stack.Screen name="pay" options={{ title: 'Scan and pay', presentation: 'modal' }} />
           <Stack.Screen name="recurring/index" options={{ title: 'Recurring payments' }} />
           <Stack.Screen name="recurring/[id]" options={{ title: 'Recurring payment' }} />
           <Stack.Screen name="people/index" options={{ title: 'People and IOUs' }} />

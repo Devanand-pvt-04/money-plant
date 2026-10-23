@@ -169,3 +169,64 @@ describe('ingestNotification', () => {
     expect(store.pending.size).toBe(0);
   });
 });
+
+describe('payments started from Money Plant (PAY-2)', () => {
+  /** What the scan and pay screen writes before the UPI app opens. */
+  async function handOff(store: MemoryStore, accountId: string, at: string, rupees: number, reviewReason: 'payment_unconfirmed' | null) {
+    const food = await store.systemAccount('uncategorised_expense');
+    await store.saveTransaction({
+      id: 'paid',
+      occurredAt: at,
+      counterparty: 'Chai Point',
+      kind: 'expense',
+      status: reviewReason ? 'pending' : 'confirmed',
+      confidence: 1,
+      reviewReason,
+      categoryReason: 'user',
+      categoryRuleId: null,
+      userSetFields: ['category'],
+      note: null,
+      postings: [
+        { id: 'own', accountId, amount: paise(-rupees * 100) },
+        { id: 'cat', accountId: food.id, amount: paise(rupees * 100) },
+      ],
+      sources: [
+        { id: 'app', kind: 'app_payment', sender: null, externalRef: null, fingerprint: 'app:paid', parsedFields: {}, receivedAt: at, confidence: 1, rawText: null },
+      ],
+    });
+  }
+
+  it('merges the bank SMS into the entry and moves it to the account that paid', async () => {
+    const { store, sms, accountNamed } = setup();
+    // An earlier SMS creates the HDFC account; the user picked a different one when paying.
+    await sms('VM-HDFCBK', HDFC_SENT('10.00', 'SOMEONE', '629400000009'), '2026-10-20T10:00:00.000Z');
+    await store.createAccount({ id: 'cash', type: 'cash', name: 'Cash', institution: null, last4: null });
+    await handOff(store, 'cash', '2026-10-21T10:00:00.000Z', 80, 'payment_unconfirmed');
+    const result = await sms('VM-HDFCBK', HDFC_SENT('80.00', 'CHAIPOINT', '629400000010'), '2026-10-21T10:01:30.000Z');
+    expect(result).toEqual({ outcome: 'attached', transactionId: 'paid' });
+    const tx = store.transactions.get('paid')!;
+    expect(tx.postings.find((p) => p.id === 'own')!.accountId).toBe(accountNamed('HDFC Bank ••1234').id);
+    expect(tx).toMatchObject({ status: 'confirmed', reviewReason: null, counterparty: 'Chai Point' });
+    expect(tx.sources.map((s) => s.kind)).toEqual(['app_payment', 'sms']);
+    expect(store.live()).toHaveLength(2);
+  });
+
+  it('confirms an exact match on the same account', async () => {
+    const { store, sms, accountNamed } = setup();
+    await sms('VM-HDFCBK', HDFC_SENT('10.00', 'SOMEONE', '629400000009'), '2026-10-20T10:00:00.000Z');
+    await handOff(store, accountNamed('HDFC Bank ••1234').id, '2026-10-21T10:00:00.000Z', 80, 'payment_unconfirmed');
+    await sms('VM-HDFCBK', HDFC_SENT('80.00', 'CHAIPOINT', '629400000010'), '2026-10-21T10:00:40.000Z');
+    expect(store.transactions.get('paid')).toMatchObject({ status: 'confirmed', reviewReason: null });
+    expect(store.live()).toHaveLength(2);
+  });
+
+  it('does not take a debit of another amount or one long after', async () => {
+    const { store, sms } = setup();
+    await store.createAccount({ id: 'cash', type: 'cash', name: 'Cash', institution: null, last4: null });
+    await handOff(store, 'cash', '2026-10-21T10:00:00.000Z', 80, null);
+    await sms('VM-HDFCBK', HDFC_SENT('81.00', 'CHAIPOINT', '629400000010'), '2026-10-21T10:01:00.000Z');
+    await sms('VM-HDFCBK', HDFC_SENT('80.00', 'CHAIPOINT', '629400000011'), '2026-10-21T10:30:00.000Z');
+    expect(store.transactions.get('paid')!.sources).toHaveLength(1);
+    expect(store.live()).toHaveLength(3);
+  });
+});

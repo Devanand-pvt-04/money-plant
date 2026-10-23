@@ -21,7 +21,7 @@ export const SYSTEM_ACCOUNT_NAMES: Record<SystemAccountKey, string> = {
   adjustments: 'Balance adjustments',
 };
 
-export const SOURCE_KINDS = ['sms', 'notification', 'statement', 'cas', 'manual', 'shortcut'] as const;
+export const SOURCE_KINDS = ['sms', 'notification', 'statement', 'cas', 'manual', 'shortcut', 'app_payment'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export interface LedgerSource {
@@ -56,7 +56,8 @@ export type ReviewReason =
   | 'person'
   | 'possible_transfer'
   | 'pattern'
-  | 'category_unsure';
+  | 'category_unsure'
+  | 'payment_unconfirmed';
 
 export const REVIEW_REASON_LABELS: Record<ReviewReason, string> = {
   low_confidence: 'The message was hard to read',
@@ -65,6 +66,7 @@ export const REVIEW_REASON_LABELS: Record<ReviewReason, string> = {
   possible_transfer: 'Looks like a transfer between your accounts',
   pattern: 'Matched one of your patterns',
   category_unsure: 'Not sure about the category',
+  payment_unconfirmed: "The UPI app didn't say if this payment went through",
 };
 
 /**

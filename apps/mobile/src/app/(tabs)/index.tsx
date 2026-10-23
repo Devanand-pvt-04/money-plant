@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
@@ -94,11 +94,25 @@ export default function Home() {
         contentContainerStyle={[styles.container, { paddingTop: insets.top + 20 }]}
         refreshControl={<RefreshControl refreshing={syncing} onRefresh={refresh} progressViewOffset={insets.top} />}
       >
-        <View>
-          <Text style={styles.date}>
-            {DAYS[now.getDay()]}, {now.getDate()} {MONTHS[now.getMonth()]}
-          </Text>
-          <Text style={styles.hello}>{greeting(now)}</Text>
+        <View style={styles.between}>
+          <View>
+            <Text style={styles.date}>
+              {DAYS[now.getDay()]}, {now.getDate()} {MONTHS[now.getMonth()]}
+            </Text>
+            <Text style={styles.hello}>{greeting(now)}</Text>
+          </View>
+          {Platform.OS === 'android' && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Scan and pay"
+              hitSlop={8}
+              onPress={() => router.push('/pay')}
+              style={({ pressed }) => [styles.scan, pressed && styles.pressed]}
+            >
+              <Feather name="maximize" size={18} color={colors.text} />
+              <Text style={styles.scanText}>Pay</Text>
+            </Pressable>
+          )}
         </View>
 
         {!smsReady && (
@@ -247,6 +261,8 @@ const styles = StyleSheet.create({
   calloutText: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   month: { padding: 20, borderRadius: 20, backgroundColor: colors.subtle, gap: 14 },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  scan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 40, borderRadius: radius.pill, backgroundColor: colors.subtle },
+  scanText: { fontSize: 14, fontWeight: '600', color: colors.text },
   monthLabel: { fontSize: 13, fontWeight: '500', color: colors.muted },
   pill: { fontSize: 12, fontWeight: '600', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' },
   pillOk: { color: colors.primary, backgroundColor: colors.primarySurface },

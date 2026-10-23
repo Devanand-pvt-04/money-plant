@@ -168,8 +168,8 @@ The app never moves money (PAY-1, PAY-2). It reads a UPI QR, then hands the paym
 1. The camera (expo-camera barcode scanning) reads the QR. A UPI QR is a `upi://pay` link with `pa` (payee UPI ID), `pn` (name) and optionally `am` (amount), `tn` (note) and `mc` (merchant code). Other QR codes are rejected.
 2. The user confirms the amount, category and optional split. The app adds its own `tr` reference.
 3. On Android the app starts the `upi://pay` intent for the chosen app's package, or a chooser, and waits for the activity result. UPI apps return a response string with `Status`, `txnId` and `responseCode`, but not reliably.
-4. The app writes the entry with an `app_payment` source holding the payee, amount, our reference and the app's response. A SUCCESS response confirms it. No response leaves it pending and asks "Did it go through?"
-5. The entry has no account until the bank SMS arrives, because the user picks the bank inside the UPI app. The matcher merges the first debit of the same amount within 10 minutes into it, and the SMS supplies the account. Without SMS tracking, the user picks the account when confirming.
+4. Before the UPI app opens, the app writes the entry with an `app_payment` source holding the payee, amount, our reference and, afterwards, the app's response. It waits in Review as "didn't say if it went through" (`payment_unconfirmed`). A SUCCESS response confirms it, a FAILURE removes it, and anything else asks "Did it go through?". Writing first means the entry survives Android killing Money Plant while the UPI app is open.
+5. The user picks an account when confirming (the one they last paid this payee from), but the bank is really chosen inside the UPI app. The matcher merges the first debit SMS of the same amount within 10 minutes into the entry on any of the user's accounts, moves the entry to the account the SMS names, and confirms it. A shop's own `tr` reference, which may be signed, is passed through unchanged, and a QR that fixes the amount can't be changed.
 
 Some UPI apps decline or limit payments started by another app, especially to personal UPI IDs. A test build checks Google Pay, PhonePe, a bank app and slice before milestone 3. Where an app refuses, the fallback is to log the entry and open that app's own scanner, or copy the UPI ID. IOU-3's pay links use the same hand-off and inherit the result.
 
@@ -191,6 +191,7 @@ The matcher runs these rules in order and stops at the first that fits. The thre
 | --- | --- | --- |
 | Same reference | Same UPI RRN, card auth code or NEFT UTR as an existing source | Attach as another source; raise confidence |
 | Same payment, no reference | Same account last 4, same amount, same direction, within 10 minutes | Attach as another source |
+| Payment started in the app | A debit of the same amount on any of the user's accounts, within 10 minutes after a scan-and-pay entry that has no SMS yet | Attach as another source; move the entry to that account and confirm it |
 | Self-transfer | Debit in one owned account and credit of the same amount in another owned account within 24 hours | Merge into one transfer transaction with no category |
 | Card bill payment | Debit from a bank account to a payee that matches an owned card's issuer, and a card credit within 3 days | Post as a transfer to the card's liability account |
 | Refund | Credit from a merchant that had an earlier debit of an equal or larger amount in the last 60 days | Post against the original category |
