@@ -1,6 +1,6 @@
 # Money Plant PRD
 
-21 Oct 2026, updated 22 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
+21 Oct 2026, updated 23 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
 
 Money Plant is an Android app (iOS later) for Deva and friends. It keeps one accurate, cloud-synced ledger of all their money and fills it mostly without typing. This PRD defines the MVP. `docs/architecture.md` describes how it is built.
 
@@ -96,7 +96,7 @@ The MVP has 56 requirements across 11 areas. "Must" items block the first releas
 | BUD-1 | Monthly budget per category (parent or sub-category) and overall | Must |
 | BUD-2 | Mid-month pace alerts when a category is on track to overspend | Must |
 | BUD-3 | Overspend breakdown by category, merchant and largest transactions, versus budget and the last 3 months | Must |
-| BUD-4 | AI month review on the 1st: what went over, why, and suggested budget changes the user can accept in one tap | Must |
+| BUD-4 | Month review on the 1st: what went over, why, and suggested budget changes the user can accept in one tap. It starts as a numbers review; the AI-written explanation comes in milestone 6 | Must |
 
 ### Net worth and investments
 
@@ -244,21 +244,22 @@ These items are deliberately left out of the MVP.
 
 ## Build milestones
 
-There are six milestones, in order. Each one ends with something Deva can use on a real phone before friends see it.
+There are seven milestones, in order. Each one ends with something Deva can use on a real phone before friends see it.
 
 1. **Foundation.** Repo, Expo app shell, Supabase project, sign-in, encrypted local database, and sync of a simple accounts table. *Exit:* sign in on two phones and see the same accounts.
 2. **Ledger and capture on Android.** SMS reader, parser for Deva's own banks, double-entry ledger, dedupe, transfers, review inbox. *Exit:* one month of Deva's real SMS produces balances that match the bank.
-3. **Categories and budgets.** Two-level default categories, custom account types, rules, learned patterns, merchant dictionary, AI fallback, "why" labels and a rules screen, fields the user set that never get overwritten, budgets, pace alerts, overspend breakdown. *Exit:* 90% of a month's entries are categorised without edits.
+3. **Categories and budgets.** Two-level default categories, custom account types, rules, learned patterns, merchant dictionary, "why" labels and a rules screen, fields the user set that never get overwritten, budgets, pace alerts, overspend breakdown. *Exit:* after a month of corrections, rules, patterns and the dictionary categorise most new entries.
 4. **Recurring payments, IOUs, splits and scan to pay.** Recurring detection, reminders, IOU book, shared IOUs, UPI pay links, auto-settle, personal splits and groups, contact matching, QR scan and pay. *Exit:* a real loan between two testers settles end to end, and a real restaurant bill is split and settled.
 
 Before milestone 3, a one-day test build checks how Google Pay, PhonePe, a bank app and slice handle a payment handed off from another app, for a shop QR and a friend's QR. It decides whether PAY-1 and IOU-3 open the UPI app directly or fall back to its own scanner.
-Between milestones 3 and 4, a short design step (about a week) sets the look and navigation before the screen count grows. It adds a design system (colours, type, spacing and core components, light and dark), bottom tabs (Home, Activity, Budgets, Money, with a badge for items to review) and a redesign of the four daily screens: home, review inbox, transaction list and detail, and quick add. Clickable mockups come first, and Deva signs them off before any code. Later milestones build on the design system, and milestone 6 adds a polish pass (onboarding, empty states, app icon, accessibility). *Exit:* the UX goals below hold on Deva's phone for the four daily screens.
-5. **Net worth, imports and month review.** CAS import, FDs, daily prices, statement import, AI month review. *Exit:* net worth matches the user's own sum within 1%.
-6. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
+Between milestones 3 and 4, a short design step (about a week) sets the look and navigation before the screen count grows. It adds a design system (colours, type, spacing and core components, light and dark), bottom tabs (Home, Activity, Budgets, Money, with a badge for items to review) and a redesign of the four daily screens: home, review inbox, transaction list and detail, and quick add. Clickable mockups come first, and Deva signs them off before any code. Later milestones build on the design system, and milestone 7, the friends release, adds a polish pass (onboarding, empty states, app icon, accessibility). *Exit:* the UX goals below hold on Deva's phone for the four daily screens.
+5. **Net worth, imports and month review.** CAS import, FDs, daily prices, statement import, month review with numbers (no AI yet). *Exit:* net worth matches the user's own sum within 1%.
+6. **AI.** A self-hosted open model on Deva's PC (decision 0006): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
+7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
 ## Free-tier plan
 
-Every MVP service fits in a free tier except phone OTP and AI calls. Phone sign-in moves to after the MVP, and AI is the one small paid item, under a hard monthly cap.
+Every MVP service fits in a free tier except phone OTP, so phone sign-in moves to after the MVP. AI runs on Deva's own PC, so it has no usage fees.
 
 | Service | Free option | Limit to watch |
 | --- | --- | --- |
@@ -272,7 +273,7 @@ Every MVP service fits in a free tier except phone OTP and AI calls. Phone sign-
 | Monitoring | Sentry free developer plan | Event quota |
 | Android distribution | Share the APK directly | No Play Store fee |
 | iOS distribution | Deferred along with iOS | The Apple Developer Program costs about $99 a year when needed |
-| AI | Claude through the Anthropic API | Paid by Deva, with a hard monthly cap |
+| AI | Self-hosted open model on Deva's PC (Ollama) | Works only while the PC is on; AI jobs wait in a queue meanwhile |
 
 ## Resolved questions
 
@@ -280,4 +281,4 @@ Every MVP service fits in a free tier except phone OTP and AI calls. Phone sign-
 - Running costs: none in the MVP. Use free tiers only; Deva pays only where a feature can't work without it.
 - iOS ships after the Android MVP.
 - Order in the "settle with" picker: Google Pay, PhonePe, the user's bank apps (iMobile, HDFC Bank, YONO SBI, HSBC India), then slice, then any other UPI app.
-- AI provider: Claude through the Anthropic API, paid by Deva, with a hard monthly spend cap (decided 21 Oct 2026).
+- AI provider: a self-hosted open model on Deva's PC, built in milestone 6 (decided 23 Oct 2026, decision 0006). This replaces the Anthropic API decision of 21 Oct 2026.

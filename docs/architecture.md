@@ -1,6 +1,6 @@
 # Money Plant architecture notes
 
-21 Oct 2026, updated 22 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
+21 Oct 2026, updated 23 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
 
 Money Plant is one React Native app (Expo, TypeScript) for Android, with iOS to follow. It has a Supabase backend in Mumbai and a shared TypeScript core for parsing and ledger rules. These notes describe how to build what `docs/PRD.md` specifies.
 
@@ -23,7 +23,7 @@ Supabase, Mumbai region
         ^ keys stay server-side
         v
 External services
-  Anthropic API (Haiku, Sonnet) | SMTP (email OTP) | AMFI, exchanges (prices) | Expo push
+  Deva's PC: AI worker + Ollama (pulls AI jobs) | SMTP (email OTP) | AMFI, exchanges (prices) | Expo push
 ```
 
 Every capture path feeds the same TypeScript core, so Android, iOS and the backend agree on how a message becomes a ledger entry.
@@ -43,7 +43,7 @@ Everything is TypeScript except a few small native modules. The parser and ledge
 | Backend | Supabase: Postgres, Auth, Row-Level Security, Storage, Edge Functions (TypeScript on Deno), scheduled jobs | Managed, Mumbai region, free tier |
 | Sign-in | Supabase Auth with email OTP through a free SMTP sender. Phone OTP comes later via a DLT-registered provider such as MSG91 | Email is free; SMS OTPs cost money |
 | CAS parsing | A small Python service running casparser on a free tier | casparser is Python; files are deleted after parsing |
-| AI | Anthropic API: claude-haiku-5-5 for categorisation, claude-sonnet-5-5 for the month review, under a hard monthly cap | Haiku is fast and cheap for many small calls; Sonnet writes better for the monthly review |
+| AI | A self-hosted open-weights model (7 to 8B, 4-bit) on Ollama on Deva's PC, fed by a job queue in Postgres (milestone 6) | No usage fees or prepaid credits, and Deva owns the model; an 8 GB GPU fits this size |
 | Push notifications | Expo Notifications (FCM, plus APNs later) | Reminders and review prompts |
 | Monitoring | Sentry (free plan) | Crash and error reports |
 | CI | GitHub Actions with EAS Build | Builds the APK |
@@ -127,7 +127,7 @@ Every source ends in the same five steps on the phone: parse, match, categorise,
 
 1. **Parse.** `packages/parser` tries the bank's templates (regex with named groups for amount, direction, account last 4, merchant or VPA, reference, balance and date). If none match, a generic parser looks for an amount and direction keywords. Failures are counted per sender for CAP-8.
 2. **Match.** `packages/matcher` checks whether this source belongs to an existing transaction (see the next section).
-3. **Categorise.** `packages/categoriser` applies user rules, then learned patterns, then the merchant dictionary. If the merchant is still unknown, it queues an AI request. Patterns run before the payments-to-people check (CAT-4), so a bus conductor's personal UPI ID that matches the morning pattern is not asked about.
+3. **Categorise.** `packages/categoriser` applies user rules, then learned patterns, then the merchant dictionary. If the merchant is still unknown, it asks the shared dictionary, and from milestone 6 the AI. Patterns run before the payments-to-people check (CAT-4), so a bus conductor's personal UPI ID that matches the morning pattern is not asked about.
 4. **Post.** A transaction with two postings is written to the local database. Its status is pending or confirmed, depending on confidence and the account's auto-confirm setting. If the transaction already exists, only fields not in user_set_fields are updated.
 5. **Queue for sync.** The change is pushed to Supabase on the next sync.
 
@@ -196,27 +196,35 @@ If conflicts become a real problem, a sync library (for example PowerSync or Ele
 
 ## AI services
 
-Two edge functions call the Anthropic API. The app never holds the API key, and each call sends only what its task needs. A hard monthly spend cap applies.
+AI runs on a self-hosted open model on Deva's PC, not a paid API (decision 0006). It is built in milestone 6, just before the friends release. Until then, categorising uses rules, learned patterns and the merchant dictionary, and the month review shows numbers without an AI write-up.
+
+**How it runs.**
+
+- Ollama on Deva's PC (16 GB RAM, RTX 4060 with 8 GB VRAM) serves a 7 to 8B open-weights model at 4-bit quantisation. The model is chosen in milestone 6 by testing two or three candidates on the labelled merchant set (see Testing).
+- AI work is a queue in Postgres (`ai_jobs`: kind, payload, status, result, timestamps). Edge functions add jobs and never call a model themselves.
+- A small worker on the PC polls the queue over HTTPS, claims jobs, runs them on the local model and writes results back through an edge function. It authenticates with a worker token kept in edge function secrets and on the PC. It only makes outgoing connections, so nothing on the PC is exposed to the internet.
+- When the PC is off, jobs wait. Entries stay in the review inbox, and the month review's write-up arrives when the PC is next on.
+- Jobs carry only what the task needs, the same fields the PRD's privacy rule allows. The consent screen (ACC-5) says that AI runs on Deva's PC.
 
 ### Categorisation (categorise function)
 
-On the phone, `packages/categoriser` tries the user's rules, then learned patterns, then the built-in merchant dictionary and the local merchant cache. Only what's left goes to this function, in batches of up to 25. Spend is recorded in `ai_usage` and checked against a global and a per-user monthly cap before every call (decision 0004).
+On the phone, `packages/categoriser` tries the user's rules, then learned patterns, then the built-in merchant dictionary and the local merchant cache. Only what's left goes to this function, in batches of up to 25.
 
 1. The phone asks for a category for a merchant label it couldn't resolve locally.
 2. The function checks the global merchants table. On a hit, it returns immediately.
-3. On a miss, it calls claude-haiku-5-5 with the merchant label, the VPA handle if any, an amount band (for example ₹100 to ₹500), the time of day and the list of category names. It asks for structured output: category, normalised merchant name and confidence.
-4. Results with a confidence of 0.8 or more are cached in the merchants table for everyone. Lower-confidence results go to the user's review inbox and are cached only after a user confirms them.
+3. Until milestone 6, a miss comes back as unknown, the entry waits in the review inbox, and the phone asks again after 30 days. From milestone 6, a miss becomes an AI job with the merchant label, the VPA handle if any, an amount band (for example ₹100 to ₹500), the time of day and the list of category names. The worker asks the model for structured output (category, normalised merchant name and confidence) using Ollama's JSON schema format.
+4. Results with a confidence of 0.8 or more are cached in the merchants table for everyone. Lower-confidence results go to the user's review inbox. A category the user confirms is shared through the merchants table, which already works before milestone 6.
 5. Payments to people (a personal VPA, or a name with no business keywords) skip AI and go straight to the review inbox (CAT-4).
 
 ### Month review (month-review function)
 
 1. A scheduled job runs on the 1st for each user, after the previous month's sync.
 2. The function computes the facts in SQL: spend per category against budget and the 3-month average, the top 10 transactions in each overspent category, recurring payments that changed, and IOUs that went overdue.
-3. It sends those facts, with merchant names and amounts, to claude-sonnet-5-5 and asks for a short review. The review has a headline, 2 to 4 causes each linked to transaction IDs, and budget suggestions as structured data.
-4. The function checks that every number in the review appears in the facts it sent. It drops any suggestion that references a missing transaction, so the review can't invent figures.
+3. In milestone 5 the review shows these facts directly: the headline overspend, the categories and transactions behind it, and budget suggestions from simple rules. From milestone 6, an AI job sends the facts to the model for a short review: a headline, 2 to 4 causes each linked to transaction IDs, and budget suggestions as structured data.
+4. The function checks that every number in the AI review appears in the facts it sent. It drops any suggestion that references a missing transaction, so the review can't invent figures. If the check fails, the numbers review stays.
 5. The result is stored in month_reviews and a push notification is sent.
 
-**Cost control.** Because merchants are cached, most AI calls happen in the first few weeks. After that, a typical user should need only a few categorisation calls a week plus one review a month. A per-user monthly cap and a global hard cap stop runaway usage.
+**Cost control.** Self-hosting has no per-call cost. The limits are the PC's uptime and speed, so jobs are batched (25 merchants per categorisation job) and merchants are cached for everyone. The `ai_usage` table and spend caps from decision 0004 are no longer used.
 
 ## Security and privacy
 

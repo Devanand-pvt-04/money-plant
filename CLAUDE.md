@@ -14,17 +14,17 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 - `packages/core`, `parser`, `matcher`, `categoriser`, `db-schema`: shared logic, no React imports
 - `supabase/`: Postgres migrations with row-level security, edge functions (Deno, TypeScript)
 - `services/cas-parser`: Python service wrapping casparser
-- AI: Anthropic API, called only from edge functions. Use `claude-haiku-5-5` for categorising and `claude-sonnet-5-5` for the month review.
+- AI: a self-hosted open model (Ollama) on Deva's PC. Edge functions queue AI jobs in Postgres and a worker on the PC runs them; nothing calls a model directly. Built in milestone 6 (decision 0006).
 
 ## Rules
 
 - Money is always integer paise. Never use floating point for amounts.
 - Every transaction's postings sum to zero (double-entry). Write balances only as sums of postings, never as stored totals.
 - Every transaction has at least one source row. No entry exists without a source.
-- Raw SMS text never leaves the device. Don't log it, sync it or send it to AI. Only parsed fields leave the parser.
-- Secrets (Anthropic, SMTP, MSG91) live only in Supabase edge function secrets. Never put them in the app or the repo.
+- Raw SMS text never leaves the device. Don't log it, sync it or put it in an AI job. Only parsed fields leave the parser.
+- Secrets (AI worker token, SMTP, MSG91) live only in Supabase edge function secrets. Never put them in the app or the repo.
 - Every new table needs `updated_at`, `deleted_at` and a client-generated UUID primary key, plus row-level security policies.
-- Free tiers only. Don't add a paid service without asking. The Anthropic API is the one exception, and it runs under a hard monthly cap.
+- Free tiers only. Don't add a paid service without asking.
 - Support these banks first: ICICI, HDFC, HSBC, SBI. Adding a bank format needs anonymised fixtures in `packages/parser/fixtures/<bank>/`.
 - Never add code that moves money. UPI links only hand off to the user's own UPI app.
 
