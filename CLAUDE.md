@@ -14,7 +14,7 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 - `packages/core`, `parser`, `matcher`, `categoriser`, `db-schema`: shared logic, no React imports
 - `supabase/`: Postgres migrations with row-level security, edge functions (Deno, TypeScript)
 - `services/cas-parser`: Python service wrapping casparser
-- AI: a self-hosted open model (Ollama) on Deva's PC. Edge functions queue AI jobs in Postgres and a worker on the PC runs them; nothing calls a model directly. Built in milestone 6 (decision 0005).
+- AI: a self-hosted open model (Ollama) on Deva's PC. Edge functions queue AI jobs in Postgres and a worker on the PC runs them; nothing calls a model directly. Built in milestone 6 (decision 0006).
 
 ## Rules
 

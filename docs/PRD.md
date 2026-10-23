@@ -249,7 +249,7 @@ There are seven milestones, in order. Each one ends with something Deva can use 
 
 Before milestone 3, a one-day test build checks how Google Pay, PhonePe, a bank app and slice handle a payment handed off from another app, for a shop QR and a friend's QR. It decides whether PAY-1 and IOU-3 open the UPI app directly or fall back to its own scanner.
 5. **Net worth, imports and month review.** CAS import, FDs, daily prices, statement import, month review with numbers (no AI yet). *Exit:* net worth matches the user's own sum within 1%.
-6. **AI.** A self-hosted open model on Deva's PC (decision 0005): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
+6. **AI.** A self-hosted open model on Deva's PC (decision 0006): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
 ## Free-tier plan
@@ -276,4 +276,4 @@ Every MVP service fits in a free tier except phone OTP, so phone sign-in moves t
 - Running costs: none in the MVP. Use free tiers only; Deva pays only where a feature can't work without it.
 - iOS ships after the Android MVP.
 - Order in the "settle with" picker: Google Pay, PhonePe, the user's bank apps (iMobile, HDFC Bank, YONO SBI, HSBC India), then slice, then any other UPI app.
-- AI provider: a self-hosted open model on Deva's PC, built in milestone 6 (decided 23 Oct 2026, decision 0005). This replaces the Anthropic API decision of 21 Oct 2026.
+- AI provider: a self-hosted open model on Deva's PC, built in milestone 6 (decided 23 Oct 2026, decision 0006). This replaces the Anthropic API decision of 21 Oct 2026.

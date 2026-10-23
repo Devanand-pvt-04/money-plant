@@ -6,7 +6,7 @@
 // gets them from the dictionary.
 //
 // No AI runs here yet. A self-hosted model on Deva's PC takes over the misses
-// in the AI milestone (decision 0005); until then they stay uncategorised and
+// in the AI milestone (decision 0006); until then they stay uncategorised and
 // the phone asks again after MERCHANT_RECHECK_DAYS.
 //
 // It never receives raw SMS text, account numbers or phone numbers: only a

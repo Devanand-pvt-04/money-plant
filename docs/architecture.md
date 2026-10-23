@@ -196,7 +196,7 @@ If conflicts become a real problem, a sync library (for example PowerSync or Ele
 
 ## AI services
 
-AI runs on a self-hosted open model on Deva's PC, not a paid API (decision 0005). It is built in milestone 6, just before the friends release. Until then, categorising uses rules, learned patterns and the merchant dictionary, and the month review shows numbers without an AI write-up.
+AI runs on a self-hosted open model on Deva's PC, not a paid API (decision 0006). It is built in milestone 6, just before the friends release. Until then, categorising uses rules, learned patterns and the merchant dictionary, and the month review shows numbers without an AI write-up.
 
 **How it runs.**
 

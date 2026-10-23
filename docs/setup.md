@@ -131,7 +131,7 @@ If Android shows **Restricted setting** when you allow SMS or notification acces
 Milestone 3 adds `expo-notifications` (budget alerts), so the development build must be rebuilt once.
 
 1. Supabase: `npx supabase db push` (or run `supabase/migrations/20261023000000_categories_budgets.sql` in the SQL Editor).
-2. Shared merchant dictionary: `npx supabase functions deploy categorise`. It needs no secrets. AI categorising comes in milestone 6, on a self-hosted model (decision 0005).
+2. Shared merchant dictionary: `npx supabase functions deploy categorise`. It needs no secrets. AI categorising comes in milestone 6, on a self-hosted model (decision 0006).
 3. Rebuild and reinstall the dev app: `npx eas-cli@latest build --profile development --platform android`.
 
 ## 10. Preview build for multi-day tests

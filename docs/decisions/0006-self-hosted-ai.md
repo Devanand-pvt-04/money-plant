@@ -1,4 +1,4 @@
-# 0005: Self-hosted AI, built in milestone 6
+# 0006: Self-hosted AI, built in milestone 6
 
 Date: 2026-10-23. Decided by Deva in the "Self-hosted AI model" thread. Replaces the AI provider choice in 0001 and the AI cost row in 0004.
 
