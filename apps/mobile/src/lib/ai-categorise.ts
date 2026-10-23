@@ -31,7 +31,7 @@ let running: Promise<AiRunResult> | null = null;
 /**
  * The last layer of CAT-2. Collects merchants on uncategorised business
  * entries that the phone hasn't asked about recently, asks the categorise
- * edge function (shared dictionary first, then Claude), caches the answers on
+ * edge function (the shared dictionary; AI joins in the AI milestone), caches the answers on
  * the phone and re-runs the categoriser over those entries. Payments to
  * people are never sent (CAT-4). Safe to call often; concurrent calls share one run.
  */

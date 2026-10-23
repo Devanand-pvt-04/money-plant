@@ -42,7 +42,7 @@ On Windows, clone to a short path such as `C:\dev\money-plant`, because Android 
 
 ## 3. Environment variables
 
-`apps/mobile/.env` is already in the repo. It holds the Supabase URL and anon key, which are public by design; row-level security protects the data. Nothing secret goes in the app. Server secrets (the Anthropic key later) go in Supabase edge function secrets.
+`apps/mobile/.env` is already in the repo. It holds the Supabase URL and anon key, which are public by design; row-level security protects the data. Nothing secret goes in the app. Server secrets (such as the AI worker token in milestone 6) go in Supabase edge function secrets.
 
 ## 4. Supabase (once per project)
 
@@ -131,7 +131,7 @@ If Android shows **Restricted setting** when you allow SMS or notification acces
 Milestone 3 adds `expo-notifications` (budget alerts), so the development build must be rebuilt once.
 
 1. Supabase: `npx supabase db push` (or run `supabase/migrations/20261023000000_categories_budgets.sql` in the SQL Editor).
-2. AI categorising (optional, the app works without it): `npx supabase secrets set ANTHROPIC_API_KEY=<key>`, then `npx supabase functions deploy categorise`. Optional caps: `npx supabase secrets set AI_MONTHLY_CAP_USD=5 AI_USER_MONTHLY_CAP_USD=1`. Also set a monthly spend limit in the Anthropic console.
+2. Shared merchant dictionary: `npx supabase functions deploy categorise`. It needs no secrets. AI categorising comes in milestone 6, on a self-hosted model (decision 0005).
 3. Rebuild and reinstall the dev app: `npx eas-cli@latest build --profile development --platform android`.
 
 ## 10. Preview build for multi-day tests
