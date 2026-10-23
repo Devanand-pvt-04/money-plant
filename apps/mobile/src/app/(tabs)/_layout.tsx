@@ -34,7 +34,7 @@ export default function TabsLayout() {
           title: 'Activity',
           tabBarIcon: icon('list'),
           tabBarBadge: pending > 0 ? pending : undefined,
-          tabBarBadgeStyle: { backgroundColor: colors.warning, fontSize: 10 },
+          tabBarBadgeStyle: { backgroundColor: colors.warning, color: colors.onInk, fontSize: 10 },
         }}
       />
       <Tabs.Screen name="budgets" options={{ title: 'Budgets', tabBarIcon: icon('pie-chart') }} />

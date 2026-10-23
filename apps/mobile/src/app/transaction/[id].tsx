@@ -152,7 +152,7 @@ function SourceCard({ source }: { source: LedgerSource }) {
   const what = source.kind === 'sms' ? 'an SMS' : source.kind === 'notification' ? 'an app notification' : source.kind === 'manual' ? 'your quick add' : `a ${source.kind}`;
   return (
     <View style={styles.source}>
-      <Feather name={source.kind === 'manual' ? 'edit-3' : 'message-circle'} size={18} color="#3E4440" style={styles.sourceIcon} />
+      <Feather name={source.kind === 'manual' ? 'edit-3' : 'message-circle'} size={18} color={colors.secondary} style={styles.sourceIcon} />
       <View style={styles.grow}>
         <Text style={styles.sourceTitle}>
           From {what}

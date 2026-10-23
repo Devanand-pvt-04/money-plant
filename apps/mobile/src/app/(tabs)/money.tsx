@@ -3,14 +3,22 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatRupees } from '@money-plant/core';
-import { Button, Card, SectionTitle, colors } from '@/components/ui';
+import { Button, Card, Chip, Chips, SectionTitle, colors } from '@/components/ui';
 import { listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
 import { signOut } from '@/lib/session';
+import { setThemePreference, themePreference, type ThemePreference } from '@/lib/theme';
 import { useLedger } from '@/lib/use-ledger';
+
+const THEMES: { key: ThemePreference; label: string }[] = [
+  { key: 'system', label: 'Same as phone' },
+  { key: 'light', label: 'Light' },
+  { key: 'dark', label: 'Dark' },
+];
 
 /** Accounts, net worth so far, and the settings that shape the ledger. */
 export default function Money() {
   const { data: balances } = useLedger(listAccountBalances, [] as AccountBalance[]);
+  const theme = themePreference();
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.hero}>
@@ -29,6 +37,13 @@ export default function Money() {
         </Card>
       )}
       <Button title="Add account" variant="secondary" onPress={() => router.push('/add-account')} />
+
+      <SectionTitle>Appearance</SectionTitle>
+      <Chips>
+        {THEMES.map((t) => (
+          <Chip key={t.key} label={t.label} selected={theme === t.key} onPress={() => setThemePreference(t.key)} />
+        ))}
+      </Chips>
 
       <SectionTitle>Settings</SectionTitle>
       <Card>

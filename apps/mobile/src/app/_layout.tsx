@@ -1,11 +1,34 @@
-import { Stack } from 'expo-router';
+import { useEffect } from 'react';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
 import { ActivityIndicator, View } from 'react-native';
 import { colors } from '@/components/ui';
 import { useSession } from '@/lib/session';
+import { followSystemScheme, scheme } from '@/lib/theme';
+
+const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+const navigationTheme = {
+  ...base,
+  colors: {
+    ...base.colors,
+    primary: colors.primary,
+    background: colors.background,
+    card: colors.background,
+    text: colors.text,
+    border: colors.border,
+    notification: colors.warning,
+  },
+};
 
 export default function RootLayout() {
   const { session, loading } = useSession();
+
+  useEffect(() => {
+    // The window behind the app, so screen transitions never flash white in dark mode.
+    SystemUI.setBackgroundColorAsync(colors.background).catch(() => {});
+    return followSystemScheme();
+  }, []);
 
   if (loading) {
     return (
@@ -17,8 +40,8 @@ export default function RootLayout() {
 
   const signedIn = session !== null;
   return (
-    <>
-      <StatusBar style="dark" />
+    <ThemeProvider value={navigationTheme}>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
           contentStyle: { backgroundColor: colors.background },
@@ -50,6 +73,6 @@ export default function RootLayout() {
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
-    </>
+    </ThemeProvider>
   );
 }

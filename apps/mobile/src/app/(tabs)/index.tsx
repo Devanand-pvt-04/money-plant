@@ -136,7 +136,7 @@ export default function Home() {
         onPress={() => router.push('/quick-add')}
         style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
       >
-        <Feather name="plus" size={26} color="#fff" />
+        <Feather name="plus" size={26} color={colors.onInk} />
       </Pressable>
     </View>
   );
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   pillWarn: { color: colors.warning, backgroundColor: colors.warningSurface },
   monthAmount: { fontSize: 34, fontWeight: '700', color: colors.text, letterSpacing: -0.8, fontVariant: ['tabular-nums'] },
   monthOf: { fontSize: 14, fontWeight: '400', color: colors.muted, letterSpacing: 0 },
-  monthNote: { fontSize: 13, color: '#3E4440', lineHeight: 19 },
+  monthNote: { fontSize: 13, color: colors.secondary, lineHeight: 19 },
   review: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
   },
   reviewCount: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
-  reviewCountText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  reviewCountText: { color: colors.onInk, fontWeight: '700', fontSize: 15 },
   grow: { flex: 1 },
   rowTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   meta: { fontSize: 13, color: colors.muted },
