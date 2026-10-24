@@ -106,6 +106,8 @@ const COUNTERPARTY_PATTERNS: readonly RegExp[] = [
   /\btransfer\s+from\s+([^\n]+?)(?=\s+Ref|\s+on\b|\.|$)/i,
   /;\s*([^;\n]+?)\s+credited\b/i,
   new RegExp(String.raw`\bat\s+([^\n]+?)` + STOP, 'i'),
+  // "debited ... towards NETFLIX for e-mandate": the payee of an autopay or bill payment.
+  new RegExp(String.raw`\btowards\s+([^\n]+?)` + STOP, 'i'),
   new RegExp(String.raw`\bfrom\s+([^\n]+?)` + STOP, 'gi'),
   new RegExp(String.raw`\bto\s+([^\n]+?)` + STOP, 'gi'),
   /\bInfo:?\s*([^\n]+?)(?=\.\s|\.$|\s+Avl|$)/i,

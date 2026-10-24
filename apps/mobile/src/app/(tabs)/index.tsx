@@ -10,7 +10,7 @@ import { ErrorText, ProgressBar, colors, radius } from '@/components/ui';
 import { categoriseWithAi } from '@/lib/ai-categorise';
 import { ensureDefaultCategories } from '@/lib/categories';
 import { currentMonth, incomeThisMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
-import { hasImportedInbox, importInbox } from '@/lib/capture';
+import { fillMissingPayees, hasImportedInbox, importInbox } from '@/lib/capture';
 import { countPending, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { displayName } from '@/lib/me';
 import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
@@ -68,6 +68,8 @@ export default function Home() {
     try {
       // Catch up on SMS that arrived while the receiver couldn't run, then sync.
       if (isSmsReaderAvailable && hasSmsPermission() && (await hasImportedInbox())) await importInbox();
+      // Payees a newer parser can now read, for entries captured before it (once per parser change).
+      await fillMissingPayees().catch(() => 0);
       await syncNow();
       setError(null);
       // REC-1, REC-4: new debits mark payments paid, steady ones become suggestions, reminders follow.

@@ -60,6 +60,9 @@ export const TEMPLATES: readonly Template[] = [
     String.raw`ICICI Bank Account ${MASK}(?<last>\d{3,4}) (?:is )?credited:?\s*${CUR}${A} on [\w\-]+\.\s*Info:?\s*(?<cp>[^\n]+?)\.\s*Available Balance is ${CUR}${BAL}`),
   t('icici.acct_debit', 'icici', 'debit', 'account',
     String.raw`ICICI Bank Acc(?:oun)?t ${MASK}(?<last>\d{3,4}) (?:is )?debited (?:with|for) ${CUR}${A} on [\w\-]+\.?\s*(?:Info:?\s*(?<cp>[^\n]+?)\.)?\s*Available Balance is ${CUR}${BAL}`),
+  // An autopay debit under a UPI mandate: SIPs, deposits, loan EMIs, subscriptions (REC-1).
+  t('icici.mandate_debit', 'icici', 'debit', 'account',
+    String.raw`${CUR}${A} debited from ICICI Bank (?:Savings |Current |Salary )?Acc(?:oun)?t ${MASK}(?<last>\d{3,4}) on [\w\-]+ towards (?<cp>[^\n]+?)\s+for (?:UPI )?(?:e-?)?Mandate AutoPay\b[^\n]*?Ref(?:erence)?\.?\s*No\.?\s*(?<ref>\d+)`),
   t('icici.card_payment', 'icici', 'credit', 'credit_card',
     String.raw`(?:Payment|We have received payment) of ${CUR}${A} (?:on|towards|for) (?:your )?ICICI Bank Credit Card ${MASK}(?<last>\d{4})`),
 
