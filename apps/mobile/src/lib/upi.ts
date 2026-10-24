@@ -2,16 +2,16 @@ import { Linking } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { and, desc, eq, gte, isNull } from 'drizzle-orm';
-import { buildUpiUri, parseUpiResponse, type Paise, type UpiPayment, type UpiStatus } from '@money-plant/core';
-import { rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
+import { buildUpiUri, parseUpiResponse, parseUpiUri, type Paise, type UpiPayment, type UpiStatus } from '@money-plant/core';
+import type { CategoryDecision } from '@money-plant/categoriser';
+import { decisionReview, rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
 import { transactions } from '@money-plant/db-schema';
-import { ownedAccountIds } from './categories';
+import { ownedAccountIds, pipelineCategoriser } from './categories';
 import { getDb } from './db';
 import { confirmEntry } from './entries';
 import { notifyLedgerChange } from './events';
 import { deleteTransaction } from './ledger';
-import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
-import { kvGet, kvSet } from './kv';
+import { loadTransactions, SqliteLedgerStore, systemAccountId, writeTransaction } from './ledger-store';
 
 /**
  * IOU-3, PAY-1: hands a upi://pay link to the user's own UPI app. Android
@@ -24,25 +24,6 @@ export async function openUpiLink(uri: string): Promise<void> {
   } catch {
     throw new Error('No UPI app on this phone opened the link');
   }
-}
-
-/** UPI apps to offer by name (decision 0003). Any other app is reached through Android's chooser. */
-export const UPI_APPS = [
-  { name: 'Google Pay', pkg: 'com.google.android.apps.nbu.paisa.user' },
-  { name: 'PhonePe', pkg: 'com.phonepe.app' },
-  { name: 'slice', pkg: 'indwin.c3.shareapp' },
-  { name: 'iMobile (ICICI)', pkg: 'com.csam.icici.bank.imobile' },
-  { name: 'HDFC Bank', pkg: 'com.snapwork.hdfc' },
-  { name: 'YONO SBI', pkg: 'com.sbi.lotusintouch' },
-  { name: 'HSBC India', pkg: 'com.hsbc.hsbcindia' },
-  { name: 'Paytm', pkg: 'net.one97.paytm' },
-  { name: 'BHIM', pkg: 'in.org.npci.upiapp' },
-] as const;
-
-const LAST_APP_KEY = 'pay.last_app';
-
-export async function lastUpiApp(): Promise<string | null> {
-  return kvGet(LAST_APP_KEY);
 }
 
 /** A merchant QR has a merchant code; a friend's has none or 0000. */
@@ -59,8 +40,8 @@ function responseText(result: IntentLauncher.IntentLauncherResult): string | und
   return result.data ?? undefined;
 }
 
-/** The category and account the user used last time for this payee, so a repeat payment is two taps. */
-export async function lastChoiceFor(vpa: string): Promise<{ categoryId: string | null; accountId: string | null }> {
+/** Recent expense entries, newest first, for the payee helpers below. */
+async function recentExpenses() {
   const db = await getDb();
   const since = new Date(Date.now() - 365 * 86_400_000).toISOString();
   const rows = db
@@ -70,20 +51,76 @@ export async function lastChoiceFor(vpa: string): Promise<{ categoryId: string |
     .orderBy(desc(transactions.occurredAt))
     .limit(500)
     .all();
-  const owned = ownedAccountIds(db);
-  const txs = loadTransactions(db, rows);
-  const target = vpa.toLowerCase();
-  const paid = txs.find((tx) =>
-    tx.sources.some((s) => {
-      const f = s.parsedFields as { vpa?: unknown };
-      return typeof f.vpa === 'string' && f.vpa.toLowerCase() === target;
-    }),
-  );
+  return { owned: ownedAccountIds(db), txs: loadTransactions(db, rows) };
+}
+
+const vpaOf = (tx: LedgerTransaction): string | null => {
+  for (const s of tx.sources) {
+    const f = s.parsedFields as { vpa?: unknown };
+    if (typeof f.vpa === 'string' && f.vpa.includes('@')) return f.vpa.toLowerCase();
+  }
+  return null;
+};
+
+/** PAY-1: people and shops paid by UPI lately, newest first, for paying again without scanning. */
+export async function recentPayees(limit = 4): Promise<UpiPayment[]> {
+  const { txs } = await recentExpenses();
+  const seen = new Map<string, UpiPayment>();
+  for (const tx of txs) {
+    const vpa = vpaOf(tx);
+    if (!vpa || seen.has(vpa)) continue;
+    const payee = parseUpiUri(`upi://pay?pa=${encodeURIComponent(vpa)}${tx.counterparty ? `&pn=${encodeURIComponent(tx.counterparty)}` : ''}`);
+    if (payee) seen.set(vpa, payee);
+    if (seen.size === limit) break;
+  }
+  return [...seen.values()];
+}
+
+export interface PayeeGuess {
+  /** The account the user usually pays from, shown as a hint; the UPI app decides. */
+  accountId: string | null;
+  /** What the entry is logged under until the user says, or null for Uncategorised. */
+  decision: CategoryDecision | null;
+  /** Why, in words, for the Paid sheet. */
+  hint: string | null;
+}
+
+/**
+ * PAY-1: the account and category to start a payment with. The category the
+ * user picked the last times they paid this UPI ID comes first, then the
+ * usual rules, patterns and merchant dictionary.
+ */
+export async function guessForPayee(payment: UpiPayment, amount: Paise | null): Promise<PayeeGuess> {
+  const { owned, txs } = await recentExpenses();
+  const target = payment.payeeVpa.toLowerCase();
+  const paid = txs.filter((tx) => vpaOf(tx) === target);
   // Without a past payment to them, the account of the latest UPI debit.
-  const latest = paid ?? txs.find((tx) => tx.postings.some((p) => owned.has(p.accountId) && p.amount < 0));
-  const own = latest?.postings.find((p) => owned.has(p.accountId));
-  const category = paid?.postings.find((p) => !owned.has(p.accountId) && p.amount > 0);
-  return { categoryId: category?.accountId ?? null, accountId: own?.accountId ?? null };
+  const latest = paid[0] ?? txs.find((tx) => tx.postings.some((p) => owned.has(p.accountId) && p.amount < 0));
+  const accountId = latest?.postings.find((p) => owned.has(p.accountId))?.accountId ?? null;
+  const categoryOf = (tx: LedgerTransaction) => tx.postings.find((p) => !owned.has(p.accountId) && p.amount > 0)?.accountId ?? null;
+  const last = paid[0] && paid[0].userSetFields.includes('category') ? categoryOf(paid[0]) : null;
+  if (last) {
+    let streak = 0;
+    while (streak < paid.length && streak < 3 && categoryOf(paid[streak]!) === last) streak++;
+    return {
+      accountId,
+      decision: { categoryId: last, reason: 'user', ruleId: null, confidence: 1, autoConfirm: true },
+      hint: streak > 1 ? `Your last ${streak} payments here` : 'Your last payment here',
+    };
+  }
+  if (!accountId) return { accountId, decision: null, hint: null };
+  const categorise = await pipelineCategoriser();
+  const decision = await categorise({
+    direction: 'debit',
+    amount: amount ?? (0 as Paise),
+    counterparty: payment.payeeName ?? null,
+    vpa: payment.payeeVpa,
+    accountId,
+    occurredAt: new Date().toISOString(),
+    payeeKind: isShop(payment) ? 'business' : 'person',
+  });
+  const hints: Record<string, string> = { rule: 'Your rule for this payee', pattern: 'Your usual pattern', dictionary: 'From the shop name', ai: 'A guess from the shop name' };
+  return { accountId, decision, hint: decision ? (hints[decision.reason] ?? null) : null };
 }
 
 export interface PaymentResult {
@@ -102,11 +139,10 @@ export interface PaymentResult {
 export async function payWithUpi(input: {
   payment: UpiPayment;
   amount: Paise;
-  categoryId: string;
+  /** The category to log it under for now; null is Uncategorised, which waits in Review. */
+  decision: CategoryDecision | null;
   accountId: string;
   note: string | null;
-  /** Null lets Android choose. */
-  appPackage: string | null;
 }): Promise<PaymentResult> {
   if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Enter an amount above zero');
   if (input.payment.amount !== undefined && input.payment.amount !== input.amount) throw new Error('This QR code fixes the amount');
@@ -116,7 +152,7 @@ export async function payWithUpi(input: {
   // Our own reference, unless the shop's QR carries one (it may be signed, and the shop matches on it).
   const reference = input.payment.reference ?? `MP${id.replace(/-/g, '').slice(0, 20).toUpperCase()}`;
   const note = input.note?.trim() || input.payment.note || undefined;
-  const app = UPI_APPS.find((a) => a.pkg === input.appPackage);
+  const categoryId = input.decision?.categoryId ?? (await systemAccountId('uncategorised_expense'));
   const counterparty = input.payment.payeeName?.trim() || input.payment.payeeVpa;
   const at = new Date().toISOString();
   const entry: LedgerTransaction = {
@@ -127,13 +163,13 @@ export async function payWithUpi(input: {
     status: 'pending',
     confidence: 1,
     reviewReason: 'payment_unconfirmed',
-    categoryReason: 'user',
-    categoryRuleId: null,
-    userSetFields: ['category', 'counterparty'],
+    categoryReason: input.decision?.reason ?? null,
+    categoryRuleId: input.decision?.ruleId ?? null,
+    userSetFields: input.decision?.reason === 'user' ? ['category', 'counterparty'] : ['counterparty'],
     note: note ?? null,
     postings: [
       { id: Crypto.randomUUID(), accountId: input.accountId, amount: -input.amount as Paise },
-      { id: Crypto.randomUUID(), accountId: input.categoryId, amount: input.amount },
+      { id: Crypto.randomUUID(), accountId: categoryId, amount: input.amount },
     ],
     sources: [
       {
@@ -150,7 +186,7 @@ export async function payWithUpi(input: {
           vpa: input.payment.payeeVpa,
           merchantCode: input.payment.merchantCode ?? null,
           reference,
-          app: app?.name ?? 'Android chooser',
+          app: 'Android chooser',
           status: 'started',
         },
         receivedAt: at,
@@ -168,16 +204,14 @@ export async function payWithUpi(input: {
   try {
     const result = await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
       data: buildUpiUri(input.payment, { amount: input.amount, reference, note }),
-      packageName: input.appPackage ?? undefined,
     });
     const response = parseUpiResponse(responseText(result));
     status = response.status;
     fields = { status, responseCode: response.responseCode ?? null, txnId: response.txnId ?? null, approvalRef: response.approvalRef ?? null };
   } catch (e) {
     await deleteTransaction(id);
-    throw new Error(`${app?.name ?? 'No UPI app'} didn't open. ${e instanceof Error ? e.message : ''}`.trim());
+    throw new Error(`No UPI app opened. ${e instanceof Error ? e.message : ''}`.trim());
   }
-  if (input.appPackage) await kvSet(LAST_APP_KEY, input.appPackage);
 
   // The SMS may have merged in while the UPI app was open; build on the entry as it is now.
   const [current] = loadTransactions(db, db.select().from(transactions).where(eq(transactions.id, id)).all());
@@ -185,7 +219,7 @@ export async function payWithUpi(input: {
   writeTransaction(db, {
     ...current,
     sources: current.sources.map((s) => (s.kind === 'app_payment' ? { ...s, parsedFields: { ...s.parsedFields, ...fields } } : s)),
-    ...(status === 'success' && current.reviewReason === 'payment_unconfirmed' ? { status: 'confirmed' as const, reviewReason: null } : {}),
+    ...(status === 'success' && current.reviewReason === 'payment_unconfirmed' ? settled(input.decision) : {}),
   });
   notifyLedgerChange();
   const smsArrived = current.sources.some((s) => s.kind === 'sms');
@@ -193,8 +227,19 @@ export async function payWithUpi(input: {
   return { transactionId: id, status: smsArrived ? 'success' : status };
 }
 
+/** A payment that went through is done, unless its category still needs the user (Uncategorised or a suggestion). */
+function settled(decision: CategoryDecision | null): Pick<LedgerTransaction, 'status' | 'reviewReason'> {
+  const review = decision ? decisionReview(decision) : 'category_unsure';
+  return review ? { status: 'pending', reviewReason: review } : { status: 'confirmed', reviewReason: null };
+}
+
 /** The user's answer to "Did it go through?" when the UPI app didn't say. */
-export async function settleUnconfirmed(transactionId: string, wentThrough: boolean): Promise<void> {
-  if (wentThrough) await confirmEntry(transactionId);
-  else await deleteTransaction(transactionId);
+export async function settleUnconfirmed(transactionId: string, wentThrough: boolean, decision: CategoryDecision | null): Promise<void> {
+  if (!wentThrough) return deleteTransaction(transactionId);
+  const db = await getDb();
+  const [tx] = loadTransactions(db, db.select().from(transactions).where(eq(transactions.id, transactionId)).all());
+  if (!tx) return;
+  if (tx.reviewReason !== 'payment_unconfirmed') return confirmEntry(transactionId);
+  writeTransaction(db, { ...tx, ...settled(decision) });
+  notifyLedgerChange();
 }

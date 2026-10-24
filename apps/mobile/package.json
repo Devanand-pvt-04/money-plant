@@ -18,6 +18,8 @@
     "expo-contacts": "~58.0.8",
     "expo-crypto": "~58.0.7",
     "expo-dev-client": "~58.0.14",
+    "expo-image-loader": "~58.0.3",
+    "expo-image-picker": "~58.0.10",
     "expo-intent-launcher": "~58.0.3",
     "expo-linking": "~58.0.13",
     "expo-notifications": "~58.1.6",
