@@ -10,6 +10,7 @@ import { formatDateTime, formatDay, formatTime } from '@/components/format';
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { whyLabel } from '@/components/why';
 import { useCategoryChange } from '@/components/use-category-change';
+import { Suggestion } from '@/components/recurring-rows';
 import { categoryNames } from '@/lib/categories';
 import { acceptPattern, confirmEntry, declinePattern } from '@/lib/entries';
 import {
@@ -21,7 +22,9 @@ import {
   type AccountBalance,
   type TransactionRow,
 } from '@/lib/ledger';
+import { listRecurring } from '@/lib/recurring';
 import { listRules } from '@/lib/rules-store';
+import type { RecurringPayment } from '@money-plant/matcher';
 import { useLedger } from '@/lib/use-ledger';
 
 interface Proposal {
@@ -31,11 +34,12 @@ interface Proposal {
 }
 
 async function load() {
-  const [pending, balances, rules, names] = await Promise.all([
+  const [pending, balances, rules, names, recurring] = await Promise.all([
     listTransactions({ pendingOnly: true }),
     listAccountBalances(),
     listRules(),
     categoryNames(),
+    listRecurring(),
   ]);
   const accountName = new Map(balances.map((b) => [b.account.id, b.account.name]));
   const proposals = rules
@@ -45,14 +49,20 @@ async function load() {
       text: describePattern(rule.match, rule.match.accountId ? (accountName.get(rule.match.accountId) ?? null) : null),
       category: names.get(rule.categoryId) ?? 'a category',
     }));
-  return { pending, gaps: balances.filter((b) => b.reconciliation?.flagged), proposals };
+  const suggested = recurring.filter((r) => r.status === 'proposed');
+  return { pending, gaps: balances.filter((b) => b.reconciliation?.flagged), proposals, suggested };
 }
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
 export default function Review() {
-  const { data } = useLedger(load, { pending: [] as TransactionRow[], gaps: [] as AccountBalance[], proposals: [] as Proposal[] });
+  const { data } = useLedger(load, {
+    pending: [] as TransactionRow[],
+    gaps: [] as AccountBalance[],
+    proposals: [] as Proposal[],
+    suggested: [] as RecurringPayment[],
+  });
   const { picker, change } = useCategoryChange();
-  const nothing = data.gaps.length === 0 && data.proposals.length === 0;
+  const nothing = data.gaps.length === 0 && data.proposals.length === 0 && data.suggested.length === 0;
 
   return (
     <>
@@ -70,6 +80,9 @@ export default function Review() {
             )}
             {data.proposals.map((p) => (
               <PatternCard key={p.rule.id} proposal={p} />
+            ))}
+            {data.suggested.map((item) => (
+              <Suggestion key={item.id} item={item} />
             ))}
             {data.gaps.length > 0 && <Gaps gaps={data.gaps} />}
           </>

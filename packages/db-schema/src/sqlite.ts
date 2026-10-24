@@ -1,5 +1,5 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AccountClass, AccountType } from '@money-plant/core';
+import type { AccountClass, AccountType, Cadence } from '@money-plant/core';
 
 /**
  * Local copy of public.accounts (see supabase/migrations). Extra local-only
@@ -221,7 +221,37 @@ export const merchantCache = sqliteTable('merchant_cache', {
   checkedAt: text('checked_at').notNull(),
 });
 
+/** Recurring payments: autopays, EMIs, rent and subscriptions (REC-1 to REC-4). See RecurringPayment in @money-plant/matcher. */
+export const recurring = sqliteTable(
+  'recurring',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    vpa: text('vpa'),
+    merchant: text('merchant'),
+    amountPaise: integer('amount_paise').notNull(),
+    cadence: text('cadence').$type<Cadence>().notNull(),
+    anchorDay: integer('anchor_day'),
+    /** "2026-10-25", on the phone's calendar. */
+    nextDue: text('next_due').notNull(),
+    accountId: text('account_id'),
+    categoryAccountId: text('category_account_id'),
+    status: text('status').$type<'active' | 'paused' | 'proposed' | 'declined'>().notNull(),
+    origin: text('origin').$type<'manual' | 'history' | 'pre_debit'>().notNull(),
+    mandateRef: text('mandate_ref'),
+    lastPaidAt: text('last_paid_at'),
+    lastTransactionId: text('last_transaction_id'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('recurring_dirty_idx').on(table.dirty)],
+);
+
 export type LocalAccount = typeof accounts.$inferSelect;
+export type LocalRecurring = typeof recurring.$inferSelect;
 export type LocalAccountType = typeof accountTypes.$inferSelect;
 export type LocalRule = typeof rules.$inferSelect;
 export type LocalBudget = typeof budgets.$inferSelect;
@@ -388,4 +418,28 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     checked_at TEXT NOT NULL
   );
   CREATE INDEX accounts_parent_idx ON accounts (parent_id);`,
+  // Milestone 4: recurring payments.
+  `CREATE TABLE recurring (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    vpa TEXT,
+    merchant TEXT,
+    amount_paise INTEGER NOT NULL,
+    cadence TEXT NOT NULL,
+    anchor_day INTEGER,
+    next_due TEXT NOT NULL,
+    account_id TEXT,
+    category_account_id TEXT,
+    status TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    mandate_ref TEXT,
+    last_paid_at TEXT,
+    last_transaction_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX recurring_dirty_idx ON recurring (dirty);`,
 ];

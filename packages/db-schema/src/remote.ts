@@ -1,10 +1,11 @@
-import type { AccountClass, AccountType } from '@money-plant/core';
+import type { AccountClass, AccountType, Cadence } from '@money-plant/core';
 import type {
   LocalAccount,
   LocalAccountType,
   LocalBalanceAnchor,
   LocalBudget,
   LocalPosting,
+  LocalRecurring,
   LocalRule,
   LocalSource,
   LocalTransaction,
@@ -397,6 +398,75 @@ export function fromRemoteBudget(row: RemoteBudget): LocalBudget {
     month: row.month.slice(0, 7),
     categoryAccountId: row.category_account_id,
     limitPaise: row.limit_paise === null ? null : Number(row.limit_paise),
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteRecurring {
+  id: string;
+  user_id: string;
+  name: string;
+  vpa: string | null;
+  merchant: string | null;
+  amount_paise: number;
+  cadence: Cadence;
+  anchor_day: number | null;
+  next_due: string;
+  account_id: string | null;
+  category_account_id: string | null;
+  status: LocalRecurring['status'];
+  origin: LocalRecurring['origin'];
+  mandate_ref: string | null;
+  last_paid_at: string | null;
+  last_transaction_id: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteRecurring(row: LocalRecurring): Omit<RemoteRecurring, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    name: row.name,
+    vpa: row.vpa,
+    merchant: row.merchant,
+    amount_paise: row.amountPaise,
+    cadence: row.cadence,
+    anchor_day: row.anchorDay,
+    next_due: row.nextDue,
+    account_id: row.accountId,
+    category_account_id: row.categoryAccountId,
+    status: row.status,
+    origin: row.origin,
+    mandate_ref: row.mandateRef,
+    last_paid_at: row.lastPaidAt,
+    last_transaction_id: row.lastTransactionId,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteRecurring(row: RemoteRecurring): LocalRecurring {
+  return {
+    id: row.id,
+    name: row.name,
+    vpa: row.vpa,
+    merchant: row.merchant,
+    amountPaise: Number(row.amount_paise),
+    cadence: row.cadence,
+    anchorDay: row.anchor_day === null ? null : Number(row.anchor_day),
+    nextDue: row.next_due,
+    accountId: row.account_id,
+    categoryAccountId: row.category_account_id,
+    status: row.status,
+    origin: row.origin,
+    mandateRef: row.mandate_ref,
+    lastPaidAt: row.last_paid_at === null ? null : iso(row.last_paid_at),
+    lastTransactionId: row.last_transaction_id,
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

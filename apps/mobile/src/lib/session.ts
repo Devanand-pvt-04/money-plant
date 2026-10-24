@@ -8,10 +8,12 @@ import {
   kv,
   pendingNotifications,
   postings,
+  recurring,
   sources,
   transactions,
 } from '@money-plant/db-schema';
 import { getDb } from './db';
+import { cancelScheduled } from './notifications';
 import { supabase } from './supabase';
 
 /** Current auth session; `loading` is true until the stored session has been read. */
@@ -34,8 +36,10 @@ export function useSession() {
 /** Signs out and wipes this phone's copy, so the next person to sign in starts clean. */
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
+  // Reminders name payees and amounts; they belong to the signed-out user.
+  await cancelScheduled('').catch(() => {});
   const db = await getDb();
-  for (const table of [accounts, transactions, postings, sources, balanceAnchors, balanceRefs, pendingNotifications, captureLog, kv]) {
+  for (const table of [accounts, transactions, postings, sources, balanceAnchors, balanceRefs, pendingNotifications, captureLog, recurring, kv]) {
     await db.delete(table);
   }
 }

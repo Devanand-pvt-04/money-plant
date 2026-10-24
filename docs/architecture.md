@@ -100,7 +100,7 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | split_group_members | id, user_id, group_id, person_account_id | People in a group |
 | ignored_senders | id, user_id, sender | Senders whose messages never create entries |
 | budgets | id, user_id, month, category_account_id, limit_paise | One row per category per month |
-| recurring | id, user_id, payee, amount_paise, cadence, next_due, source_account_id, mandate_ref | Detected or added manually |
+| recurring | id, user_id, name, vpa, merchant, amount_paise, cadence, anchor_day, next_due, account_id, category_account_id, status (active, paused, proposed, declined), origin (manual, history, pre_debit), mandate_ref, last_paid_at, last_transaction_id | Detected or added manually. next_due is a calendar date on the phone's clock |
 | ious | id, lender_user_id, borrower_user_id or person account, amount_paise, reason, due_date, status | Shared row when both people use the app |
 | holdings | id, user_id, account_id, instrument (ISIN or scheme code), units, cost_paise, as_of | Rebuilt from each CAS import |
 | prices | instrument, date, price | Global, filled daily |
@@ -163,6 +163,16 @@ The app never moves money (PAY-1, PAY-2). It reads a UPI QR, then hands the paym
 5. The entry has no account until the bank SMS arrives, because the user picks the bank inside the UPI app. The matcher merges the first debit of the same amount within 10 minutes into it, and the SMS supplies the account. Without SMS tracking, the user picks the account when confirming.
 
 Some UPI apps decline or limit payments started by another app, especially to personal UPI IDs. A test build checks Google Pay, PhonePe, a bank app and slice before milestone 3. Where an app refuses, the fallback is to log the entry and open that app's own scanner, or copy the UPI ID. IOU-3's pay links use the same hand-off and inherit the result.
+
+## Recurring payments
+
+Recurring payments (REC-1 to REC-4) are worked out on the phone from the ledger and pre-debit SMS. The server only stores the rows.
+
+1. **From history.** After each capture and on app open, the phone looks at the last 200 days of spending. A payee (UPI ID, or the normalised merchant name) counts as recurring when every gap between payments fits one cadence (weekly 5 to 9 days, monthly 25 to 35, quarterly 80 to 100), the amounts stay within 10% of the median, there are at least 4 weekly or 3 monthly or quarterly payments, and the last one was no more than one and a half periods ago. It is proposed in the review inbox and the recurring screen; the user tracks it or says it is not recurring, and a declined payee is not proposed again.
+2. **From pre-debit SMS.** Banks must send a notice before each e-mandate or standing-instruction debit. The parser reads the amount, payee, due date, account digits and mandate reference (`parsePreDebit`); the text stays on the phone. A notice updates the matching recurring payment's date and amount (by mandate reference, then payee), or starts a new one as active and monthly, since the bank has confirmed the mandate. Notices for dates already past are skipped, so a first-run import of old SMS does not create stale reminders.
+3. **Added by hand** (REC-2), or from an entry with "Track as a recurring payment".
+4. **Marked paid** (REC-4) by the "Recurring match" rule below: a debit to the payee within 3 days of the due date and 10% of the amount moves the due date forward by the cadence, keeping the day of the month (31 Jan, 28 Feb, 31 Mar). The user can also mark an occurrence paid or skip it.
+5. **Reminders** (REC-3) are local notifications at 9 am, 3 days and 1 day before the due date, rebuilt after every change. When the paying account is a bank account whose balance is below everything due from it by that day, the reminder says by how much it may be short. Cards and loans get no shortfall warning.
 
 ## Matching and reconciliation
 

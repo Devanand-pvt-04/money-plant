@@ -47,7 +47,8 @@ export default function Money() {
 
       <SectionTitle>Settings</SectionTitle>
       <Card>
-        <Link icon="tag" title="Categories" href="/categories" first />
+        <Link icon="repeat" title="Recurring payments" href="/recurring" first />
+        <Link icon="tag" title="Categories" href="/categories" />
         <Link icon="sliders" title="Rules and patterns" href="/rules" />
         <Link icon="layers" title="Account types" href="/account-types" />
         <Link icon="message-square" title="Bank SMS" href="/capture" />

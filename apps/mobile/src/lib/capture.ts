@@ -6,12 +6,14 @@ import {
   BANK_SENDER_TOKENS,
   normaliseSender,
   parseNotification,
+  parsePreDebit,
   parseSms,
 } from '@money-plant/parser';
 import { readInbox, type CaptureTaskData } from '../../modules/sms-reader';
 import { categoriseWithAi } from './ai-categorise';
 import { checkPaceAlerts } from './budgets';
 import { pipelineCategoriser } from './categories';
+import { applyPreDebitNotice, refreshRecurring } from './recurring';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
 import { ensureBalanceRefs } from './ledger';
@@ -64,8 +66,20 @@ async function captureSmsNow(message: SmsMessage): Promise<IngestResult | null> 
   const logged = db.select({ status: captureLog.status }).from(captureLog).where(eq(captureLog.fingerprint, fingerprint)).get();
   if (logged) return null;
 
-  const result = parseSms({ sender: message.sender, body: message.body });
   const receivedAt = new Date(message.receivedAt).toISOString();
+  // REC-1: an autopay notice is not a payment, but it says one is coming. Notices
+  // for dates already past (an old inbox) are skipped; detection covers history.
+  const notice = parsePreDebit({ sender: message.sender, body: message.body }, new Date());
+  if (notice) {
+    await applyPreDebitNotice(notice);
+    db.insert(captureLog)
+      .values({ fingerprint, channel: 'sms', sender, receivedAt, status: 'ignored', reason: 'pre_debit', rawText: null })
+      .onConflictDoNothing()
+      .run();
+    return null;
+  }
+
+  const result = parseSms({ sender: message.sender, body: message.body });
   if (result.status === 'ignored' && result.reason === 'unknown_sender') return null;
 
   let outcome: IngestResult | null = null;
@@ -153,7 +167,10 @@ export function importInbox(onProgress?: (progress: ImportProgress) => void): Pr
         onProgress?.({ ...progress });
         if (page.length < PAGE_SIZE) break;
       }
-      if (progress.read > 0) notifyLedgerChange();
+      if (progress.read > 0) {
+        await refreshRecurring().catch(() => {});
+        notifyLedgerChange();
+      }
       return progress;
     } finally {
       importing = null;
@@ -219,6 +236,7 @@ export async function runCaptureTask(data: CaptureTaskData): Promise<void> {
     }
     notifyLedgerChange();
     await checkPaceAlerts().catch(() => {});
+    await refreshRecurring().catch(() => {});
     await syncNow();
     await categoriseWithAi();
   } catch (e) {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   fromRemoteBudget,
+  fromRemoteRecurring,
+  toRemoteRecurring,
   fromRemoteRule,
   toRemoteBudget,
   toRemoteRule,
@@ -182,5 +184,42 @@ describe('rule mapping', () => {
     });
     expect(remote).toMatchObject({ match: { kind: 'pattern', minAmount: 1500 }, auto_confirm: false });
     expect(fromRemoteRule({ ...remote, user_id: 'u', updated_at: 'x' }).match).toBe('{"kind":"pattern","minAmount":1500}');
+  });
+});
+
+describe('recurring mapping', () => {
+  it('keeps the due date as a plain date and amounts as integers', () => {
+    const local = {
+      id: 'rec-1',
+      name: 'Netflix',
+      vpa: null,
+      merchant: 'netflix',
+      amountPaise: 64900,
+      cadence: 'monthly' as const,
+      anchorDay: 25,
+      nextDue: '2026-10-25',
+      accountId: 'card',
+      categoryAccountId: null,
+      status: 'active' as const,
+      origin: 'pre_debit' as const,
+      mandateRef: 'SI1234567890',
+      lastPaidAt: '2026-09-25T06:30:00.000Z',
+      lastTransactionId: 'tx-1',
+      createdAt: '2026-10-23T10:00:00.000Z',
+      updatedAt: null,
+      deletedAt: null,
+      dirty: 1,
+      rev: 3,
+    };
+    const remote = toRemoteRecurring(local);
+    expect(remote).toMatchObject({ next_due: '2026-10-25', amount_paise: 64900, anchor_day: 25 });
+    const back = fromRemoteRecurring({
+      ...remote,
+      user_id: 'u',
+      updated_at: '2026-10-23T10:00:01+00:00',
+      amount_paise: '64900' as unknown as number,
+      last_paid_at: '2026-09-25T06:30:00+00:00',
+    });
+    expect(back).toEqual({ ...local, updatedAt: '2026-10-23T10:00:01+00:00', dirty: 0, rev: 0 });
   });
 });

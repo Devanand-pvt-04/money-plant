@@ -106,6 +106,9 @@ export default function TransactionDetail() {
 
       <View style={styles.actions}>
         <Button title="Edit entry" variant="secondary" onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
+        {tx.kind === 'expense' && row.legs.length === 1 && (
+          <Button title="Track as a recurring payment" variant="secondary" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />
+        )}
         {isTransfer && (
           <Button
             title="Not a transfer: split it"
