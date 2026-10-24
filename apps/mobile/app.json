@@ -3,7 +3,7 @@
     "name": "Money Plant",
     "slug": "money-plant",
     "scheme": "moneyplant",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -48,6 +48,13 @@
           "cameraPermission": "Allow Money Plant to use the camera to scan UPI QR codes.",
           "microphonePermission": false,
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Money Plant to open a photo of a UPI QR code.",
+          "microphonePermission": false
         }
       ]
     ],
