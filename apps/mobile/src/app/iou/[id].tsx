@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'rea
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { formatRupees, isDateKey, parseRupees } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
+import { DateField } from '@/components/date-fields';
 import { formatAmount, formatDate, formatDateTime } from '@/components/format';
 import { dueText } from '@/components/people-rows';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, colors, radius } from '@/components/ui';
@@ -226,7 +227,7 @@ function Repayment({ view, accounts, onDone, onError }: { view: IouView; account
           <Chip key={b.account.id} label={b.account.name} selected={accountId === b.account.id} onPress={() => setAccountId(b.account.id)} />
         ))}
       </Chips>
-      <Field label="Date" value={paidOn} onChangeText={setPaidOn} autoCapitalize="none" />
+      <DateField label="Date" value={paidOn} onChange={(key) => key && setPaidOn(key)} max={today()} style={styles.date} />
       <Text style={styles.small}>Only for money the app didn't see in your SMS, so it isn't counted twice.</Text>
       <View style={styles.actions}>
         <Button title="Save repayment" onPress={save} loading={busy} />
@@ -254,7 +255,7 @@ function OwnerEdit({ view, onError }: { view: IouView; onError: (e: unknown) => 
   return (
     <View>
       <Field label="What for" value={reason} onChangeText={setReason} maxLength={200} />
-      <Field label="Due date" value={dueDate} onChangeText={setDueDate} placeholder="2026-11-30" autoCapitalize="none" />
+      <DateField label="Due date" value={dueDate || null} onChange={(key) => setDueDate(key ?? '')} optional placeholder="None" style={styles.date} />
       {view.sharedWith && <Text style={styles.small}>A new due date asks {view.otherName} to confirm again.</Text>}
       <View style={styles.actions}>
         {changed && <Button title="Save changes" onPress={save} loading={busy} />}
@@ -289,6 +290,7 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted, textAlign: 'center' },
   small: { fontSize: 12, color: colors.muted, lineHeight: 17 },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
+  date: { marginTop: 16 },
   banner: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.warningSurface },
   respond: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.subtle, gap: 12 },
   bannerText: { fontSize: 14, fontWeight: '500', color: colors.text, lineHeight: 20 },

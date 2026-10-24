@@ -15,7 +15,8 @@ export interface AccountInput {
   openingBalance: Paise;
 }
 
-export async function createAccount(input: AccountInput): Promise<void> {
+/** Returns the new account's id. */
+export async function createAccount(input: AccountInput): Promise<string> {
   const db = await getDb();
   const id = Crypto.randomUUID();
   const createdAt = new Date().toISOString();
@@ -32,6 +33,7 @@ export async function createAccount(input: AccountInput): Promise<void> {
     createdAt,
     dirty: 1,
   });
+  return id;
 }
 
 /** Soft delete, so the deletion syncs to other devices. */

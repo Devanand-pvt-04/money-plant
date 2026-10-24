@@ -5,6 +5,7 @@ import Feather from '@expo/vector-icons/Feather';
 import { formatRupees, paise } from '@money-plant/core';
 import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
+import { SwipeRow } from '@/components/swipe-row';
 import { Button, Card, colors, radius } from '@/components/ui';
 import { formatDate, formatDateTime, formatDay, formatTime, formatWholeRupees, reviewTime } from '@/components/format';
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
@@ -111,76 +112,85 @@ function ReviewCard({ row, onChangeCategory }: { row: TransactionRow; onChangeCa
   const amount = displayAmount(row);
   const reason = tx.reviewReason ? REVIEW_REASON_LABELS[tx.reviewReason] : null;
   const why = whyLabel(tx, row.aiConfidence);
+  const change = () => onChangeCategory(tx.id, tx.kind === 'income' ? 'income' : 'expense', tx.counterparty);
+  const accept = () => confirmEntry(tx.id).catch((e) => Alert.alert("Couldn't save", String(e?.message ?? e)));
   return (
-    <Card style={styles.card}>
-      <Pressable accessibilityRole="button" onPress={() => router.push(`/transaction/${tx.id}`)} style={styles.top}>
-        <View style={styles.grow}>
-          <Text style={styles.title} numberOfLines={1}>
-            {transactionTitle(row)}
-          </Text>
-          <Text style={styles.meta} numberOfLines={1}>
-            {!isTransfer && legs[0] ? `${legs[0].accountName} · ` : ''}
-            {formatDay(tx.occurredAt)}, {formatTime(tx.occurredAt)}
-          </Text>
-        </View>
-        <Text style={[styles.amount, { color: amount.color }]}>{amount.text}</Text>
-      </Pressable>
-      {!isTransfer && (
-        <View style={styles.why}>
-          <Text style={styles.category}>{row.category?.name ?? 'No category yet'}</Text>
-          {(why || reason) && <Text style={styles.meta}>{[why, reason].filter(Boolean).join('. ')}</Text>}
-        </View>
-      )}
-      {isTransfer && reason && <Text style={styles.meta}>{reason}</Text>}
-      <View style={styles.actions}>
-        <View style={styles.action}>
-          {isTransfer ? (
-            <Button
-              title="Not a transfer"
-              variant="secondary"
-              onPress={() => splitTransfer(tx.id).catch((e) => Alert.alert("Couldn't split", String(e?.message ?? e)))}
-            />
-          ) : (
-            <Button
-              title={row.category ? 'Change' : 'Pick category'}
-              variant="secondary"
-              onPress={() => onChangeCategory(tx.id, tx.kind === 'income' ? 'income' : 'expense', tx.counterparty)}
-            />
-          )}
-        </View>
-        <View style={styles.action}>
-          <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={() => confirmEntry(tx.id)} />
-        </View>
-      </View>
-      {/* IOU-1, SPL-1: a payment to or from a person is often a loan or a shared bill. */}
-      {tx.reviewReason === 'person' && legs[0] && (
-        <View style={styles.links}>
-          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/new?from=${tx.id}`)}>
-            <Text style={styles.link}>{legs[0].amount < 0 ? 'I lent this' : 'I borrowed this'}</Text>
-          </Pressable>
-          {tx.kind === 'expense' && (
-            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/split/${tx.id}`)}>
-              <Text style={styles.link}>Split it</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-      {!isTransfer && (
-        <Pressable
-          accessibilityRole="button"
-          hitSlop={8}
-          style={styles.quiet}
-          onPress={() =>
-            Alert.alert('Remove this entry?', 'Use this for messages that were not a real payment.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
-            ])
-          }
-        >
-          <Text style={styles.quietText}>Not a real payment</Text>
+    <SwipeRow
+      acceptLabel={isTransfer ? 'Transfer' : 'Looks right'}
+      onAccept={accept}
+      otherLabel={isTransfer ? undefined : 'Change'}
+      onOther={isTransfer ? undefined : change}
+    >
+      <Card style={styles.card}>
+        <Pressable accessibilityRole="button" onPress={() => router.push(`/transaction/${tx.id}`)} style={styles.top}>
+          <View style={styles.grow}>
+            <Text style={styles.title} numberOfLines={1}>
+              {transactionTitle(row)}
+            </Text>
+            <Text style={styles.meta} numberOfLines={1}>
+              {!isTransfer && legs[0] ? `${legs[0].accountName} · ` : ''}
+              {formatDay(tx.occurredAt)}, {formatTime(tx.occurredAt)}
+            </Text>
+          </View>
+          <Text style={[styles.amount, { color: amount.color }]}>{amount.text}</Text>
         </Pressable>
-      )}
-    </Card>
+        {!isTransfer && (
+          <View style={styles.why}>
+            <Text style={styles.category}>{row.category?.name ?? 'No category yet'}</Text>
+            {(why || reason) && <Text style={styles.meta}>{[why, reason].filter(Boolean).join('. ')}</Text>}
+          </View>
+        )}
+        {isTransfer && reason && <Text style={styles.meta}>{reason}</Text>}
+        <View style={styles.actions}>
+          <View style={styles.action}>
+            {isTransfer ? (
+              <Button
+                title="Not a transfer"
+                variant="secondary"
+                onPress={() => splitTransfer(tx.id).catch((e) => Alert.alert("Couldn't split", String(e?.message ?? e)))}
+              />
+            ) : (
+              <Button
+                title={row.category ? 'Change' : 'Pick category'}
+                variant="secondary"
+                onPress={change}
+              />
+            )}
+          </View>
+          <View style={styles.action}>
+            <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={accept} />
+          </View>
+        </View>
+        {/* IOU-1, SPL-1: a payment to or from a person is often a loan or a shared bill. */}
+        {tx.reviewReason === 'person' && legs[0] && (
+          <View style={styles.links}>
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/new?from=${tx.id}`)}>
+              <Text style={styles.link}>{legs[0].amount < 0 ? 'I lent this' : 'I borrowed this'}</Text>
+            </Pressable>
+            {tx.kind === 'expense' && (
+              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/split/${tx.id}`)}>
+                <Text style={styles.link}>Split it</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+        {!isTransfer && (
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            style={styles.quiet}
+            onPress={() =>
+              Alert.alert('Remove this entry?', 'Use this for messages that were not a real payment.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+              ])
+            }
+          >
+            <Text style={styles.quietText}>Not a real payment</Text>
+          </Pressable>
+        )}
+      </Card>
+    </SwipeRow>
   );
 }
 

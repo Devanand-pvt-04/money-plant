@@ -3,9 +3,10 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { router, useLocalSearchParams } from 'expo-router';
 import { SPLIT_METHOD_LABELS, formatRupees, isDateKey, parseRupees, splitAmount, type Paise, type SplitMethod, type SplitPart } from '@money-plant/core';
 import { CategoryPicker } from '@/components/category-picker';
+import { DateField } from '@/components/date-fields';
 import { formatAmount } from '@/components/format';
 import { PersonPicker } from '@/components/person-picker';
-import { Button, Card, Chip, Chips, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, Card, Chip, Chips, ErrorText, colors, radius } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
 import { listPeople, type Person } from '@/lib/people';
 import { currentSplit, listGroups, splitEntry, splittable, unsplit, type SplitGroup } from '@/lib/splits';
@@ -155,7 +156,7 @@ export default function SplitEditor() {
       <Chips>
         <Chip label={categoryId ? (names.get(categoryId) ?? 'Category') : 'Pick a category'} selected={categoryId !== null} onPress={() => setPicking(true)} />
       </Chips>
-      <Field label="Ask them to pay back by (optional)" value={dueDate} onChangeText={setDueDate} placeholder="2026-11-30" autoCapitalize="none" />
+      <DateField label="Ask them to pay back by" value={dueDate || null} onChange={(key) => setDueDate(key ?? '')} optional placeholder="No date" style={styles.date} />
       <Text style={styles.hint}>Each person gets an IOU for their share. When they pay you by UPI, the bank SMS settles it.</Text>
 
       {error && <ErrorText>{error}</ErrorText>}
@@ -198,6 +199,7 @@ const styles = StyleSheet.create({
   container: { paddingHorizontal: 20, paddingBottom: 48 },
   total: { fontSize: 36, fontWeight: '700', color: colors.text, letterSpacing: -1, textAlign: 'center', marginTop: 8, fontVariant: ['tabular-nums'] },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
+  date: { marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   parts: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 4 },
   part: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 },

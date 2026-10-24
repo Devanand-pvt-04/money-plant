@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { paise } from '@money-plant/core';
+import { AccountPicker, accountIcon, accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
+import { formatWhen, pickDateTime } from '@/components/date-fields';
 import { formatWholeRupees } from '@/components/format';
-import { Button, Chip, colors, radius } from '@/components/ui';
-import type { CategoryNode } from '@/lib/categories';
-import { addManualEntry } from '@/lib/entries';
+import { CategoryIcon } from '@/components/sheet';
+import { Button, colors, radius } from '@/components/ui';
+import { categoryNames, type CategoryNode } from '@/lib/categories';
+import { addManualEntry, addManualTransfer } from '@/lib/entries';
+import type { AccountBalance } from '@/lib/ledger';
 import { quickAddDefaults, rememberAccount, type QuickAddDefaults } from '@/lib/quick-add';
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'] as const;
 const MAX_RUPEE_DIGITS = 9;
-const SHOWN_CATEGORIES = 5;
 
 /** "1250.5" typed on the keypad as integer paise, without floating point. */
 function toPaise(text: string): number {
@@ -37,47 +40,63 @@ function press(text: string, key: (typeof KEYS)[number]): string {
   return rupees.length >= MAX_RUPEE_DIGITS ? text : text + key;
 }
 
-/** CAP-7: a cash or other spend in three taps: +, the amount, Save. */
+type Mode = 'debit' | 'credit' | 'transfer';
+const MODE_LABELS: Record<Mode, string> = { debit: 'Spent', credit: 'Received', transfer: 'Transfer' };
+
+/**
+ * CAP-7: a spend, money in or a transfer in three taps: +, the amount, Save.
+ * The category, accounts and time start from smart defaults and each opens
+ * its own picker (NAV-2).
+ */
 export default function QuickAdd() {
   const insets = useSafeAreaInsets();
   const [defaults, setDefaults] = useState<QuickAddDefaults | null>(null);
-  const [direction, setDirection] = useState<'debit' | 'credit'>('debit');
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+  const [mode, setMode] = useState<Mode>('debit');
   const [text, setText] = useState('');
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [extra, setExtra] = useState<CategoryNode | null>(null);
-  const [accountId, setAccountId] = useState<string | null>(null);
-  const [picking, setPicking] = useState(false);
+  const [category, setCategory] = useState<CategoryNode | null>(null);
+  const [from, setFrom] = useState<AccountBalance | null>(null);
+  const [to, setTo] = useState<AccountBalance | null>(null);
+  const [when, setWhen] = useState(() => new Date().toISOString());
+  const [note, setNote] = useState<string | null>(null);
+  const [picking, setPicking] = useState<'category' | 'from' | 'to' | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    quickAddDefaults().then((d) => {
+    Promise.all([quickAddDefaults(), categoryNames()]).then(([d, n]) => {
       setDefaults(d);
-      setAccountId(d.accountId);
-      setCategoryId(d.suggestions.debit[0]?.id ?? null);
+      setNames(n);
+      const account = d.accounts.find((b) => b.account.id === d.accountId) ?? null;
+      setFrom(account);
+      setTo(d.accounts.find((b) => b.account.id !== account?.account.id && b.account.type === 'cash') ?? d.accounts.find((b) => b.account.id !== account?.account.id) ?? null);
+      setCategory(d.suggestions.debit[0] ?? null);
     });
   }, []);
 
   if (!defaults) return <View style={styles.screen} />;
 
-  const suggestions = defaults.suggestions[direction];
-  const shown = suggestions.slice(0, SHOWN_CATEGORIES);
-  if (extra && !shown.some((c) => c.id === extra.id)) shown.unshift(extra);
   const amount = toPaise(text);
-  const ready = amount > 0 && categoryId !== null && accountId !== null;
-  const hint = categoryId === suggestions[0]?.id ? defaults.hint[direction] : null;
+  const transfer = mode === 'transfer';
+  const ready = amount > 0 && from !== null && (transfer ? to !== null && to.account.id !== from.account.id : category !== null);
+  const suggestions = transfer ? [] : defaults.suggestions[mode];
+  const hint = !transfer && category?.id === suggestions[0]?.id ? defaults.hint[mode] : null;
 
-  function switchDirection(next: 'debit' | 'credit') {
-    setDirection(next);
-    setExtra(null);
-    setCategoryId(defaults!.suggestions[next][0]?.id ?? null);
+  function switchMode(next: Mode) {
+    setMode(next);
+    if (next !== 'transfer') setCategory(defaults!.suggestions[next][0] ?? null);
   }
 
   async function save() {
     if (!ready) return;
     setSaving(true);
     try {
-      await addManualEntry({ direction, amount: paise(amount), accountId: accountId!, categoryId: categoryId! });
-      await rememberAccount(accountId!);
+      const occurredAt = when;
+      if (transfer) {
+        await addManualTransfer({ fromId: from!.account.id, toId: to!.account.id, amount: paise(amount), note, occurredAt });
+      } else {
+        await addManualEntry({ direction: mode, amount: paise(amount), accountId: from!.account.id, categoryId: category!.id, note, occurredAt });
+        await rememberAccount(from!.account.id);
+      }
       router.back();
     } catch (e) {
       setSaving(false);
@@ -95,6 +114,40 @@ export default function QuickAdd() {
     );
   }
 
+  const accountTile = (label: string, account: AccountBalance | null, which: 'from' | 'to') => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${account ? accountLabel(account.account) : 'pick an account'}`}
+      onPress={() => setPicking(which)}
+      style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
+    >
+      <Feather name={account ? accountIcon(account.account.type) : 'plus'} size={18} color={colors.muted} />
+      <View style={styles.tileText}>
+        <Text style={styles.tileLabel}>{label}</Text>
+        <Text style={styles.tileValue} numberOfLines={1}>
+          {account ? accountLabel(account.account) : 'Pick'}
+        </Text>
+      </View>
+    </Pressable>
+  );
+
+  const whenTile = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`When: ${formatWhen(when)}`}
+      onPress={() => pickDateTime(when, setWhen)}
+      style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
+    >
+      <Feather name="calendar" size={18} color={colors.muted} />
+      <View style={styles.tileText}>
+        <Text style={styles.tileLabel}>When</Text>
+        <Text style={styles.tileValue} numberOfLines={1}>
+          {formatWhen(when)}
+        </Text>
+      </View>
+    </Pressable>
+  );
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }]}>
       <View style={styles.top}>
@@ -102,15 +155,15 @@ export default function QuickAdd() {
           <Feather name="x" size={22} color={colors.text} />
         </Pressable>
         <View style={styles.segment}>
-          {(['debit', 'credit'] as const).map((d) => (
+          {(['debit', 'credit', 'transfer'] as const).map((m) => (
             <Pressable
-              key={d}
+              key={m}
               accessibilityRole="radio"
-              accessibilityState={{ selected: direction === d }}
-              onPress={() => switchDirection(d)}
-              style={[styles.segmentItem, direction === d && styles.segmentOn]}
+              accessibilityState={{ selected: mode === m }}
+              onPress={() => switchMode(m)}
+              style={[styles.segmentItem, mode === m && styles.segmentOn]}
             >
-              <Text style={[styles.segmentText, direction === d && styles.segmentTextOn]}>{d === 'debit' ? 'Spent' : 'Received'}</Text>
+              <Text style={[styles.segmentText, mode === m && styles.segmentTextOn]}>{MODE_LABELS[m]}</Text>
             </Pressable>
           ))}
         </View>
@@ -120,38 +173,59 @@ export default function QuickAdd() {
       <View style={styles.amountBox}>
         <Text
           accessibilityLiveRegion="polite"
-          style={[styles.amount, amount === 0 && styles.amountEmpty, direction === 'credit' && amount > 0 && styles.amountIn]}
+          style={[styles.amount, amount === 0 && styles.amountEmpty, mode === 'credit' && amount > 0 && styles.amountIn]}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
           {display(text)}
         </Text>
-        {hint && <Text style={styles.hint}>{hint}</Text>}
+        {note === null ? (
+          <Pressable accessibilityRole="button" onPress={() => setNote('')} style={styles.notePill}>
+            <Text style={styles.notePillText}>Add a note</Text>
+          </Pressable>
+        ) : (
+          <TextInput
+            value={note}
+            onChangeText={setNote}
+            placeholder="What was it for?"
+            placeholderTextColor={colors.placeholder}
+            style={styles.noteInput}
+            maxLength={200}
+            autoFocus
+            returnKeyType="done"
+            onBlur={() => !note.trim() && setNote(null)}
+          />
+        )}
+        {transfer && <Text style={styles.hint}>A transfer isn't spending. Transfers both banks send SMS for are added on their own.</Text>}
       </View>
 
       <View style={styles.pickers}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} keyboardShouldPersistTaps="handled">
-          {shown.map((c) => (
-            <Chip key={c.id} label={c.name} selected={categoryId === c.id} onPress={() => setCategoryId(c.id)} />
-          ))}
-          <Chip label="More…" selected={false} onPress={() => setPicking(true)} />
-        </ScrollView>
-        {defaults.accounts.length > 1 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-            {defaults.accounts.map((b) => (
-              <Pressable
-                key={b.account.id}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: accountId === b.account.id }}
-                onPress={() => setAccountId(b.account.id)}
-                style={[styles.account, accountId === b.account.id && styles.accountOn]}
-              >
-                <Feather name={b.account.type === 'cash' ? 'dollar-sign' : 'credit-card'} size={14} color={accountId === b.account.id ? colors.ink : colors.muted} />
-                <Text style={[styles.accountText, accountId === b.account.id && styles.accountTextOn]}>{b.account.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+        {!transfer && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Category: ${category ? names.get(category.id) ?? category.name : 'pick one'}`}
+            onPress={() => setPicking('category')}
+            style={({ pressed }) => [styles.categoryRow, pressed && styles.pressed]}
+          >
+            <CategoryIcon categoryKey={category?.key ?? null} size={32} />
+            <View style={styles.tileText}>
+              <Text style={styles.categoryName} numberOfLines={1}>
+                {category ? names.get(category.id) ?? category.name : 'Pick a category'}
+              </Text>
+              {hint && (
+                <Text style={styles.tileLabel} numberOfLines={1}>
+                  {hint}
+                </Text>
+              )}
+            </View>
+            <Feather name="chevron-down" size={18} color={colors.muted} />
+          </Pressable>
         )}
+        <View style={styles.tiles}>
+          {accountTile(mode === 'credit' ? 'Into' : 'From', from, 'from')}
+          {transfer ? accountTile('To', to, 'to') : whenTile}
+        </View>
+        {transfer && whenTile}
       </View>
 
       <View style={styles.keys}>
@@ -170,18 +244,29 @@ export default function QuickAdd() {
       </View>
 
       <View style={styles.save}>
-        <Button title={direction === 'debit' ? 'Save spend' : 'Save money in'} onPress={save} disabled={!ready} loading={saving} />
+        <Button title={amount > 0 ? `Save ${display(text)}` : 'Save'} onPress={save} disabled={!ready} loading={saving} />
       </View>
 
       <CategoryPicker
-        visible={picking}
-        flow={direction === 'debit' ? 'expense' : 'income'}
+        visible={picking === 'category'}
+        flow={mode === 'credit' ? 'income' : 'expense'}
         onPick={(c) => {
-          setPicking(false);
-          setExtra(c);
-          setCategoryId(c.id);
+          setPicking(null);
+          setCategory(c);
+          categoryNames().then(setNames);
         }}
-        onClose={() => setPicking(false)}
+        onClose={() => setPicking(null)}
+      />
+      <AccountPicker
+        visible={picking === 'from' || picking === 'to'}
+        title={picking === 'to' ? 'To' : mode === 'credit' ? 'Into' : 'From'}
+        exclude={transfer ? [(picking === 'to' ? from : to)?.account.id ?? ''] : []}
+        onPick={(account) => {
+          if (picking === 'to') setTo(account);
+          else setFrom(account);
+          setPicking(null);
+        }}
+        onClose={() => setPicking(null)}
       />
     </View>
   );
@@ -191,36 +276,63 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   empty: { paddingHorizontal: 24, gap: 12, justifyContent: 'center' },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12 },
+  top: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
   close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  segment: { flexDirection: 'row', backgroundColor: colors.subtle, borderRadius: radius.pill, padding: 3 },
-  segmentItem: { minHeight: 38, paddingHorizontal: 18, borderRadius: radius.pill, justifyContent: 'center' },
-  segmentOn: { backgroundColor: colors.surface, elevation: 1 },
-  segmentText: { fontSize: 14, fontWeight: '500', color: colors.muted },
-  segmentTextOn: { color: colors.text, fontWeight: '600' },
-  amountBox: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 8 },
-  amount: { fontSize: 52, fontWeight: '700', letterSpacing: -1.5, color: colors.text, fontVariant: ['tabular-nums'] },
+  segment: { flex: 1, flexDirection: 'row', backgroundColor: colors.subtle, borderRadius: radius.pill, padding: 3 },
+  segmentItem: { flex: 1, minHeight: 38, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  segmentOn: { backgroundColor: colors.ink },
+  segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
+  segmentTextOn: { color: colors.onInk },
+  amountBox: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 10 },
+  amount: { fontSize: 56, fontWeight: '700', letterSpacing: -1.5, color: colors.text, fontVariant: ['tabular-nums'] },
   amountEmpty: { color: colors.placeholder },
   amountIn: { color: colors.primary },
+  notePill: { minHeight: 34, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.subtle, justifyContent: 'center' },
+  notePillText: { fontSize: 13, color: colors.secondary },
+  noteInput: {
+    minWidth: 200,
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: colors.subtle,
+    fontSize: 14,
+    color: colors.text,
+    textAlign: 'center',
+  },
   hint: { fontSize: 13, color: colors.muted, textAlign: 'center', lineHeight: 19 },
-  pickers: { gap: 10, paddingBottom: 12 },
-  row: { gap: 8, paddingHorizontal: 20 },
-  account: {
+  pickers: { gap: 8, paddingHorizontal: 16, paddingBottom: 4 },
+  pressed: { backgroundColor: colors.pressed },
+  categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    minHeight: 36,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
+    gap: 12,
+    minHeight: 56,
+    paddingHorizontal: 14,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  accountOn: { borderColor: colors.ink },
-  accountText: { fontSize: 13, color: colors.muted },
-  accountTextOn: { color: colors.ink, fontWeight: '600' },
-  keys: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16 },
-  key: { width: '33.33%', height: 60, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
+  categoryName: { fontSize: 15, fontWeight: '600', color: colors.text },
+  tiles: { flexDirection: 'row', gap: 8 },
+  tile: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 52,
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  tileText: { flex: 1, gap: 1 },
+  tileLabel: { fontSize: 11, color: colors.muted },
+  tileValue: { fontSize: 14, fontWeight: '600', color: colors.text },
+  keys: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, paddingTop: 8 },
+  key: { width: '33.33%', height: 58, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
   keyPressed: { backgroundColor: colors.pressed },
   keyText: { fontSize: 26, fontWeight: '500', color: colors.text },
-  save: { paddingHorizontal: 20, paddingTop: 8 },
+  save: { paddingHorizontal: 16, paddingTop: 8 },
 });
