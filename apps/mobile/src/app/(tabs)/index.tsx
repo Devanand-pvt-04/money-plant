@@ -1,22 +1,23 @@
 import { useCallback, useState } from 'react';
 import { AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect, type Href } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMonth, formatWholeRupees, reviewTime } from '@/components/format';
-import { UpcomingRow } from '@/components/recurring-rows';
+import { TransactionItem } from '@/components/transaction-item';
 import { Avatar, useMe } from '@/components/avatar';
-import { Card, ErrorText, ProgressBar, colors, radius } from '@/components/ui';
+import { ErrorText, ProgressBar, colors, radius } from '@/components/ui';
 import { categoriseWithAi } from '@/lib/ai-categorise';
 import { ensureDefaultCategories } from '@/lib/categories';
-import { currentMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
+import { currentMonth, incomeThisMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
 import { hasImportedInbox, importInbox } from '@/lib/capture';
-import { countPending, listAccountBalances, type AccountBalance } from '@/lib/ledger';
+import { countPending, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { displayName } from '@/lib/me';
 import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
-import { refreshRecurring, upcomingPayments, type UpcomingPayment } from '@/lib/recurring';
+import { refreshRecurring } from '@/lib/recurring';
 import { syncNow } from '@/lib/sync';
 import { useLedger } from '@/lib/use-ledger';
+import { weekAhead, type DueItem } from '@/lib/week';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-reader';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -24,15 +25,18 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 async function loadHome() {
   await ensureDefaultCategories();
-  const [balances, pending, imported, overview, upcoming, owed] = await Promise.all([
+  const month = currentMonth();
+  const [balances, pending, imported, overview, income, week, recent, owed] = await Promise.all([
     listAccountBalances(),
     countPending(),
     hasImportedInbox(),
-    monthOverview(currentMonth()),
-    upcomingPayments(7),
+    monthOverview(month),
+    incomeThisMonth(month),
+    weekAhead(),
+    listTransactions({ limit: 3 }),
     owedSummary(),
   ]);
-  return { balances, pending, imported, month: overview.overall, elapsed: overview.elapsed, upcoming, owed };
+  return { balances, pending, imported, month: overview.overall, elapsed: overview.elapsed, income, week, recent, owed };
 }
 
 function greeting(now: Date): string {
@@ -49,7 +53,9 @@ export default function Home() {
     imported: true,
     month: null as BudgetLine | null,
     elapsed: 0,
-    upcoming: [] as UpcomingPayment[],
+    income: 0,
+    week: { days: [] as string[], items: [] as DueItem[] },
+    recent: [] as TransactionRow[],
     owed: null as OwedSummary | null,
   });
   const me = useMe();
@@ -135,7 +141,9 @@ export default function Home() {
           </Pressable>
         )}
 
-        {data.month && <MonthCard line={data.month} elapsed={data.elapsed} />}
+        {data.month && <MonthCard line={data.month} income={data.income} elapsed={data.elapsed} />}
+
+        {data.week.days.length > 0 && <WeekStrip days={data.week.days} items={data.week.items} />}
 
         {data.pending > 0 && (
           <Pressable
@@ -154,22 +162,6 @@ export default function Home() {
           </Pressable>
         )}
 
-        {data.upcoming.length > 0 && (
-          <View>
-            <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Coming up</Text>
-              <Pressable accessibilityRole="link" hitSlop={8} onPress={() => router.push('/recurring')}>
-                <Text style={styles.sectionLink}>See all</Text>
-              </Pressable>
-            </View>
-            <Card>
-              {data.upcoming.slice(0, 3).map((u, i) => (
-                <UpcomingRow key={u.item.id} upcoming={u} first={i === 0} />
-              ))}
-            </Card>
-          </View>
-        )}
-
         {flagged > 0 && (
           <Pressable accessibilityRole="button" onPress={() => router.push('/accounts')} style={({ pressed }) => [styles.review, pressed && styles.pressed]}>
             <Feather name="alert-circle" size={20} color={colors.warning} />
@@ -180,16 +172,34 @@ export default function Home() {
           </Pressable>
         )}
 
-        {data.owed && (data.owed.owedToMe > 0 || data.owed.iOwe > 0 || data.owed.toConfirm > 0) && (
-          <View style={styles.tiles}>
-            <Tile
-              label="Owed to you"
-              value={formatWholeRupees(data.owed.owedToMe)}
-              note={data.owed.toConfirm > 0 ? `${data.owed.toConfirm} to confirm` : undefined}
-              href="/people"
-            />
-            <Tile label="You owe" value={formatWholeRupees(data.owed.iOwe)} href="/people" />
+        {data.recent.length > 0 && (
+          <View>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>Recent</Text>
+              <Pressable accessibilityRole="link" hitSlop={8} onPress={() => router.push('/activity')}>
+                <Text style={styles.sectionLink}>See all</Text>
+              </Pressable>
+            </View>
+            {data.recent.map((row) => (
+              <TransactionItem key={row.tx.id} row={row} showTime />
+            ))}
           </View>
+        )}
+
+        {data.owed && (data.owed.owedToMe > 0 || data.owed.iOwe > 0 || data.owed.toConfirm > 0) && (
+          <Pressable accessibilityRole="button" onPress={() => router.push('/people')} style={({ pressed }) => [styles.owed, pressed && styles.pressed]}>
+            <Feather name="users" size={18} color={colors.muted} />
+            <Text style={[styles.owedText, styles.grow]} numberOfLines={2}>
+              {[
+                data.owed.owedToMe > 0 ? `Owed to you ${formatWholeRupees(data.owed.owedToMe)}` : null,
+                data.owed.iOwe > 0 ? `You owe ${formatWholeRupees(data.owed.iOwe)}` : null,
+                data.owed.toConfirm > 0 ? `${data.owed.toConfirm} to confirm` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+            <Feather name="chevron-right" size={18} color={colors.muted} />
+          </Pressable>
         )}
 
         {error && <ErrorText>{error}</ErrorText>}
@@ -207,39 +217,38 @@ export default function Home() {
   );
 }
 
-/** BUD-2: this month's spending at a glance, with a tick where an even pace would be. */
-function MonthCard({ line, elapsed }: { line: BudgetLine; elapsed: number }) {
+/**
+ * HOME-1, BUD-2: the month so far. Money in counts income categories only, so
+ * transfers and repayments never inflate it. The tick marks an even pace.
+ */
+function MonthCard({ line, income, elapsed }: { line: BudgetLine; income: number; elapsed: number }) {
   const status = line.pace?.status ?? 'ok';
   const month = currentMonth();
   const today = new Date();
   const daysLeft = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate() + 1;
   const pill = status === 'over' ? 'Over budget' : status === 'pace' ? 'Spending fast' : 'On track';
+  const left = income - line.spent;
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => router.push('/budgets')}
-      style={({ pressed }) => [styles.month, pressed && styles.pressed]}
-    >
+    <Pressable accessibilityRole="button" onPress={() => router.push('/budgets')} style={({ pressed }) => [styles.month, pressed && styles.pressed]}>
       <View style={styles.between}>
-        <Text style={styles.monthLabel}>Spent in {formatMonth(month).split(' ')[0]}</Text>
-        {line.limit !== null && (
-          <Text style={[styles.pill, status === 'ok' ? styles.pillOk : styles.pillWarn]}>{pill}</Text>
-        )}
+        <Text style={styles.monthLabel}>{formatMonth(month).split(' ')[0]} so far</Text>
+        {line.limit !== null && <Text style={[styles.pill, status === 'ok' ? styles.pillOk : styles.pillWarn]}>{pill}</Text>}
       </View>
-      <Text style={styles.monthAmount}>
-        {formatWholeRupees(line.spent)}
-        {line.limit !== null ? <Text style={styles.monthOf}>  of {formatWholeRupees(line.limit)}</Text> : null}
-      </Text>
+      <View style={styles.figures}>
+        <Figure label="Money in" value={formatWholeRupees(income)} color={income > 0 ? colors.primary : undefined} />
+        <Figure label="Spent" value={formatWholeRupees(line.spent)} />
+        <Figure label="Left" value={formatWholeRupees(left)} color={left < 0 ? colors.danger : undefined} />
+      </View>
       {line.limit !== null ? (
         <>
           <ProgressBar value={line.spent / line.limit} status={status} marker={elapsed} />
           <Text style={styles.monthNote}>
+            {formatWholeRupees(line.spent)} of a {formatWholeRupees(line.limit)} budget ·{' '}
             {status === 'over'
-              ? `Over by ${formatWholeRupees(line.spent - line.limit)}.`
+              ? `over by ${formatWholeRupees(line.spent - line.limit)}`
               : status === 'pace'
-                ? `On pace for ${formatWholeRupees(line.pace!.projected)} by month end.`
-                : `${formatWholeRupees(line.limit - line.spent)} left for ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}.`}{' '}
-            The tick marks an even pace.
+                ? `on pace for ${formatWholeRupees(line.pace!.projected)}`
+                : `${formatWholeRupees(line.limit - line.spent)} left for ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`}
           </Text>
         </>
       ) : (
@@ -249,17 +258,70 @@ function MonthCard({ line, elapsed }: { line: BudgetLine; elapsed: number }) {
   );
 }
 
-function Tile({ label, value, note, href }: { label: string; value: string; note?: string; href: Href }) {
+function Figure({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <Pressable accessibilityRole="button" onPress={() => router.push(href)} style={styles.tile}>
-      <Card style={styles.tileCard}>
-        <Text style={styles.meta}>{label}</Text>
-        <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
-          {value}
-        </Text>
-        {note && <Text style={styles.tileWarn}>{note}</Text>}
-      </Card>
-    </Pressable>
+    <View style={styles.figure}>
+      <Text style={styles.meta}>{label}</Text>
+      <Text style={[styles.figureValue, color ? { color } : null]} numberOfLines={1} adjustsFontSizeToFit>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** HOME-1: the next 7 days, with a dot on days that have a bill, EMI or IOU due, and what's due below. */
+function WeekStrip({ days, items }: { days: string[]; items: DueItem[] }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const due = new Set(items.map((i) => i.date));
+  const shown = selected ? items.filter((i) => i.date === selected) : items.slice(0, 3);
+  return (
+    <View>
+      <View style={styles.sectionHead}>
+        <Text style={styles.sectionTitle}>This week</Text>
+        <Pressable accessibilityRole="link" hitSlop={8} onPress={() => router.push('/recurring')}>
+          <Text style={styles.sectionLink}>Bills and subscriptions</Text>
+        </Pressable>
+      </View>
+      <View style={styles.week}>
+        {days.map((day, i) => {
+          const date = new Date(`${day}T12:00:00`);
+          const on = selected === day;
+          return (
+            <Pressable
+              key={day}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${WEEKDAYS[date.getDay()]} ${date.getDate()}${due.has(day) ? ', something due' : ''}`}
+              onPress={() => setSelected(on ? null : day)}
+              style={[styles.weekDay, i === 0 && styles.weekToday, on && styles.weekOn]}
+            >
+              <Text style={[styles.weekName, on && styles.weekTextOn]}>{WEEKDAYS[date.getDay()]}</Text>
+              <Text style={[styles.weekDate, on && styles.weekTextOn]}>{date.getDate()}</Text>
+              <View style={[styles.dot, due.has(day) && styles.dotOn]} />
+            </Pressable>
+          );
+        })}
+      </View>
+      {shown.length === 0 ? (
+        <Text style={[styles.meta, styles.weekEmpty]}>{selected ? 'Nothing due that day.' : 'Nothing due this week.'}</Text>
+      ) : (
+        <View style={styles.dueList}>
+          {shown.map((item) => {
+            const date = new Date(`${item.date}T12:00:00`);
+            return (
+              <Pressable key={item.href} accessibilityRole="button" onPress={() => router.push(item.href)} style={({ pressed }) => [styles.dueRow, pressed && styles.pressed]}>
+                <Text style={[styles.dueText, styles.grow]} numberOfLines={1}>
+                  {item.overdue ? 'Overdue' : WEEKDAYS[date.getDay()]} · {item.title}
+                </Text>
+                <Text style={[styles.dueAmount, item.incoming && { color: colors.primary }]}>{formatWholeRupees(item.amount)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -280,8 +342,6 @@ const styles = StyleSheet.create({
   pill: { fontSize: 12, fontWeight: '600', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' },
   pillOk: { color: colors.primary, backgroundColor: colors.primarySurface },
   pillWarn: { color: colors.warning, backgroundColor: colors.warningSurface },
-  monthAmount: { fontSize: 34, fontWeight: '700', color: colors.text, letterSpacing: -0.8, fontVariant: ['tabular-nums'] },
-  monthOf: { fontSize: 14, fontWeight: '400', color: colors.muted, letterSpacing: 0 },
   monthNote: { fontSize: 13, color: colors.secondary, lineHeight: 19 },
   review: {
     flexDirection: 'row',
@@ -300,11 +360,25 @@ const styles = StyleSheet.create({
   sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   sectionTitle: { fontSize: 13, fontWeight: '600', color: colors.muted },
   sectionLink: { fontSize: 13, fontWeight: '600', color: colors.primary },
-  tiles: { flexDirection: 'row', gap: 12 },
-  tile: { flex: 1 },
-  tileCard: { padding: 16, gap: 6 },
-  tileValue: { fontSize: 19, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
-  tileWarn: { fontSize: 12, fontWeight: '500', color: colors.warning },
+  figures: { flexDirection: 'row', gap: 12 },
+  figure: { flex: 1, gap: 4 },
+  figureValue: { fontSize: 20, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
+  week: { flexDirection: 'row', gap: 6 },
+  weekDay: { flex: 1, alignItems: 'center', gap: 2, paddingVertical: 8, borderRadius: radius.md, backgroundColor: colors.subtle },
+  weekToday: { borderWidth: 1, borderColor: colors.primary },
+  weekOn: { backgroundColor: colors.ink },
+  weekName: { fontSize: 11, color: colors.muted },
+  weekDate: { fontSize: 16, fontWeight: '600', color: colors.text },
+  weekTextOn: { color: colors.onInk },
+  dot: { width: 5, height: 5, borderRadius: 3, marginTop: 2, backgroundColor: 'transparent' },
+  dotOn: { backgroundColor: colors.warning },
+  weekEmpty: { marginTop: 10 },
+  dueList: { marginTop: 8 },
+  dueRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
+  dueText: { fontSize: 14, color: colors.secondary },
+  dueAmount: { fontSize: 14, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
+  owed: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 16, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border },
+  owedText: { fontSize: 14, color: colors.text },
   pressed: { opacity: 0.85 },
   fab: {
     position: 'absolute',

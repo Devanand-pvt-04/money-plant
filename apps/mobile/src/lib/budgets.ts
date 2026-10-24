@@ -91,6 +91,18 @@ async function movedThisMonth(month: MonthKey, moved: CategoryNode[]): Promise<{
   return moved.map((category) => ({ category, amount: totals.get(category.id) ?? paise(0) })).filter((m) => m.amount > 0);
 }
 
+/**
+ * HOME-1: money in this month, from postings on income categories. Transfers
+ * between the user's accounts and IOU repayments never touch a category, so
+ * they are left out; refunds sit on spending categories and reduce spending.
+ */
+export async function incomeThisMonth(month: MonthKey): Promise<Paise> {
+  const income = flatten((await listCategories()).filter((c) => c.flow === 'income'));
+  const totals = await spendByCategory(month, new Set(income.map((c) => c.id)));
+  // Income categories are credited, so their postings are negative.
+  return paise(-[...totals.values()].reduce((sum, amount) => sum + amount, 0));
+}
+
 function budgetRows(db: Awaited<ReturnType<typeof getDb>>) {
   return db
     .select()
