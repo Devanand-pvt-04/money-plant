@@ -2,11 +2,10 @@ import * as Crypto from 'expo-crypto';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { paise, type Paise } from '@money-plant/core';
 import {
-  STANDARD_CATEGORIES,
+  DEFAULT_CATEGORIES,
   categorise,
   flowOfKey,
   localTime,
-  parentKey,
   type CategoriseInput,
   type CategoryDecision,
   type CategoryFlow,
@@ -44,9 +43,11 @@ export interface CategoryNode extends UserCategory {
 const SEEDED_KEY = 'categories.seeded';
 
 /**
- * CAT-1: creates the default category tree once per user. Ids are derived from
+ * CAT-1: creates the default categories once per user. Ids are derived from
  * the user id and the key, so a second phone writes the same rows, and a
- * category the user deleted (a soft-deleted row) is not brought back.
+ * category the user deleted (a soft-deleted row) is not brought back. Users
+ * from before the short list keep their tree: every default key was in the
+ * old set, so its rows already exist and nothing new is added.
  */
 export async function ensureDefaultCategories(): Promise<void> {
   const userId = await currentUserId();
@@ -54,10 +55,9 @@ export async function ensureDefaultCategories(): Promise<void> {
   const db = await getDb();
   const createdAt = now();
   const ids = new Map<string, string>();
-  for (const category of STANDARD_CATEGORIES) ids.set(category.key, await derivedId(`category:${category.key}`));
+  for (const category of DEFAULT_CATEGORIES) ids.set(category.key, await derivedId(`category:${category.key}`));
   db.transaction((t) => {
-    for (const category of STANDARD_CATEGORIES) {
-      const parent = parentKey(category.key);
+    for (const category of DEFAULT_CATEGORIES) {
       t.insert(accounts)
         .values({
           id: ids.get(category.key)!,
@@ -65,7 +65,7 @@ export async function ensureDefaultCategories(): Promise<void> {
           name: category.name,
           institution: null,
           last4: null,
-          parentId: parent ? ids.get(parent)! : null,
+          parentId: null,
           categoryKey: category.key,
           createdAt,
           dirty: 1,

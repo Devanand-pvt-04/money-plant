@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheme } from '@/lib/theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 
@@ -123,13 +124,20 @@ export function Chips({ children }: { children: ReactNode }) {
  * Share of a budget used. Turns amber on pace to overspend and red when over.
  * `marker` draws a tick where an even pace would be.
  */
-export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'over'; marker?: number }) {
+/** A bar that fills to `value` (0 to 1) when it appears and whenever the value changes. */
+export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'over'; marker?: number; color?: string }) {
   const { value, status = 'ok', marker } = props;
-  const color = status === 'over' ? colors.danger : status === 'pace' ? colors.warning : colors.primary;
-  const pct = (n: number) => `${Math.min(100, Math.max(0, n * 100))}%` as const;
+  const color = status === 'over' ? colors.danger : status === 'pace' ? colors.warning : (props.color ?? colors.primary);
+  const clamp = (n: number) => Math.min(100, Math.max(0, n * 100));
+  const pct = (n: number) => `${clamp(n)}%` as const;
+  const width = useSharedValue(0);
+  useEffect(() => {
+    width.value = withTiming(clamp(value), { duration: 500, easing: Easing.out(Easing.cubic) });
+  }, [value, width]);
+  const fill = useAnimatedStyle(() => ({ width: `${width.value}%` }));
   return (
     <View style={styles.track}>
-      <View style={[styles.fill, { width: pct(value), backgroundColor: color }]} />
+      <Animated.View style={[styles.fill, fill, { backgroundColor: color }]} />
       {marker !== undefined && marker > 0 && marker < 1 && <View style={[styles.marker, { left: pct(marker) }]} />}
     </View>
   );

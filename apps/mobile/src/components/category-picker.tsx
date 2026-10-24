@@ -203,7 +203,7 @@ export function CategoryPicker(props: Props) {
 }
 
 /** The short form behind "New category": a name, and optionally a parent. */
-function NewCategory(props: {
+export function NewCategory(props: {
   initialName: string;
   parents: CategoryNode[];
   flow: CategoryFlow;

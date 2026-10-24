@@ -36,28 +36,45 @@ export function monthElapsed(month: MonthKey, now: Date): number {
 }
 
 /**
- * One budget row. A row applies from its month onward until a later row for
- * the same category replaces it, so a budget set once carries over every
- * month. A null limit removes the budget from that month on.
+ * One budget row (BUD-1). A row with no month is the category's default and
+ * applies to every month; a row with a month overrides the default for that
+ * month only. Removing the override brings the default back.
  */
 export interface BudgetRow {
-  month: MonthKey;
+  month: MonthKey | null;
   /** null is the overall budget. */
   categoryId: string | null;
+  limit: Paise;
+}
+
+export interface BudgetSetting {
+  /** Applies to every month. */
+  default: Paise | null;
+  /** This month only, in place of the default. */
+  override: Paise | null;
+  /** What applies this month: the override, else the default. */
   limit: Paise | null;
+}
+
+/** Each category's default and override for `month`, keyed by category id or OVERALL. */
+export function budgetSettings(rows: readonly BudgetRow[], month: MonthKey): Map<string, BudgetSetting> {
+  const result = new Map<string, BudgetSetting>();
+  for (const row of rows) {
+    if (row.month !== null && row.month !== month) continue;
+    const key = row.categoryId ?? OVERALL;
+    const setting = result.get(key) ?? { default: null, override: null, limit: null };
+    if (row.month === null) setting.default = row.limit;
+    else setting.override = row.limit;
+    setting.limit = setting.override ?? setting.default;
+    result.set(key, setting);
+  }
+  return result;
 }
 
 /** The limit in force for each category in `month`, keyed by category id or OVERALL. */
 export function effectiveBudgets(rows: readonly BudgetRow[], month: MonthKey): Map<string, Paise> {
-  const latest = new Map<string, BudgetRow>();
-  for (const row of rows) {
-    if (row.month > month) continue;
-    const key = row.categoryId ?? OVERALL;
-    const current = latest.get(key);
-    if (!current || row.month > current.month) latest.set(key, row);
-  }
   const result = new Map<string, Paise>();
-  for (const [key, row] of latest) if (row.limit !== null) result.set(key, row.limit);
+  for (const [key, setting] of budgetSettings(rows, month)) if (setting.limit !== null) result.set(key, setting.limit);
   return result;
 }
 
