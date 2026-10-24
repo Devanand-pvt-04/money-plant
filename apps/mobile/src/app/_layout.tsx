@@ -101,6 +101,7 @@ export default function RootLayout() {
             <Stack.Screen name="group/edit" options={{ title: 'Group', presentation: 'modal' }} />
             <Stack.Screen name="profile" options={{ title: 'Your name and UPI ID', presentation: 'modal' }} />
             <Stack.Screen name="settings" options={{ title: 'Profile and settings' }} />
+            <Stack.Screen name="data" options={{ title: 'Your data' }} />
           </Stack.Protected>
           <Stack.Protected guard={!signedIn}>
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />

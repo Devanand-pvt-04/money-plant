@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, daysBetween, isDateKey, nextOccurrence } from './schedule';
+import { addDays, addMonthsToDate, daysBetween, isDateKey, nextOccurrence } from './schedule';
 
 describe('nextOccurrence', () => {
   it('moves weekly payments by 7 days', () => {
@@ -27,5 +27,17 @@ describe('dates', () => {
     expect(isDateKey('2026-10-25')).toBe(true);
     expect(isDateKey('2026-02-30')).toBe(false);
     expect(isDateKey('25-10-2026')).toBe(false);
+  });
+});
+
+describe('addMonthsToDate', () => {
+  it.each([
+    ['2026-10-24', -6, '2026-04-24'],
+    ['2026-10-24', -12, '2025-10-24'],
+    ['2026-03-31', -1, '2026-02-28'],
+    ['2026-01-15', -1, '2025-12-15'],
+    ['2026-10-31', 1, '2026-11-30'],
+  ])('%s plus %i months is %s', (key, months, expected) => {
+    expect(addMonthsToDate(key, months)).toBe(expected);
   });
 });

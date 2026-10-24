@@ -66,6 +66,11 @@ export default function Settings() {
         <Link icon="layers" title="Account types" href="/account-types" />
       </Card>
 
+      <SectionTitle>Your data</SectionTitle>
+      <Card>
+        <Link icon="download" title="Export, clear or delete" href="/data" first />
+      </Card>
+
       <Pressable accessibilityRole="button" onPress={signOut} style={({ pressed }) => [styles.signOut, pressed && styles.pressed]}>
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>

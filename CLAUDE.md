@@ -35,6 +35,7 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 - `cd apps/mobile && npx expo install <pkg>`: add Expo or React Native packages so versions match the SDK. Use `pnpm --filter <pkg> add` for everything else
 - `cd apps/mobile && npx expo run:android`: local development build (needs Android Studio), or `npx eas-cli@latest build --profile development --platform android` for a cloud build
 - `npx supabase db push`: apply `supabase/migrations` to the hosted project (after `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`)
+- `npx supabase functions deploy <name>`: deploy one edge function from `supabase/functions/` (for example `delete-account`)
 
 ## Expo notes
 
