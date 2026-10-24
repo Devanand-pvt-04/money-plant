@@ -79,6 +79,48 @@ export function effectiveBudgets(rows: readonly BudgetRow[], month: MonthKey): M
 }
 
 /**
+ * BUD-1: the budgets that count in a month. A branch has either a budget on
+ * the parent or budgets on its sub-categories, never both; if both exist (for
+ * example from two phones), the parent's wins. The old overall budget is
+ * ignored: the month's total is the sum of these.
+ */
+export function countedBudgets(limits: ReadonlyMap<string, Paise>, parentOf: ReadonlyMap<string, string | null>): Map<string, Paise> {
+  const result = new Map<string, Paise>();
+  for (const [id, limit] of limits) {
+    if (id === OVERALL) continue;
+    const parent = parentOf.get(id);
+    if (parent && limits.has(parent)) continue;
+    result.set(id, limit);
+  }
+  return result;
+}
+
+export interface BudgetTotal {
+  /** The sum of the budgets that count, or null when none are set. */
+  limit: Paise | null;
+  /** Spent in budgeted categories; all spending when no budgets are set. */
+  spent: Paise;
+  /** Spent in categories without a budget. */
+  outside: Paise;
+}
+
+/**
+ * BUD-1: the month's total against the sum of its category budgets.
+ * `spent` holds each category's spending with sub-categories rolled up
+ * (see rollUp), `allSpending` the month's total spending.
+ */
+export function budgetTotal(counted: ReadonlyMap<string, Paise>, spent: ReadonlyMap<string, Paise>, allSpending: Paise): BudgetTotal {
+  if (counted.size === 0) return { limit: null, spent: allSpending, outside: paise(0) };
+  let limit = 0;
+  let inBudgets = 0;
+  for (const [id, amount] of counted) {
+    limit += amount;
+    inBudgets += spent.get(id) ?? 0;
+  }
+  return { limit: paise(limit), spent: paise(inBudgets), outside: paise(allSpending - inBudgets) };
+}
+
+/**
  * CAT-5: adds each sub-category's total into its parent. The result holds a
  * parent's own postings plus all its children's.
  */

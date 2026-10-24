@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { OVERALL, addMonths, type MonthKey, type Paise } from '@money-plant/core';
+import { addMonths, type MonthKey, type Paise } from '@money-plant/core';
+import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatWholeRupees } from '@/components/format';
@@ -38,7 +39,7 @@ export default function Budgets() {
   const [segment, setSegment] = useState<Segment>('spending');
   const [showAll, setShowAll] = useState(false);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const [editing, setEditing] = useState<{ id: string | null; name: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string; start: Paise | null } | null>(null);
   const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[] } | null);
   // useLedger reloads on focus and on ledger changes; a different month needs a reload too.
   useEffect(() => {
@@ -55,9 +56,8 @@ export default function Budgets() {
 
   async function suggest() {
     const suggestions = await suggestBudgets(month);
-    const missing = [...suggestions].filter(([key]) =>
-      key === OVERALL ? overview.overall.limit === null : roots.some((l) => l.category!.id === key && l.limit === null),
-    );
+    // Only categories with no budget on them or on their sub-categories.
+    const missing = [...suggestions].filter(([key]) => roots.some((l) => l.category!.id === key && l.limit === null) && !children(key).some((c) => c.limit !== null));
     if (missing.length === 0) return Alert.alert('Nothing to suggest', 'Every category with spending in the last 3 months already has a budget.');
     Alert.alert(
       'Use suggested budgets?',
@@ -67,12 +67,17 @@ export default function Budgets() {
         {
           text: 'Set budgets',
           onPress: async () => {
-            for (const [key, limit] of missing) await setBudget(null, key === OVERALL ? null : key, limit);
+            for (const [key, limit] of missing) await setBudget(null, key, limit);
             await requestNotificationPermission();
           },
         },
       ],
     );
+  }
+
+  async function startBudget(category: CategoryNode) {
+    const { proceed, start } = await askToReplaceBudgets(category.id, category.name);
+    if (proceed) setEditing({ id: category.id, name: category.name, start });
   }
 
   const toggle = (id: string) => setOpen((current) => {
@@ -118,7 +123,7 @@ export default function Budgets() {
 
         {segment === 'spending' ? (
           <>
-            <Overall line={overview.overall} month={month} elapsed={overview.elapsed} onSet={() => setEditing({ id: null, name: 'All spending' })} />
+            <Overall line={overview.overall} outside={overview.outside} month={month} elapsed={overview.elapsed} />
             <View style={styles.sectionHead}>
               <Text style={styles.sectionTitle}>Categories</Text>
               <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/categories')}>
@@ -132,9 +137,10 @@ export default function Budgets() {
                 line={line}
                 month={month}
                 sub={children(line.category!.id).filter(active)}
+                childBudgets={children(line.category!.id).some((c) => c.limit !== null)}
                 open={open.has(line.category!.id)}
                 onToggle={() => toggle(line.category!.id)}
-                onSet={() => setEditing({ id: line.category!.id, name: line.category!.name })}
+                onSet={() => startBudget(line.category!)}
               />
             ))}
             {hidden > 0 && (
@@ -160,7 +166,7 @@ export default function Budgets() {
         visible={editing !== null}
         title={`Budget for ${editing?.name ?? ''}`}
         note="Applies to every month. You can change one month from the category."
-        value={null}
+        value={editing?.start ?? null}
         onSave={async (limit) => {
           const target = editing!;
           setEditing(null);
@@ -173,27 +179,26 @@ export default function Budgets() {
   );
 }
 
-function Overall({ line, month, elapsed, onSet }: { line: BudgetLine; month: MonthKey; elapsed: number; onSet: () => void }) {
+function Overall({ line, outside, month, elapsed }: { line: BudgetLine; outside: Paise; month: MonthKey; elapsed: number }) {
   const left = daysLeft(month);
   const status = line.pace?.status ?? 'ok';
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(budgetHref('overall', month))} style={({ pressed }) => [styles.overall, pressed && styles.pressed]}>
       <View style={styles.row}>
-        <Text style={[styles.meta, styles.grow]}>All spending</Text>
+        <Text style={[styles.meta, styles.grow]}>{line.limit === null ? 'All spending' : 'Spent in your budgets'}</Text>
         {left !== null && <Text style={styles.days}>{left === 1 ? 'Last day' : `${left} days left`}</Text>}
       </View>
       <View style={styles.big}>
         <Text style={[styles.bigAmount, status === 'over' && { color: colors.danger }]}>{rupees(line.spent)}</Text>
-        {line.limit !== null ? (
-          <Text style={styles.meta}>of {rupees(line.limit)}</Text>
-        ) : (
-          <Pressable accessibilityRole="button" hitSlop={8} onPress={onSet}>
-            <Text style={styles.link}>Set a monthly budget</Text>
-          </Pressable>
-        )}
+        {line.limit !== null && <Text style={styles.meta}>of {rupees(line.limit)}</Text>}
       </View>
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} marker={elapsed} />}
       <PaceNote line={line} />
+      {line.limit === null ? (
+        <Text style={styles.meta}>Set budgets on the categories you want to track. Your total budget is their sum.</Text>
+      ) : (
+        outside > 0 && <Text style={styles.meta}>{rupees(outside)} spent outside your budgets</Text>
+      )}
     </Pressable>
   );
 }
@@ -204,7 +209,7 @@ function PaceNote({ line }: { line: BudgetLine }) {
   return null;
 }
 
-function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; open: boolean; onToggle: () => void; onSet: () => void }) {
+function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; childBudgets: boolean; open: boolean; onToggle: () => void; onSet: () => void }) {
   const { line, month, sub } = props;
   const category = line.category!;
   const style = categoryStyle(category.key);
@@ -220,7 +225,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
           {rupees(line.spent)}
           {line.limit !== null && <Text style={styles.of}> of {rupees(line.limit)}</Text>}
         </Text>
-        {line.limit === null && !category.system && (
+        {line.limit === null && !category.system && !props.childBudgets && (
           <Pressable accessibilityRole="button" accessibilityLabel={`Set a budget for ${category.name}`} hitSlop={8} onPress={props.onSet}>
             <Text style={styles.link}>Set budget</Text>
           </Pressable>
@@ -233,7 +238,8 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
       </View>
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} />}
       <PaceNote line={line} />
-      {props.open && (
+      {props.childBudgets && <Text style={styles.meta}>Budgets are on its sub-categories</Text>}
+      {(props.open || props.childBudgets) && (
         <View style={styles.children}>
           {sub.map((child) => (
             <Pressable

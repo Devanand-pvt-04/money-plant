@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, effectiveBudgets, rollUp, suggestBudget } from './budget';
+import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget } from './budget';
 
 describe('effectiveBudgets', () => {
   const rows = [
@@ -99,5 +99,50 @@ describe('breakdown', () => {
     expect(result.byCategory[0]).toEqual({ categoryId: 'delivery', amount: 100000 });
     expect(result.byMerchant[0]).toEqual({ merchant: 'SWIGGY', amount: 100000, count: 3 });
     expect(result.largest.map((item) => item.transactionId)).toEqual(['b', 'a']);
+  });
+});
+
+describe('countedBudgets and budgetTotal', () => {
+  const parentOf = new Map<string, string | null>([
+    ['food', null],
+    ['lunch', 'food'],
+    ['dinner', 'food'],
+    ['transport', null],
+    ['fuel', 'transport'],
+    ['bills', null],
+  ]);
+  const p = (n: number) => paise(n);
+
+  it('drops the overall budget and a child under a budgeted parent', () => {
+    const limits = new Map([
+      [OVERALL, p(50000)],
+      ['food', p(10000)],
+      ['lunch', p(3000)],
+      ['fuel', p(4000)],
+    ]);
+    expect([...countedBudgets(limits, parentOf)]).toEqual([
+      ['food', 10000],
+      ['fuel', 4000],
+    ]);
+  });
+
+  it('sums the budgets, counts only budgeted spending and reports the rest as outside', () => {
+    const counted = new Map([
+      ['food', p(10000)],
+      ['fuel', p(4000)],
+    ]);
+    // Rolled up: food includes lunch and dinner; transport includes fuel and other transport.
+    const spent = new Map([
+      ['food', p(7000)],
+      ['lunch', p(2000)],
+      ['transport', p(6000)],
+      ['fuel', p(3500)],
+      ['bills', p(9000)],
+    ]);
+    expect(budgetTotal(counted, spent, p(22000))).toEqual({ limit: 14000, spent: 10500, outside: 11500 });
+  });
+
+  it('falls back to all spending when no budget is set', () => {
+    expect(budgetTotal(new Map(), new Map(), p(22000))).toEqual({ limit: null, spent: 22000, outside: 0 });
   });
 });

@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { MonthKey, Paise } from '@money-plant/core';
+import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatDate, formatMonth, formatWholeRupees as rupees } from '@/components/format';
@@ -18,6 +19,9 @@ interface Data {
   line: BudgetLine | null;
   detail: CategoryBreakdown;
   names: Map<string, string>;
+  /** Spent outside budgets this month, for the total. */
+  outside: Paise;
+  parentName: string | null;
 }
 
 async function load(id: string, month: MonthKey): Promise<Data> {
@@ -25,7 +29,8 @@ async function load(id: string, month: MonthKey): Promise<Data> {
   const [overview, detail, names, tree] = await Promise.all([monthOverview(month), categoryBreakdown(month, categoryId), categoryNames(), listCategories()]);
   const category = categoryId === null ? null : (flatten(tree).find((c) => c.id === categoryId) ?? null);
   const line = categoryId === null ? overview.overall : (overview.lines.find((l) => l.category?.id === categoryId) ?? null);
-  return { category, line, detail, names };
+  const parentName = category?.parentId ? (names.get(category.parentId) ?? null) : null;
+  return { category, line, detail, names, outside: overview.outside, parentName };
 }
 
 const shortMonth = (month: MonthKey) => formatMonth(month).slice(0, 3);
@@ -41,6 +46,7 @@ export default function CategoryMonth() {
   const month = params.month ?? currentMonth();
   const { data } = useLedger(() => load(params.id, month), null as Data | null);
   const [editing, setEditing] = useState<'default' | 'month' | null>(null);
+  const [start, setStart] = useState<Paise | null>(null);
   if (!data) return null;
 
   const { category, line, detail, names } = data;
@@ -53,11 +59,21 @@ export default function CategoryMonth() {
   const left = daysLeft(month);
   const subCount = category?.children.length ?? 0;
 
+  async function edit(target: 'default' | 'month') {
+    const { proceed, start: from } = await askToReplaceBudgets(categoryId!, title);
+    if (!proceed) return;
+    setStart(from);
+    setEditing(target);
+  }
+
   async function save(target: 'default' | 'month', limit: Paise | null) {
     setEditing(null);
-    await setBudget(target === 'default' ? null : month, categoryId, limit);
+    await setBudget(target === 'default' ? null : month, categoryId!, limit);
     if (limit !== null) await requestNotificationPermission();
   }
+
+  // The total counts only budgeted categories (BUD-1); with no budgets it is all spending.
+  const shown = overall && line?.limit != null ? line.spent : detail.total;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -93,22 +109,33 @@ export default function CategoryMonth() {
 
       <View style={styles.hero}>
         <Text style={styles.heroText}>
-          <Text style={styles.big}>{rupees(detail.total)}</Text>
+          <Text style={styles.big}>{rupees(shown)}</Text>
           {line?.limit != null ? <Text style={styles.meta}> of {rupees(line.limit)} this month</Text> : <Text style={styles.meta}>{income ? ' came in' : ' this month'}</Text>}
         </Text>
         {line?.limit != null && <ProgressBar value={line.spent / line.limit} status={line.pace?.status} color={overall ? undefined : style.color} />}
         {line?.limit != null && <Text style={styles.meta}>{paceText(line, left)}</Text>}
       </View>
 
-      {!income && (
+      {overall && (
+        <Text style={styles.meta}>
+          {line?.limit != null
+            ? `Your total budget is the sum of your category budgets.${(data.outside ?? 0) > 0 ? ` ${rupees(data.outside)} went to categories without one.` : ''}`
+            : 'Set budgets on the categories you want to track. Your total budget is their sum.'}
+        </Text>
+      )}
+
+      {!income && !overall && (
         <>
           <SectionTitle>Budget</SectionTitle>
+          {line?.inParentBudget && (
+            <Text style={styles.meta}>Counted in {data.parentName}'s budget. A budget here replaces {data.parentName}'s, so you can budget each sub-category.</Text>
+          )}
           <View style={styles.panel}>
             <BudgetRow
               title="Every month"
               note={setting.default === null ? 'No budget yet. It applies to every month unless you change one' : 'Applies to every month unless you change one'}
               amount={setting.default}
-              onPress={() => setEditing('default')}
+              onPress={() => edit('default')}
             />
             <BudgetRow
               title={`${monthName(month)} only`}
@@ -119,7 +146,7 @@ export default function CategoryMonth() {
               }
               amount={setting.override}
               divided
-              onPress={() => setEditing('month')}
+              onPress={() => edit('month')}
             />
           </View>
         </>
@@ -170,7 +197,7 @@ export default function CategoryMonth() {
         visible={editing === 'default'}
         title={`${title}: every month`}
         note="Applies to every month unless you change one."
-        value={setting.default}
+        value={setting.default ?? start}
         removeLabel={setting.default !== null ? 'Remove budget' : undefined}
         onSave={(limit) => save('default', limit)}
         onClose={() => setEditing(null)}
@@ -179,7 +206,7 @@ export default function CategoryMonth() {
         visible={editing === 'month'}
         title={`${title}: ${monthName(month)} only`}
         note={setting.default !== null ? `Other months stay at ${rupees(setting.default)}.` : 'Other months stay without a budget.'}
-        value={setting.override ?? setting.default}
+        value={setting.override ?? setting.default ?? start}
         removeLabel={setting.override !== null ? (setting.default !== null ? `Reset to ${rupees(setting.default)}` : 'Remove for this month') : undefined}
         onSave={(limit) => save('month', limit)}
         onClose={() => setEditing(null)}
