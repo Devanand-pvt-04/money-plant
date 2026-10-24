@@ -604,4 +604,7 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   DELETE FROM kv WHERE key = 'sync.budgets.cursor';`,
   // App review round 1: group expenses (SPL-3).
   `ALTER TABLE transactions ADD COLUMN split_group_id TEXT;`,
+  // Decision 0009: no overall budget; the month's total is the sum of category budgets (BUD-1).
+  `UPDATE budgets SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), dirty = 1, rev = rev + 1
+   WHERE category_account_id IS NULL AND deleted_at IS NULL;`,
 ];

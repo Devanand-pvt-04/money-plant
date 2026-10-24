@@ -1,10 +1,10 @@
-import { useCallback, useState, type ComponentProps } from 'react';
+import { type ComponentProps } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect, type Href } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { Avatar } from '@/components/avatar';
+import { Avatar, useMe } from '@/components/avatar';
 import { Card, SectionTitle, colors, radius } from '@/components/ui';
-import { displayName, getMe, type Me } from '@/lib/me';
+import { displayName } from '@/lib/me';
 import { signOut } from '@/lib/session';
 import { setThemePreference, themePreference, type ThemePreference } from '@/lib/theme';
 
@@ -16,21 +16,17 @@ const THEMES: { key: ThemePreference; label: string }[] = [
 
 /** NAV-1: profile and settings, opened from the avatar on Home. */
 export default function Settings() {
-  const [me, setMe] = useState<Me | null>(null);
+  const me = useMe();
   const theme = themePreference();
-
-  useFocusEffect(
-    useCallback(() => {
-      getMe().then(setMe, () => setMe(null));
-    }, []),
-  );
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Pressable accessibilityRole="button" onPress={() => router.push('/profile')} style={({ pressed }) => [styles.profile, pressed && styles.pressed]}>
         <Avatar me={me} size={52} />
         <View style={styles.grow}>
-          <Text style={styles.profileName}>{me ? displayName(me) : ' '}</Text>
+          <Text style={styles.profileName} numberOfLines={1}>
+            {me ? displayName(me) : ' '}
+          </Text>
           <Text style={styles.meta} numberOfLines={1}>
             {[me?.vpa, me?.email].filter(Boolean).join(' · ') || 'Add your name and UPI ID'}
           </Text>

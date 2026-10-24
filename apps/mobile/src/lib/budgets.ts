@@ -1,10 +1,11 @@
-import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
-  OVERALL,
   addMonths,
   breakdown,
   budgetPace,
   budgetSettings,
+  budgetTotal,
+  countedBudgets,
   monthBounds,
   monthElapsed,
   monthOf,
@@ -65,12 +66,20 @@ export interface BudgetLine {
   /** The every-month default and this month's override behind `limit`. */
   setting: BudgetSetting;
   pace: Pace | null;
+  /** A sub-category whose parent has the budget: it counts there, not on its own (BUD-1). */
+  inParentBudget: boolean;
 }
 
 export interface MonthOverview {
   month: MonthKey;
   elapsed: number;
+  /**
+   * The month's total: the sum of the category budgets against what was spent
+   * in those categories. With no budgets set, all spending and no limit.
+   */
   overall: BudgetLine;
+  /** Spent in categories without a budget; shown apart, not against the total (BUD-1). */
+  outside: Paise;
   /** Top-level spending categories, each followed by its sub-categories. */
   lines: BudgetLine[];
   /** Invested or withdrawn as cash: shown, but not counted as spending. */
@@ -130,55 +139,103 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   const { tree, ids, parents, moved } = await spendingTree();
   const spent = rollUp(await spendByCategory(month, ids), parents);
   const settings = budgetSettings(budgetRows(db), month);
+  const limits = new Map<string, Paise>();
+  for (const [key, setting] of settings) if (setting.limit !== null && ids.has(key)) limits.set(key, setting.limit);
+  const counted = countedBudgets(limits, parents);
+  const allSpending = paise(tree.reduce((sum, root) => sum + (spent.get(root.id) ?? 0), 0));
+  const total = budgetTotal(counted, spent, allSpending);
   const elapsed = month === currentMonth() ? monthElapsed(month, new Date()) : month < currentMonth() ? 1 : 0;
-  const line = (category: CategoryNode | null): BudgetLine => {
-    const key = category?.id ?? OVERALL;
-    const amount =
-      category === null
-        ? paise(tree.reduce((sum, root) => sum + (spent.get(root.id) ?? 0), 0))
-        : (spent.get(category.id) ?? paise(0));
-    const setting = settings.get(key) ?? NO_SETTING;
-    const limit = setting.limit;
-    return { category, spent: amount, limit, setting, pace: limit === null ? null : budgetPace(amount, limit, elapsed) };
+  const line = (category: CategoryNode): BudgetLine => {
+    const amount = spent.get(category.id) ?? paise(0);
+    const setting = settings.get(category.id) ?? NO_SETTING;
+    const limit = counted.get(category.id) ?? null;
+    const inParentBudget = category.parentId !== null && counted.has(category.parentId);
+    return { category, spent: amount, limit, setting, pace: limit === null ? null : budgetPace(amount, limit, elapsed), inParentBudget };
   };
   return {
     month,
     elapsed,
-    overall: line(null),
+    overall: {
+      category: null,
+      spent: total.spent,
+      limit: total.limit,
+      setting: NO_SETTING,
+      pace: total.limit === null ? null : budgetPace(total.spent, total.limit, elapsed),
+      inParentBudget: false,
+    },
+    outside: total.outside,
     lines: tree.flatMap((root) => [line(root), ...root.children.map(line)]),
     moved: await movedThisMonth(month, moved),
   };
 }
 
+export type BudgetConflict =
+  | { kind: 'children'; names: string[]; sum: Paise }
+  | { kind: 'parent'; name: string };
+
+/**
+ * BUD-1: what setting a budget on `categoryId` would replace. A parent
+ * budget replaces its sub-categories' budgets (`sum` is their every-month
+ * total, offered as the parent's amount); a sub-category budget replaces
+ * its parent's.
+ */
+export async function budgetConflict(categoryId: string): Promise<BudgetConflict | null> {
+  const db = await getDb();
+  const { all } = await spendingTree();
+  const category = all.find((c) => c.id === categoryId);
+  if (!category) return null;
+  const rows = budgetRows(db);
+  if (category.parentId === null) {
+    const children = all.filter((c) => c.parentId === categoryId && rows.some((r) => r.categoryId === c.id));
+    if (children.length === 0) return null;
+    const sum = rows.filter((r) => r.month === null && children.some((c) => c.id === r.categoryId)).reduce((total, r) => total + r.limit, 0);
+    return { kind: 'children', names: children.map((c) => c.name), sum: paise(sum) };
+  }
+  const parent = all.find((c) => c.id === category.parentId);
+  return parent && rows.some((r) => r.categoryId === parent.id) ? { kind: 'parent', name: parent.name } : null;
+}
+
 /**
  * BUD-1: sets (or with null, removes) a budget. With no month it is the
  * default for every month; with a month it overrides the default for that
- * month only, and null resets the month to the default.
+ * month only, and null resets the month to the default. Setting an amount
+ * removes the budgets it would overlap: a parent's sub-category budgets, or
+ * a sub-category's parent budget, in every month (see budgetConflict).
  */
-export async function setBudget(month: MonthKey | null, categoryId: string | null, limit: Paise | null): Promise<void> {
+export async function setBudget(month: MonthKey | null, categoryId: string, limit: Paise | null): Promise<void> {
   const db = await getDb();
-  const id = await derivedId(`budget:${month ?? 'default'}:${categoryId ?? 'overall'}`);
+  const id = await derivedId(`budget:${month ?? 'default'}:${categoryId}`);
   const values = { month, categoryAccountId: categoryId, limitPaise: limit, deletedAt: limit === null ? now() : null, dirty: 1 };
-  db.insert(budgets)
-    .values({ id, ...values, createdAt: now() })
-    .onConflictDoUpdate({ target: budgets.id, set: { ...values, rev: sql`${budgets.rev} + 1` } })
-    .run();
+  const overlapping =
+    limit === null
+      ? []
+      : (await spendingTree()).all.filter((c) => c.parentId === categoryId || c.children.some((child) => child.id === categoryId)).map((c) => c.id);
+  db.transaction((t) => {
+    t.insert(budgets)
+      .values({ id, ...values, createdAt: now() })
+      .onConflictDoUpdate({ target: budgets.id, set: { ...values, rev: sql`${budgets.rev} + 1` } })
+      .run();
+    if (overlapping.length > 0) {
+      t.update(budgets)
+        .set({ deletedAt: now(), dirty: 1, rev: sql`${budgets.rev} + 1` })
+        .where(and(isNull(budgets.deletedAt), inArray(budgets.categoryAccountId, overlapping)))
+        .run();
+    }
+  });
   notifyLedgerChange();
 }
 
-/** First-run budgets: per category, the average of the last 3 full months rounded up to ₹500. */
+/** First-run budgets: per top-level category, the average of the last 3 full months rounded up to ₹500. */
 export async function suggestBudgets(month: MonthKey): Promise<Map<string, Paise>> {
   const { tree, ids, parents } = await spendingTree();
   const months = [1, 2, 3].map((n) => addMonths(month, -n));
   const totals = await Promise.all(months.map(async (m) => rollUp(await spendByCategory(m, ids), parents)));
   const result = new Map<string, Paise>();
-  for (const category of flatten(tree)) {
+  for (const category of tree) {
     if (category.system) continue;
     const suggestion = suggestBudget(totals.map((t) => t.get(category.id) ?? paise(0)));
     if (suggestion !== null) result.set(category.id, suggestion);
   }
-  const overall = suggestBudget(totals.map((t) => paise(tree.reduce((sum, root) => sum + (t.get(root.id) ?? 0), 0))));
-  if (overall !== null) result.set(OVERALL, overall);
   return result;
 }
 
@@ -248,7 +305,7 @@ export async function checkPaceAlerts(): Promise<void> {
     const key = `budget.alert.${month}.${line.category?.id ?? 'overall'}.${line.pace.status}`;
     if (await kvGet(key)) continue;
     await kvSet(key, '1');
-    const name = line.category?.name ?? 'Your monthly budget';
+    const name = line.category?.name ?? 'Your total budget';
     await notify({
       channel: 'budgets',
       title: line.pace.status === 'over' ? `${name} is over budget` : `${name} is on pace to overspend`,

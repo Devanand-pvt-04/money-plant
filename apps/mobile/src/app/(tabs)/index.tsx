@@ -36,7 +36,7 @@ async function loadHome() {
     listTransactions({ limit: 3 }),
     owedSummary(),
   ]);
-  return { balances, pending, imported, month: overview.overall, elapsed: overview.elapsed, income, week, recent, owed };
+  return { balances, pending, imported, month: overview.overall, outside: overview.outside, elapsed: overview.elapsed, income, week, recent, owed };
 }
 
 function greeting(now: Date): string {
@@ -52,6 +52,7 @@ export default function Home() {
     pending: 0,
     imported: true,
     month: null as BudgetLine | null,
+    outside: 0,
     elapsed: 0,
     income: 0,
     week: { days: [] as string[], items: [] as DueItem[] },
@@ -104,11 +105,11 @@ export default function Home() {
         refreshControl={<RefreshControl refreshing={syncing} onRefresh={refresh} progressViewOffset={insets.top} />}
       >
         <View style={styles.between}>
-          <View>
+          <View style={styles.headerText}>
             <Text style={styles.date}>
               {DAYS[now.getDay()]}, {now.getDate()} {MONTHS[now.getMonth()]}
             </Text>
-            <Text style={styles.hello}>
+            <Text style={styles.hello} numberOfLines={1}>
               {greeting(now)}
               {me?.name ? `, ${displayName(me).split(' ')[0]}` : ''}
             </Text>
@@ -141,7 +142,7 @@ export default function Home() {
           </Pressable>
         )}
 
-        {data.month && <MonthCard line={data.month} income={data.income} elapsed={data.elapsed} />}
+        {data.month && <MonthCard line={data.month} outside={data.outside} income={data.income} elapsed={data.elapsed} />}
 
         {data.week.days.length > 0 && <WeekStrip days={data.week.days} items={data.week.items} />}
 
@@ -221,38 +222,48 @@ export default function Home() {
  * HOME-1, BUD-2: the month so far. Money in counts income categories only, so
  * transfers and repayments never inflate it. The tick marks an even pace.
  */
-function MonthCard({ line, income, elapsed }: { line: BudgetLine; income: number; elapsed: number }) {
+/**
+ * HOME-1 and BUD-1: with budgets, the total budget (the sum of the category
+ * budgets) against what was spent in those categories; without, money in
+ * against all spending.
+ */
+function MonthCard({ line, outside, income, elapsed }: { line: BudgetLine; outside: number; income: number; elapsed: number }) {
   const status = line.pace?.status ?? 'ok';
   const month = currentMonth();
   const today = new Date();
   const daysLeft = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate() + 1;
   const pill = status === 'over' ? 'Over budget' : status === 'pace' ? 'Spending fast' : 'On track';
-  const left = income - line.spent;
+  const budgeted = line.limit !== null;
+  const left = budgeted ? line.limit! - line.spent : income - line.spent;
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push('/budgets')} style={({ pressed }) => [styles.month, pressed && styles.pressed]}>
       <View style={styles.between}>
         <Text style={styles.monthLabel}>{formatMonth(month).split(' ')[0]} so far</Text>
-        {line.limit !== null && <Text style={[styles.pill, status === 'ok' ? styles.pillOk : styles.pillWarn]}>{pill}</Text>}
+        {budgeted && <Text style={[styles.pill, status === 'ok' ? styles.pillOk : styles.pillWarn]}>{pill}</Text>}
       </View>
       <View style={styles.figures}>
-        <Figure label="Money in" value={formatWholeRupees(income)} color={income > 0 ? colors.primary : undefined} />
+        {budgeted ? (
+          <Figure label="Budget" value={formatWholeRupees(line.limit!)} />
+        ) : (
+          <Figure label="Money in" value={formatWholeRupees(income)} color={income > 0 ? colors.primary : undefined} />
+        )}
         <Figure label="Spent" value={formatWholeRupees(line.spent)} />
         <Figure label="Left" value={formatWholeRupees(left)} color={left < 0 ? colors.danger : undefined} />
       </View>
-      {line.limit !== null ? (
+      {budgeted ? (
         <>
-          <ProgressBar value={line.spent / line.limit} status={status} marker={elapsed} />
+          <ProgressBar value={line.spent / line.limit!} status={status} marker={elapsed} />
           <Text style={styles.monthNote}>
-            {formatWholeRupees(line.spent)} of a {formatWholeRupees(line.limit)} budget ·{' '}
             {status === 'over'
-              ? `over by ${formatWholeRupees(line.spent - line.limit)}`
+              ? `Over by ${formatWholeRupees(line.spent - line.limit!)}`
               : status === 'pace'
-                ? `on pace for ${formatWholeRupees(line.pace!.projected)}`
-                : `${formatWholeRupees(line.limit - line.spent)} left for ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}`}
+                ? `On pace for ${formatWholeRupees(line.pace!.projected)}`
+                : `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`}
+            {outside > 0 ? ` · ${formatWholeRupees(outside)} spent outside your budgets` : ''}
           </Text>
         </>
       ) : (
-        <Text style={styles.monthNote}>Tap to set a monthly budget.</Text>
+        <Text style={styles.monthNote}>Tap to set budgets on the categories you want to track.</Text>
       )}
     </Pressable>
   );
@@ -334,8 +345,10 @@ const styles = StyleSheet.create({
   calloutTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   calloutText: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   month: { padding: 20, borderRadius: 20, backgroundColor: colors.subtle, gap: 14 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
+  // A long name is cut with "..." instead of pushing Pay and the avatar off the screen.
+  headerText: { flex: 1, minWidth: 0 },
+  between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   scan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 40, borderRadius: radius.pill, backgroundColor: colors.subtle },
   scanText: { fontSize: 14, fontWeight: '600', color: colors.text },
   monthLabel: { fontSize: 13, fontWeight: '500', color: colors.muted },
