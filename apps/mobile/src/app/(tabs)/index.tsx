@@ -104,11 +104,11 @@ export default function Home() {
         refreshControl={<RefreshControl refreshing={syncing} onRefresh={refresh} progressViewOffset={insets.top} />}
       >
         <View style={styles.between}>
-          <View>
+          <View style={styles.headerText}>
             <Text style={styles.date}>
               {DAYS[now.getDay()]}, {now.getDate()} {MONTHS[now.getMonth()]}
             </Text>
-            <Text style={styles.hello}>
+            <Text style={styles.hello} numberOfLines={1}>
               {greeting(now)}
               {me?.name ? `, ${displayName(me).split(' ')[0]}` : ''}
             </Text>
@@ -334,8 +334,10 @@ const styles = StyleSheet.create({
   calloutTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   calloutText: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   month: { padding: 20, borderRadius: 20, backgroundColor: colors.subtle, gap: 14 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
+  // A long name is cut with "..." instead of pushing Pay and the avatar off the screen.
+  headerText: { flex: 1, minWidth: 0 },
+  between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   scan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 40, borderRadius: radius.pill, backgroundColor: colors.subtle },
   scanText: { fontSize: 14, fontWeight: '600', color: colors.text },
   monthLabel: { fontSize: 13, fontWeight: '500', color: colors.muted },
