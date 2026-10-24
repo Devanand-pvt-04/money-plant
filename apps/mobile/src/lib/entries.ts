@@ -31,35 +31,46 @@ export interface CategoryChange {
 }
 
 /**
- * The user picks a category for an entry (CAT-3, LED-8). The choice is marked
- * as user-set, so automation never changes it again, and the rule or pattern
- * that guessed counts a hit or a miss.
+ * The user picks a category for one or more entries (CAT-3, LED-8), as bulk
+ * review does for one payee's entries. The choice is marked as user-set, so
+ * automation never changes it again, and the rule or pattern that guessed
+ * counts a hit or a miss. Patterns are learned once at the end, and the rule
+ * offer is the first entry's.
  */
-export async function setEntryCategory(id: string, categoryId: string): Promise<CategoryChange> {
+export async function setCategoryForEntries(ids: readonly string[], categoryId: string): Promise<CategoryChange> {
   const db = await getDb();
-  const tx = await load(id);
   const owned = ownedAccountIds(db);
-  const features = entryFeatures(tx, owned);
-  if (!features) throw new Error("This entry can't take a category");
-  const previous = tx.postings[features.categoryPostingIndex]!.accountId;
-  if (tx.categoryRuleId && (tx.categoryReason === 'rule' || tx.categoryReason === 'pattern')) {
-    await countRuleOutcome(tx.categoryRuleId, previous === categoryId ? 'hit' : 'miss');
+  let first: { tx: LedgerTransaction; features: NonNullable<ReturnType<typeof entryFeatures>> } | null = null;
+  for (const id of ids) {
+    const tx = await load(id);
+    const features = entryFeatures(tx, owned);
+    if (!features) {
+      if (ids.length === 1) throw new Error("This entry can't take a category");
+      continue;
+    }
+    first ??= { tx, features };
+    const previous = tx.postings[features.categoryPostingIndex]!.accountId;
+    if (tx.categoryRuleId && (tx.categoryReason === 'rule' || tx.categoryReason === 'pattern')) {
+      await countRuleOutcome(tx.categoryRuleId, previous === categoryId ? 'hit' : 'miss');
+    }
+    const settles = tx.status === 'pending' && tx.reviewReason !== null && CATEGORY_REVIEWS.has(tx.reviewReason);
+    writeTransaction(db, {
+      ...tx,
+      categoryReason: 'user',
+      categoryRuleId: null,
+      userSetFields: withField(tx.userSetFields, 'category'),
+      postings: tx.postings.map((p, i) => (i === features.categoryPostingIndex ? { ...p, accountId: categoryId } : p)),
+      ...(settles ? { status: 'confirmed' as const, reviewReason: null } : {}),
+    });
   }
-  const settles = tx.status === 'pending' && tx.reviewReason !== null && CATEGORY_REVIEWS.has(tx.reviewReason);
-  writeTransaction(db, {
-    ...tx,
-    categoryReason: 'user',
-    categoryRuleId: null,
-    userSetFields: withField(tx.userSetFields, 'category'),
-    postings: tx.postings.map((p, i) => (i === features.categoryPostingIndex ? { ...p, accountId: categoryId } : p)),
-    ...(settles ? { status: 'confirmed' as const, reviewReason: null } : {}),
-  });
   notifyLedgerChange();
+  if (!first) return { offer: null, proposed: 0 };
 
   const proposed = await learnPatterns((entry) => {
     const f = entryFeatures(entry, owned);
     return f && { direction: f.direction, amount: f.amount, accountId: f.accountId, payeeKind: f.payeeKind };
   });
+  const { tx, features } = first;
   const match = ruleFromEntry({ counterparty: tx.counterparty, vpa: features.vpa, direction: features.direction });
   const input = toInput({ ...features, counterparty: tx.counterparty, occurredAt: tx.occurredAt });
   const covered = (await listRules()).some(
@@ -91,21 +102,29 @@ export async function declinePattern(ruleId: string): Promise<void> {
  * the dictionary.
  */
 export async function confirmEntry(id: string): Promise<void> {
+  await confirmEntries([id]);
+}
+
+/** Confirms several entries as they are (bulk review). */
+export async function confirmEntries(ids: readonly string[]): Promise<void> {
   const db = await getDb();
-  const tx = await load(id);
-  if (tx.categoryRuleId && (tx.categoryReason === 'pattern' || tx.categoryReason === 'rule')) await countRuleOutcome(tx.categoryRuleId, 'hit');
-  writeTransaction(db, { ...tx, status: 'confirmed', reviewReason: null });
-  notifyLedgerChange();
-  if (tx.categoryReason === 'ai' && tx.reviewReason === 'category_unsure' && tx.counterparty) {
-    const features = entryFeatures(tx, ownedAccountIds(db));
-    const categoryId = features ? tx.postings[features.categoryPostingIndex]!.accountId : null;
-    const category = categoryId ? db.select().from(accounts).where(eq(accounts.id, categoryId)).get() : undefined;
-    if (category?.categoryKey && !category.categoryKey.endsWith('custom')) {
-      supabase.functions
-        .invoke('categorise', { body: { confirm: [{ merchant: normaliseMerchant(tx.counterparty), key: category.categoryKey, name: tx.counterparty }] } })
-        .catch(() => {});
+  const confirmations = new Map<string, { merchant: string; key: string; name: string }>();
+  for (const id of ids) {
+    const tx = await load(id);
+    if (tx.categoryRuleId && (tx.categoryReason === 'pattern' || tx.categoryReason === 'rule')) await countRuleOutcome(tx.categoryRuleId, 'hit');
+    writeTransaction(db, { ...tx, status: 'confirmed', reviewReason: null });
+    if (tx.categoryReason === 'ai' && tx.reviewReason === 'category_unsure' && tx.counterparty) {
+      const features = entryFeatures(tx, ownedAccountIds(db));
+      const categoryId = features ? tx.postings[features.categoryPostingIndex]!.accountId : null;
+      const category = categoryId ? db.select().from(accounts).where(eq(accounts.id, categoryId)).get() : undefined;
+      if (category?.categoryKey && !category.categoryKey.endsWith('custom')) {
+        const merchant = normaliseMerchant(tx.counterparty);
+        confirmations.set(merchant, { merchant, key: category.categoryKey, name: tx.counterparty });
+      }
     }
   }
+  notifyLedgerChange();
+  if (confirmations.size > 0) supabase.functions.invoke('categorise', { body: { confirm: [...confirmations.values()] } }).catch(() => {});
 }
 
 export interface EntryEdit {

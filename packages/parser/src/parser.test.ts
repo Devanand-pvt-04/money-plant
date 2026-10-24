@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { identifyBankSender, normaliseSender } from './senders';
 import { parseBankText } from './sms';
+import { cleanCounterparty } from './extract';
 import { parseNotification } from './notification';
 import { extractDate, parsePreDebitText } from './predebit';
 
@@ -29,6 +30,31 @@ describe('senders', () => {
     ['VM-AMAZON', null],
   ])('identifies %s', (address, bank) => {
     expect(identifyBankSender(address)).toBe(bank);
+  });
+});
+
+describe('mandate notices', () => {
+  it.each([
+    'Your AutoPay mandate with ASPRESENTED is successfully created towards Google Play from 13-May-26 to 31-Dec-36 for Rs 1300.00, RRN 629412345678-ICICI Bank.',
+    'Your e-mandate for Rs 5,000.00 towards ACME SIP has been registered on A/c XX1234.',
+    'AutoPay for NETFLIX of Rs 649 is cancelled as requested.',
+  ])('ignores a mandate that is set up or changed: %s', (body) => {
+    expect(parseBankText('icici', body)).toEqual({ status: 'ignored', reason: 'reminder' });
+  });
+
+  it('still reads a debit made under a mandate', () => {
+    const result = parseBankText('icici', 'Rs 149.00 debited from ICICI Bank Acct XX234 on 17-Oct-26 for AutoPay mandate towards NETFLIX. RRN 629412345678.');
+    expect(result.status).toBe('parsed');
+  });
+});
+
+describe('counterparty', () => {
+  it.each(['ICICI Bank Savings Account XX798', 'Savings Account XX1234', 'HDFC Bank Card x5678', 'your Acct XX234'])('rejects the user\'s own account: %s', (raw) => {
+    expect(cleanCounterparty(raw)).toBeNull();
+  });
+
+  it('keeps merchant names', () => {
+    expect(cleanCounterparty('ROYAL CAFE')).toBe('ROYAL CAFE');
   });
 });
 

@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { cleanCounterparty } from '@money-plant/parser';
 import type { TransactionRow } from '@/lib/ledger';
 import { Initial, colors } from './ui';
 import { formatAmount, formatSigned } from './format';
@@ -10,8 +11,32 @@ export function transactionTitle({ tx, legs }: TransactionRow): string {
     const to = legs.find((leg) => leg.amount > 0)?.accountName ?? '?';
     return `${from} → ${to}`;
   }
-  return tx.counterparty ?? (tx.kind === 'income' ? 'Money in' : 'Money out');
+  // Older entries may carry the user's own account as the payee ("ICICI Bank Savings Account XX798").
+  const payee = tx.counterparty ? cleanCounterparty(tx.counterparty) : null;
+  if (payee) return payee;
+  const fields = tx.sources.find((s) => s.kind === 'sms')?.parsedFields ?? tx.sources[0]?.parsedFields;
+  const vpa = typeof fields?.vpa === 'string' ? fields.vpa : null;
+  const incoming = tx.kind === 'income';
+  if (vpa) return `UPI ${incoming ? 'from' : 'to'} ${vpa}`;
+  const channel = typeof fields?.channel === 'string' ? fields.channel : null;
+  return (incoming ? CHANNEL_IN : CHANNEL_OUT)[channel ?? 'other'] ?? (incoming ? 'Money in' : 'Money out');
 }
+
+const CHANNEL_OUT: Record<string, string> = {
+  upi: 'UPI payment',
+  card: 'Card payment',
+  neft: 'NEFT transfer out',
+  imps: 'IMPS transfer out',
+  rtgs: 'RTGS transfer out',
+  atm: 'Cash withdrawal',
+};
+const CHANNEL_IN: Record<string, string> = {
+  upi: 'UPI received',
+  card: 'Card refund',
+  neft: 'NEFT received',
+  imps: 'IMPS received',
+  rtgs: 'RTGS received',
+};
 
 /** The entry's amount as shown in lists: transfers unsigned, money out with a minus, money in with a plus. */
 export function displayAmount({ tx, legs }: TransactionRow): { text: string; color: string } {

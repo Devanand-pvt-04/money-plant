@@ -1,6 +1,6 @@
 # Money Plant PRD
 
-21 Oct 2026, updated 23 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
+21 Oct 2026, updated 24 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
 
 Money Plant is an Android app (iOS later) for Deva and friends. It keeps one accurate, cloud-synced ledger of all their money and fills it mostly without typing. This PRD defines the MVP. `docs/architecture.md` describes how it is built.
 
@@ -35,7 +35,7 @@ These targets are starting guesses to test with the first friends, not benchmark
 
 ## MVP requirements
 
-The MVP has 56 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
+The MVP has 61 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
 
 ### Accounts and sign-in
 
@@ -44,7 +44,8 @@ The MVP has 56 requirements across 11 areas. "Must" items block the first releas
 | ACC-1 | Sign up and sign in with an email OTP (phone OTP after the MVP, since SMS OTPs cost money) | Must |
 | ACC-2 | App lock with a PIN and fingerprint or Face ID | Must |
 | ACC-3 | Data syncs across a user's devices and works offline | Must |
-| ACC-4 | Export all data as CSV, and delete the account along with all its data | Must |
+| ACC-4 | Export all data as CSV, and delete the account along with all its data. Deleting asks for a typed confirmation and offers the export first | Must |
+| ACC-7 | Clear all my data but keep the account: every entry, account, category, rule and IOU is removed on the phone and the server, and the app starts again from first run. Typed confirmation, export offered first | Must |
 | ACC-5 | Onboarding consent screen that explains SMS reading, cloud sync, contacts and AI use | Must |
 | ACC-6 | Custom account types: the user names a type (for example Chit fund, PF, Gold) and picks its class (asset or liability) and whether it counts toward net worth. Custom types behave as plain manual accounts | Must |
 
@@ -53,12 +54,12 @@ The MVP has 56 requirements across 11 areas. "Must" items block the first releas
 | ID | Requirement | Priority |
 | --- | --- | --- |
 | CAP-1 | Android: read new bank and card SMS from known senders and create entries | Must |
-| CAP-2 | Android: import the last 6 months of bank SMS on first run | Must |
+| CAP-2 | Android: import past bank SMS from a date range the user picks (1, 3, 6 or 12 months, or custom dates; 6 months by default), on first run and later from settings. Importing a range again never creates duplicates | Must |
 | CAP-3 | Android: read UPI app notifications to add payee names to entries | Should |
 | CAP-4 | iOS (after the Android MVP): accept bank SMS text from a Shortcuts automation, with a guided setup | Must |
 | CAP-5 | Import bank and card statements (CSV, XLS, PDF, including password-protected PDFs) | Should |
 | CAP-6 | Import CAS PDFs from NSDL, CDSL, CAMS and KFintech | Must |
-| CAP-7 | Quick add for cash and manual entries in 3 taps, with smart defaults | Must |
+| CAP-7 | Quick add in 3 taps, with smart defaults, in three modes: Spent, Received and Transfer (From and To accounts, for moving money between banks, paying a card bill or withdrawing cash). The date and time default to now and open the phone's pickers | Must |
 | CAP-8 | Show parse failures per bank so broken formats are noticed | Should |
 
 ### Ledger and accuracy
@@ -70,7 +71,7 @@ The MVP has 56 requirements across 11 areas. "Must" items block the first releas
 | LED-3 | Merge duplicates of the same payment from different sources | Must |
 | LED-4 | Detect transfers between the user's own accounts and card bill payments | Must |
 | LED-5 | Match refunds and reversals to the original debit | Should |
-| LED-6 | Review inbox for low-confidence entries, new merchants and payments to people | Must |
+| LED-6 | Review inbox for low-confidence entries, new merchants and payments to people. Entries can be reviewed a payee at a time ("category for all", "all look right"), entries older than 30 days confirmed together, and a single entry accepted with a swipe | Must |
 | LED-7 | Compare the ledger balance with balances in SMS and statements, and flag gaps | Must |
 | LED-8 | The user can edit every field of an entry. A field the user changed is never overwritten by re-parsing, dedupe, sync or AI; the parsed values stay visible in the source | Must |
 | LED-9 | Mark an entry as not a real transaction, or ignore a sender; ignored entries stay ignored on re-import | Must |
@@ -80,7 +81,7 @@ The MVP has 56 requirements across 11 areas. "Must" items block the first releas
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| CAT-1 | Editable default category set suited to India (rent, groceries, food delivery, fuel, recharge, EMI, SIP and more), with sub-categories | Must |
+| CAT-1 | A small editable default set with an icon and colour each: Food, Groceries, Transport, Shopping, Bills, Rent, Health, Entertainment, Travel, Family and gifts, and Other, plus Salary and Other income. No preset sub-categories; the user adds their own (Food > Breakfast). A dictionary or rule match for a sub-category the user doesn't have lands on its parent | Must |
 | CAT-2 | Categorise in this order: user rules, learned patterns, merchant dictionary, AI model | Must |
 | CAT-3 | Let a correction become a rule ("always do this for this merchant") | Must |
 | CAT-4 | For payments to people, ask once and remember per person; offer to create an IOU. Learned patterns run first, so a matched payment to a person (a bus conductor's UPI ID) is not asked about | Must |
@@ -93,7 +94,7 @@ The MVP has 56 requirements across 11 areas. "Must" items block the first releas
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| BUD-1 | Monthly budget per category (parent or sub-category) and overall | Must |
+| BUD-1 | Monthly budget per category (parent or sub-category) and overall: a default that applies to every month, and an override for one month only that can be reset. Investments, cash withdrawals and transfers between the user's own accounts are not spending, and are listed apart | Must |
 | BUD-2 | Mid-month pace alerts when a category is on track to overspend | Must |
 | BUD-3 | Overspend breakdown by category, merchant and largest transactions, versus budget and the last 3 months | Must |
 | BUD-4 | Month review on the 1st: what went over, why, and suggested budget changes the user can accept in one tap. It starts as a numbers review; the AI-written explanation comes in milestone 6 | Must |
@@ -132,9 +133,9 @@ Splits are personal in the MVP: they live in the payer's ledger, so friends don'
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| SPL-1 | Split a payment among people equally, by exact amounts, percentages or shares. Any existing entry can be converted into a split; it keeps its sources | Must |
+| SPL-1 | One "add an expense with people" flow covers loans, splits and someone else paying: amount, paid by, a searchable checklist of people, and how to split (equally, amounts, percent or units). Any existing entry can be converted into a split; it keeps its sources | Must |
 | SPL-2 | Record a split that someone else paid, as money the user owes | Must |
-| SPL-3 | Groups (a trip, flatmates) with simplified balances; settle through IOU-3 and IOU-4 | Should |
+| SPL-3 | Groups (a trip, flatmates) with their own expenses, added from inside the group, and each member's balance within the group; settle through IOU-3 and IOU-4 | Should |
 | SPL-4 | Match payees to the phone's contacts by the phone number in a UPI ID or by payee name. Contacts are matched on the phone and never uploaded | Should |
 
 ### Scan and pay
@@ -143,14 +144,18 @@ The app never moves money. It hands the payment to the user's own UPI app and lo
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| PAY-1 | Scan a UPI QR code, confirm the amount, category and split, then open the chosen UPI app with everything filled in | Should |
+| PAY-1 | Pay first, details after: scan a UPI QR in a square viewfinder (with torch and scan from gallery) or type a UPI ID, enter the amount and an optional note on one screen, then open the UPI app through Android's own app chooser. After the payment, a sheet suggests the category and offers a split; skipping leaves the entry in Review | Should |
 | PAY-2 | Log the hand-off as an entry with an app payment source. Confirm it from the UPI app's response, or ask the user when there is none. A later bank SMS merges into it | Should |
+| PAY-3 | Pay to a typed phone number by trying it as a UPI ID (the UPI app shows the payee's real name before the PIN). Built only if a one-day test on Deva's phone shows UPI apps accept it | Should |
 
-### Home screen
+### Home, navigation and activity
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| HOME-1 | One screen with this month's spend versus budget, net worth, upcoming payments, money owed and items to review | Must |
+| HOME-1 | Home answers "is this month on track?": a greeting and profile avatar, the month's money in, money out and what's left against budget, a 7-day strip of bills, EMIs and IOUs due, the latest entries, items to review, and owed lines when not zero | Must |
+| HOME-2 | Activity shows a month at a time with In, Out and Net, each day's money in and out, transfers as "From → To", category icons and colours, search, and a filter sheet (dates, accounts, categories, type, amount, source, needs review) | Must |
+| NAV-1 | Five bottom tabs: Home, Activity, Budgets (with categories), Accounts (net worth, cash and cards, investments, recurring payments) and People (people, IOUs, groups). Settings sit behind the profile avatar | Must |
+| NAV-2 | One searchable picker for categories, accounts and people everywhere, with recent choices first and "New" at the end to create one without leaving the screen. Every date and time uses the phone's date and time pickers | Must |
 
 ## Key user flows
 
@@ -160,7 +165,7 @@ Six flows carry the MVP. Each should feel finished before anything else gets pol
 
 1. Sign in with an email OTP.
 2. Read the consent screen (SMS, sync, AI) and accept.
-3. Android: grant SMS access. The app scans 6 months of bank SMS and lists the accounts and cards it found. iOS (later): follow the guided Shortcuts setup, then add accounts by hand.
+3. Android: grant SMS access and pick how far back to read (6 months by default). The app scans that range of bank SMS and lists the accounts and cards it found. iOS (later): follow the guided Shortcuts setup, then add accounts by hand.
 4. Confirm or rename the detected accounts, and enter any opening balances the app couldn't find.
 5. Optionally import a CAS PDF and add FDs.
 6. Pick budgets: the app suggests one per category based on the past 3 months; accept or edit each.
@@ -176,16 +181,16 @@ Six flows carry the MVP. Each should feel finished before anything else gets pol
 ### Splitting a restaurant bill
 
 1. The bank SMS creates a ₹1,200 entry at the restaurant.
-2. The user taps Split, picks three friends from contacts, and splits equally.
+2. The user taps Split, ticks three friends in the people checklist, and splits equally.
 3. The entry now counts ₹300 as Food > Eating out and ₹300 owed by each friend.
 4. Each friend's share settles like an IOU, through a UPI link and the incoming SMS.
 
 ### Scan and pay
 
-1. The user taps Scan, points the camera at a shop's UPI QR, and enters ₹80.
-2. The app suggests a category, and the user picks Google Pay.
-3. Google Pay opens with the payee and amount filled in; the user enters their UPI PIN there.
-4. Back in Money Plant, the entry is logged. When the bank SMS arrives, it merges into the same entry.
+1. The user taps Scan, points the camera at a shop's UPI QR, and enters ₹80 with an optional note.
+2. Android's chooser opens, and the user picks Google Pay (just once, or always).
+3. Google Pay opens with the payee, amount and note filled in; the user enters their UPI PIN there.
+4. Back in Money Plant, a "Paid ₹80" sheet suggests a category and offers a split. When the bank SMS arrives, it merges into the same entry.
 
 ### Lending to a friend and getting paid back
 
@@ -253,6 +258,7 @@ There are seven milestones, in order. Each one ends with something Deva can use 
 
 Before milestone 3, a one-day test build checks how Google Pay, PhonePe, a bank app and slice handle a payment handed off from another app, for a shop QR and a friend's QR. It decides whether PAY-1 and IOU-3 open the UPI app directly or fall back to its own scanner.
 Between milestones 3 and 4, a short design step (about a week) sets the look and navigation before the screen count grows. It adds a design system (colours, type, spacing and core components, light and dark), bottom tabs (Home, Activity, Budgets, Money, with a badge for items to review) and a redesign of the four daily screens: home, review inbox, transaction list and detail, and quick add. Clickable mockups come first, and Deva signs them off before any code. Later milestones build on the design system, and milestone 7, the friends release, adds a polish pass (onboarding, empty states, app icon, accessibility). *Exit:* the UX goals below hold on Deva's phone for the four daily screens.
+After milestone 4, a second design step (decision 0008) follows Deva's end-to-end review: five tabs, settings behind a profile avatar, livelier Home and Activity, Budgets that hold categories, a grouped Accounts tab, one expense flow for people and groups, pay first in scan and pay, and shared pickers. Mockups were signed off on 24 Oct 2026, and the build ships in small PRs before milestone 5.
 5. **Net worth, imports and month review.** CAS import, FDs, daily prices, statement import, month review with numbers (no AI yet). *Exit:* net worth matches the user's own sum within 1%.
 6. **AI.** A self-hosted open model on Deva's PC (decision 0006): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
@@ -281,4 +287,5 @@ Every MVP service fits in a free tier except phone OTP, so phone sign-in moves t
 - Running costs: none in the MVP. Use free tiers only; Deva pays only where a feature can't work without it.
 - iOS ships after the Android MVP.
 - Order in the "settle with" picker: Google Pay, PhonePe, the user's bank apps (iMobile, HDFC Bank, YONO SBI, HSBC India), then slice, then any other UPI app.
+- Tabs and app review (24 Oct 2026, decision 0008): Home, Activity, Budgets, Accounts and People, with settings behind the profile avatar. Recurring payments live in Accounts and on Home's 7-day strip rather than in a tab of their own.
 - AI provider: a self-hosted open model on Deva's PC, built in milestone 6 (decided 23 Oct 2026, decision 0006). This replaces the Anthropic API decision of 21 Oct 2026.

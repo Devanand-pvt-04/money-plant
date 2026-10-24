@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {
+      "sender": "JD-ICICIT-S",
+      "body": "Your AutoPay mandate with ASPRESENTED is successfully created towards Google Play from 13-May-26 to 31-Dec-36 for Rs 1300.00, RRN 629412345678-ICICI Bank.",
+      "expect": { "status": "ignored" }
+    }
+  ]
+}

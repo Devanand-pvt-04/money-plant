@@ -2,7 +2,7 @@ import type { ComponentProps } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { formatRupees } from '@money-plant/core';
+import { formatAmount, formatWholeRupees } from '@/components/format';
 import { Button, Card, Chip, Chips, SectionTitle, colors } from '@/components/ui';
 import { listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
 import { signOut } from '@/lib/session';
@@ -23,7 +23,7 @@ export default function Money() {
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.hero}>
         <Text style={styles.meta}>Net worth so far</Text>
-        <Text style={styles.heroAmount}>{formatRupees(netWorth(balances))}</Text>
+        <Text style={styles.heroAmount}>{formatWholeRupees(netWorth(balances))}</Text>
       </View>
 
       <SectionTitle>Accounts</SectionTitle>
@@ -75,9 +75,9 @@ function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
           {account.institution ? ` · ${account.institution}` : ''}
           {account.last4 ? ` ··${account.last4}` : ''}
         </Text>
-        {reconciliation?.flagged && <Text style={styles.warn}>Off from the bank by {formatRupees(reconciliation.latest.gap)}</Text>}
+        {reconciliation?.flagged && <Text style={styles.warn}>Off from the bank by {formatAmount(Math.abs(reconciliation.latest.gap))}</Text>}
       </View>
-      <Text style={styles.amount}>{formatRupees(balance)}</Text>
+      <Text style={styles.amount}>{formatAmount(balance)}</Text>
     </Pressable>
   );
 }

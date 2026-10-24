@@ -128,7 +128,9 @@ export function extractCounterparty(text: string): string | null {
 export function cleanCounterparty(raw: string): string | null {
   const value = raw.replace(/\s+/g, ' ').replace(/^[\s:\-]+|[\s.,:;\-]+$/g, '');
   if (value.length < 2) return null;
-  if (/^(?:your\s+)?(?:hdfc|icici|sbi|hsbc)?\s*(?:bank\s+)?(?:a\/c|ac\b|acct|account|card|credit card|debit card)/i.test(value)) return null;
+  if (/^(?:your\s+)?(?:hdfc|icici|sbi|hsbc)?\s*(?:bank\s+)?(?:savings\s+|current\s+|salary\s+)?(?:a\/c|ac\b|acct|account|card|credit card|debit card)/i.test(value)) return null;
+  // "ICICI Bank Savings Account XX798": a masked number after an account word is the user's own account.
+  if (/\b(?:a\/c|acct|account|card)\s*(?:no\.?\s*)?[xX*]+\d{3,4}\b/i.test(value)) return null;
   if (/^(?:a\/c|account) linked to|^mobile|^your\b|^\d+$|^date\b/i.test(value)) return null;
   return value.slice(0, 60);
 }
@@ -143,12 +145,17 @@ export function extractChannel(text: string, instrument: Instrument): Channel {
   return 'other';
 }
 
+const MANDATE_CHANGE = /\b(?:e-?)?mandate\b(?:[^.]|\.\d){0,120}?\b(?:created|registered|set ?up|activated|approved|revoked|cancell?ed|paused|resumed|modified|updated)\b|\bauto ?pay\b(?:[^.]|\.\d){0,120}?\b(?:created|registered|set ?up|activated|revoked|cancell?ed|paused|resumed|modified)\b/i;
+const MONEY_MOVED = /\b(?:debited|credited|deducted|spent|withdrawn|has been paid|was paid)\b/i;
+
 /** Messages from bank senders that are not completed transactions. */
 export function ignoreReason(text: string): IgnoreReason | null {
   if (/\bOTP\b|one[- ]time password|verification code|\bCVV\b/i.test(text)) return 'otp';
   if (/\b(?:declined|failed|unsuccessful|could not be (?:processed|completed)|was not (?:processed|completed)|insufficient)\b/i.test(text)) return 'failed_payment';
   if (/\b(?:has requested|requested money|collect request|request(?:ed)? (?:of|for) (?:Rs|INR|₹))/i.test(text)) return 'request';
-  if (/\b(?:will be|shall be|is scheduled to be|to be) (?:auto-?)?(?:debited|deducted|charged)\b|\bpre-?debit\b|\b(?:is|are) due\b|\bdue (?:date|on|by)\b|\bminimum (?:amount )?due\b|\btotal (?:amount )?due\b|\bstatement (?:for|of|is)\b|\bmandate (?:registered|created|set ?up)\b|\bupcoming\b/i.test(text)) return 'reminder';
+  if (/\b(?:will be|shall be|is scheduled to be|to be) (?:auto-?)?(?:debited|deducted|charged)\b|\bpre-?debit\b|\b(?:is|are) due\b|\bdue (?:date|on|by)\b|\bminimum (?:amount )?due\b|\btotal (?:amount )?due\b|\bstatement (?:for|of|is)\b|\bupcoming\b/i.test(text)) return 'reminder';
+  // Setting up, changing or cancelling an autopay mandate moves no money; the debits come as their own messages.
+  if (MANDATE_CHANGE.test(text) && !MONEY_MOVED.test(text)) return 'reminder';
   if (/\b(?:pre-?approved|offer|eligible|apply now|click here to (?:apply|avail)|loan (?:of|up ?to)|lowest (?:emi|rate)|win |congratulations|reward points? (?:worth|expir))/i.test(text)) return 'promotion';
   return null;
 }

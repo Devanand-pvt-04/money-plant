@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { ActivityIndicator, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/components/ui';
 import { watchSharedIous } from '@/lib/realtime';
 import { useSession } from '@/lib/session';
@@ -25,6 +26,7 @@ const navigationTheme = {
 
 export default function RootLayout() {
   const { session, loading } = useSession();
+  const insets = useSafeAreaInsets();
   const lastResponse = Notifications.useLastNotificationResponse();
   const handledResponse = useRef<string | null>(null);
 
@@ -62,7 +64,8 @@ export default function RootLayout() {
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
-          contentStyle: { backgroundColor: colors.background },
+          // Android draws edge to edge, so keep each screen's last button above the system navigation bar.
+          contentStyle: { backgroundColor: colors.background, paddingBottom: insets.bottom },
           headerShadowVisible: false,
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
@@ -70,8 +73,8 @@ export default function RootLayout() {
         }}
       >
         <Stack.Protected guard={signedIn}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Home' }} />
-          <Stack.Screen name="quick-add" options={{ headerShown: false, presentation: 'modal' }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Home', contentStyle: { backgroundColor: colors.background } }} />
+          <Stack.Screen name="quick-add" options={{ headerShown: false, presentation: 'modal', contentStyle: { backgroundColor: colors.background } }} />
           <Stack.Screen name="add-account" options={{ title: 'Add account', presentation: 'modal' }} />
           <Stack.Screen name="account/[id]" options={{ title: 'Account' }} />
           <Stack.Screen name="account/balance" options={{ title: 'Set balance', presentation: 'modal' }} />

@@ -1,6 +1,6 @@
 # Money Plant architecture notes
 
-21 Oct 2026, updated 23 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
+21 Oct 2026, updated 24 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
 
 Money Plant is one React Native app (Expo, TypeScript) for Android, with iOS to follow. It has a Supabase backend in Mumbai and a shared TypeScript core for parsing and ledger rules. These notes describe how to build what `docs/PRD.md` specifies.
 
@@ -82,7 +82,7 @@ The core of the app is a double-entry ledger. Each transaction has two or more p
 
 **Custom account types.** Users can add their own types (Chit fund, PF, Gold). Each one sits on a fixed class, asset or liability, which decides the sign of its balance and how net worth adds up. Built-in behaviour (FD interest, fund prices, card bill detection) stays attached to the built-in types; a custom type is a plain manual account.
 
-**Category tree.** A category account can have a parent category account, two levels deep (Food > Lunch). Postings may land on a parent. Reports and budgets roll children up into their parent. Because postings point at the category's id, moving, renaming or merging a category keeps its history. Each user category maps to a standard category key (for example `food.lunch`), so the shared merchant dictionary works across users whose trees differ.
+**Category tree.** A category account can have a parent category account, two levels deep (Food > Lunch). Postings may land on a parent. Reports and budgets roll children up into their parent. Because postings point at the category's id, moving, renaming or merging a category keeps its history. Each user category maps to a standard category key (for example `food.lunch`), so the shared merchant dictionary works across users whose trees differ. When a key points at a child the user doesn't have, the entry lands on the parent (`food.groceries` falls back to `food`). Categories under the `investments` and `cash` roots, and transfers between the user's own accounts, are not spending: budgets and spending totals leave them out (BUD-1).
 
 Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two postings: HDFC savings −450, Food +450. Lending ₹2,000 to Ravi is HDFC savings −2,000, Ravi +2,000. When Ravi pays it back, the postings reverse. A split is the same idea: a ₹1,200 dinner for four is HDFC savings −1,200, Food > Eating out +300, and +300 to each of three friends' person accounts. Converting an entry into a split replaces its postings and keeps its sources.
 
@@ -91,14 +91,14 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | users | id, phone, email, created_at | Supabase Auth owns identity |
 | accounts | id, user_id, type, account_type_id, parent_id, category_key, name, institution, last4, currency, opening_balance_paise, auto_confirm, vpa, email | Includes category and people accounts. parent_id and category_key apply to categories; account_type_id to custom types; vpa and email to people (pay links, matching, sharing IOUs) |
 | account_types | id, user_id, name, icon, class (asset, liability), in_net_worth | User-defined account types |
-| transactions | id, user_id, occurred_at, description, merchant_id, status (pending, confirmed, ignored), confidence, category_reason (rule, pattern, dictionary, ai, user), user_set_fields, split_group_id, updated_at, deleted_at | One real-world money movement. user_set_fields lists the fields automation must not overwrite |
+| transactions | id, user_id, occurred_at, description, merchant_id, status (pending, confirmed, ignored), confidence, category_reason (rule, pattern, dictionary, ai, user), user_set_fields, split_group_id, updated_at, deleted_at | One real-world money movement. user_set_fields lists the fields automation must not overwrite. split_group_id tags an expense added to a group (SPL-3) |
 | postings | id, transaction_id, account_id, amount_paise | Postings for each transaction sum to zero |
 | sources | id, transaction_id, kind (sms, notification, statement, cas, manual, shortcut, app_payment), external_ref (UPI RRN, card auth code), parsed_fields (JSON), received_at | A transaction can have several after merging; raw text is never stored on the server |
 | merchants | id, normalised_name, upi_handles, default_category, created_by (dictionary, ai) | Global table shared across users |
 | rules | id, user_id, kind (rule, pattern), match (merchant, VPA, keyword, amount range; for patterns also time window, weekdays, account, payee kind), category_account_id, auto_confirm, paused, hits | User rules win over everything; learned patterns come next |
-| split_groups | id, user_id, name, member_account_ids | A trip or flatmates, as a list of the user's person accounts; balances come from postings to them |
+| split_groups | id, user_id, name, member_account_ids | A trip or flatmates, as a list of the user's person accounts. A member's balance within the group is the sum of their postings on the group's tagged entries |
 | ignored_senders | id, user_id, sender | Senders whose messages never create entries |
-| budgets | id, user_id, month, category_account_id, limit_paise | One row per category per month |
+| budgets | id, user_id, month, category_account_id, limit_paise | month is null for a category's default, which applies to every month; a row with a month overrides the default for that month only. Removing the override restores the default (BUD-1) |
 | recurring | id, user_id, name, vpa, merchant, amount_paise, cadence, anchor_day, next_due, account_id, category_account_id, status (active, paused, proposed, declined), origin (manual, history, pre_debit), mandate_ref, last_paid_at, last_transaction_id | Detected or added manually. next_due is a calendar date on the phone's clock |
 | ious | id, user_id (owner), owner_name, owner_email, owner_vpa, person_account_id, direction (lent, borrowed), amount_paise, reason, occurred_on, due_date, transaction_id, counterparty_email, counterparty_user_id, counterparty_person_account_id, counterparty_transaction_id, counterparty_vpa, confirmed_at, declined_at | One row per IOU. With counterparty_email set, the other person sees it and answers through respond_iou |
 | iou_payments | id, user_id, iou_id, amount_paise, paid_at, transaction_id | Repayments each side's ledger saw. What is still owed is the amount minus the larger side's total |
@@ -115,7 +115,7 @@ Every source ends in the same five steps on the phone: parse, match, categorise,
 
 **Sources.**
 
-- **Android SMS.** A Kotlin BroadcastReceiver for SMS_RECEIVED checks each sender ID (for example VM-HDFCBK, AX-ICICIT) against an allowlist, then starts a headless JS task with the message. On first run, the app reads the past 6 months of the SMS inbox through the same path.
+- **Android SMS.** A Kotlin BroadcastReceiver for SMS_RECEIVED checks each sender ID (for example VM-HDFCBK, AX-ICICIT) against an allowlist, then starts a headless JS task with the message. On first run, and later from settings, the app reads the SMS inbox for a date range the user picks (6 months by default) through the same path (CAP-2). Dedupe by reference and source makes a repeated range safe.
 - **Android notifications.** A NotificationListenerService watches only UPI app packages (GPay, PhonePe, Paytm, Cred, BHIM, slice and others) and passes each notification's title and text to the same task. These notifications mostly add payee names.
 - **iOS Shortcuts (later).** A Swift App Intent named "Add bank message" takes the message text and sender. A guided setup walks the user through creating a "When I get a message from <bank>" automation that runs without asking. The intent writes to a shared queue, which the app processes on its next launch or background refresh.
 - **Statement import.** The user shares a CSV, XLS or PDF into the app. CSV and XLS files are parsed on the phone. PDFs go to an edge function that extracts the tables and returns rows, and the file is then deleted.
@@ -147,7 +147,8 @@ Splits are personal: they exist only in the payer's ledger, so friends need not 
 
 - **Converting an entry.** Splitting replaces the entry's postings with the user's share on the category and each friend's share on their person account. Sources stay attached, so dedupe and reconciliation are unaffected. Shares are worked out in integer paise (equally, exact amounts, percentages or shares), and leftover paise go one each to the first people. Each friend's share also becomes a lent IOU linked to the entry, so their repayment settles it. Undoing a split folds the shares back into the category, and is refused once someone has paid part of it back.
 - **Someone else paid.** The user's share goes to the category, and a negative posting on the payer's person account records what the user owes. The entry has a `manual` source and no account of the user's, and a borrowed IOU links to it.
-- **Groups.** A group is a named set of person accounts, used to add everyone to a split at once. Each member's balance is their whole balance with the user, already netted across splits and loans, so one payment per person settles the group.
+- **One flow.** Loans, splits and someone else paying all go through one "expense with people" sheet: amount, paid by, a checklist of people, and how (equally, amounts, percent or units). Underneath it writes the same postings and IOU rows as before. A loan is "you paid, all of it is theirs".
+- **Groups.** A group is a named set of person accounts. An expense added from inside a group is tagged with its `split_group_id`, and the group page lists those expenses and each member's balance within the group. The per-person total on the People tab is still their whole balance with the user, netted across groups, splits and loans, so one payment per person settles everything.
 - **Settling** reuses IOU settlement: a UPI pay link and the matcher's IOU settlement rule.
 - **Contacts.** With the contacts permission (expo-contacts), the phone matches payees to contacts: by a 10-digit mobile number in the UPI ID (98xxxxxx10@ybl), then by fuzzy name match against the SMS or notification payee name. A match links the person account to the contact on the phone only. The contact list is never synced or uploaded.
 - **Finding friends on the app** is by email invite for now. Shared groups between app users come after the friends release.
@@ -260,7 +261,7 @@ Data gets server-side protection for now, as decided. The design keeps a later m
 | Uploaded files | Statements and CAS PDFs are kept for at most 1 hour and deleted after parsing; passwords are never stored |
 | Secrets | AI and SMTP keys live only in edge function secrets |
 | Logging | Sentry, with amount, merchant and account fields scrubbed |
-| Consent and rights | Consent screen at sign-up; export to CSV; deleting an account removes all its rows and files |
+| Consent and rights | Consent screen at sign-up; export to CSV. Clear my data (ACC-7) calls a `clear_my_data` database function that deletes the user's rows under row-level security, then wipes the local database and returns to first run. Delete account (ACC-4) calls a `delete-account` edge function that deletes the auth user with the built-in service role, so every user table cascades; the phone then wipes its database and signs out. IOUs owned by other users stay with them, with the counterparty cleared |
 | Future E2E | Client-generated IDs, and server-side logic limited to sync, categorisation and the month review, keep a later move to encrypted payloads possible |
 
 ## Testing and release
