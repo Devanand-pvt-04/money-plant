@@ -2,9 +2,11 @@ import { useState, type ReactNode } from 'react';
 import { PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { formatRupees } from '@money-plant/core';
 import { BANKS, BANK_NAMES, parseBankText, type BankId, type SmsParseResult } from '@money-plant/parser';
-import { Button, ErrorText, Field, colors } from '@/components/ui';
+import { addMonthsToDate, dateKey, type DateKey } from '@money-plant/core';
+import { DateField } from '@/components/date-fields';
+import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { formatDateTime } from '@/components/format';
-import { hasImportedInbox, importInbox, retryFailedMessages, type ImportProgress } from '@/lib/capture';
+import { DEFAULT_IMPORT_MONTHS, hasImportedInbox, importInbox, importRange, retryFailedMessages, type ImportProgress } from '@/lib/capture';
 import { captureStats } from '@/lib/ledger';
 import { useLedger } from '@/lib/use-ledger';
 import {
@@ -38,6 +40,9 @@ export default function Capture() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [range, setRange] = useState<RangeChoice>(DEFAULT_IMPORT_MONTHS);
+  const day = dateKey(new Date());
+  const [custom, setCustom] = useState<{ from: DateKey; to: DateKey }>({ from: addMonthsToDate(day, -1), to: day });
 
   if (!isSmsReaderAvailable) {
     return (
@@ -63,11 +68,11 @@ export default function Capture() {
     reload();
   }
 
-  async function runImport() {
+  async function run(work: () => Promise<ImportProgress>) {
     setBusy(true);
     setError(null);
     try {
-      setProgress(await importInbox(setProgress));
+      setProgress(await work());
     } catch (e) {
       setError(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -75,6 +80,9 @@ export default function Capture() {
       reload();
     }
   }
+
+  const from = range === 'custom' ? custom.from : addMonthsToDate(day, -range);
+  const to = range === 'custom' ? custom.to : day;
 
   async function retry() {
     setBusy(true);
@@ -101,20 +109,34 @@ export default function Capture() {
       <Section title="2. Past messages">
         <Text style={styles.body}>
           {data.imported
-            ? 'Imported. Checking again picks up anything the app missed.'
-            : 'Reads the last 6 months of bank SMS and finds your accounts and cards.'}
+            ? 'New bank SMS are read as they arrive. Import a range to add older ones; messages already read are skipped.'
+            : 'Pick how far back to read. Money Plant finds your accounts and cards in these messages.'}
         </Text>
+        <Chips>
+          {RANGES.map((r) => (
+            <Chip key={String(r.value)} label={r.label} selected={range === r.value} onPress={() => setRange(r.value)} />
+          ))}
+        </Chips>
+        {range === 'custom' && (
+          <View style={styles.dates}>
+            <DateField label="From" value={custom.from} max={custom.to} onChange={(key) => key && setCustom((c) => ({ ...c, from: key }))} style={styles.grow} />
+            <DateField label="To" value={custom.to} min={custom.from} max={day} onChange={(key) => key && setCustom((c) => ({ ...c, to: key }))} style={styles.grow} />
+          </View>
+        )}
         {progress && (
           <Text style={styles.body}>
             Read {progress.read} messages · {progress.created} new entries · {progress.merged} merged
           </Text>
         )}
         <Button
-          title={data.imported ? 'Check for new messages' : 'Import last 6 months'}
-          onPress={runImport}
+          title={range === 'custom' ? 'Import these dates' : `Import last ${range === 1 ? 'month' : `${range} months`}`}
+          onPress={() => run(() => importRange(from, to, setProgress))}
           loading={busy}
           disabled={!data.smsPermission}
         />
+        {data.imported && (
+          <Button title="Check for new messages" variant="secondary" onPress={() => run(() => importInbox(setProgress))} disabled={busy || !data.smsPermission} />
+        )}
       </Section>
 
       <Section title="3. UPI app notifications (optional)">
@@ -169,6 +191,17 @@ export default function Capture() {
     </ScrollView>
   );
 }
+
+type RangeChoice = 1 | 3 | 6 | 12 | 'custom';
+
+/** CAP-2: the ranges offered for reading past SMS. */
+const RANGES: { value: RangeChoice; label: string }[] = [
+  { value: 1, label: '1 month' },
+  { value: 3, label: '3 months' },
+  { value: 6, label: '6 months' },
+  { value: 12, label: '1 year' },
+  { value: 'custom', label: 'Pick dates' },
+];
 
 /** Paste a message to see what the parser reads. Nothing is saved. */
 function TestMessage() {
@@ -237,6 +270,8 @@ const styles = StyleSheet.create({
   raw: { fontSize: 13, color: colors.text, fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo', marginTop: 4 },
   input: { minHeight: 96, textAlignVertical: 'top', paddingVertical: 8 },
   actions: { marginTop: 8 },
+  dates: { flexDirection: 'row', gap: 8 },
+  grow: { flex: 1 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
   chipSelected: { borderColor: colors.primary, backgroundColor: colors.pressed },

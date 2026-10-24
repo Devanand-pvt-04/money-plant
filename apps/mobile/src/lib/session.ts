@@ -1,24 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import {
-  accounts,
-  balanceAnchors,
-  balanceRefs,
-  captureLog,
-  iouPayments,
-  ious,
-  kv,
-  pendingNotifications,
-  personContacts,
-  postings,
-  recurring,
-  sources,
-  splitGroups,
-  transactions,
-} from '@money-plant/db-schema';
-import { getDb } from './db';
-import { cancelScheduled } from './notifications';
 import { supabase } from './supabase';
+import { wipeLocal } from './wipe';
 
 /** Current auth session; `loading` is true until the stored session has been read. */
 export function useSession() {
@@ -40,10 +23,5 @@ export function useSession() {
 /** Signs out and wipes this phone's copy, so the next person to sign in starts clean. */
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
-  // Reminders name payees and amounts; they belong to the signed-out user.
-  await cancelScheduled('').catch(() => {});
-  const db = await getDb();
-  for (const table of [accounts, transactions, postings, sources, balanceAnchors, balanceRefs, pendingNotifications, captureLog, recurring, ious, iouPayments, splitGroups, personContacts, kv]) {
-    await db.delete(table);
-  }
+  await wipeLocal({ keepSession: false });
 }

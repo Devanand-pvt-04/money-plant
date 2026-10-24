@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { eq, lt } from 'drizzle-orm';
+import { addDays, addMonthsToDate, dateKey, startOfDate, type DateKey } from '@money-plant/core';
 import { captureLog, pendingNotifications } from '@money-plant/db-schema';
 import { ingestNotification, ingestSms, type IngestResult, type PipelineContext } from '@money-plant/matcher';
 import {
@@ -24,8 +25,6 @@ import { supabase } from './supabase';
 import { syncNow } from './sync';
 
 const INBOX_CURSOR_KEY = 'capture.sms.cursor';
-/** CAP-2: the first run reads about 6 months of bank SMS. */
-const FIRST_IMPORT_DAYS = 183;
 const PAGE_SIZE = 300;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -139,46 +138,82 @@ export interface ImportProgress {
 
 let importing: Promise<ImportProgress> | null = null;
 
+/** CAP-2: how far back the first import reads unless the user picks another range. */
+export const DEFAULT_IMPORT_MONTHS = 6;
+
 /**
- * Reads bank SMS newer than the last one processed: 6 months back on first run,
- * otherwise whatever arrived while the receiver couldn't run. Already-seen
- * messages are skipped by fingerprint, so running this often is safe.
+ * Runs inbox scans one at a time. `scan` reads bank SMS received after
+ * `from` (milliseconds), oldest first, and stops after `until` when given.
+ * Already-seen messages are skipped by fingerprint, so any range can be read
+ * again without making duplicates.
+ */
+function runImport(
+  from: (cursor: number | null) => number,
+  until: number | null,
+  onProgress?: (progress: ImportProgress) => void,
+): Promise<ImportProgress> {
+  const run = (importing ?? Promise.resolve(null)).catch(() => null).then(async () => {
+    const stored = await kvGet(INBOX_CURSOR_KEY);
+    if (stored === null) {
+      // Pull what other devices already synced first, so this phone doesn't re-create those entries.
+      await syncNow().catch(() => {});
+    }
+    await ensureBalanceRefs();
+    let since = from(stored === null ? null : Number(stored));
+    let newest = stored === null ? 0 : Number(stored);
+    const progress: ImportProgress = { read: 0, created: 0, merged: 0 };
+    for (let done = false; !done; ) {
+      const page = await readInbox(since, BANK_SENDER_TOKENS, PAGE_SIZE);
+      for (const message of page) {
+        if (until !== null && message.receivedAt > until) {
+          done = true;
+          break;
+        }
+        const outcome = await captureSms(message);
+        progress.read++;
+        if (outcome?.outcome === 'created') progress.created++;
+        if (outcome?.outcome === 'attached' || outcome?.outcome === 'transfer') progress.merged++;
+        since = Math.max(since, message.receivedAt);
+        newest = Math.max(newest, message.receivedAt);
+      }
+      // The catch-up cursor only moves forward; a range in the past leaves it where it was.
+      if (newest > 0) await kvSet(INBOX_CURSOR_KEY, String(newest));
+      onProgress?.({ ...progress });
+      if (page.length < PAGE_SIZE) done = true;
+    }
+    // After the first import, catch-up starts where the picked range ends, even when it found nothing.
+    if (stored === null) await kvSet(INBOX_CURSOR_KEY, String(Math.max(newest, Math.min(until ?? Date.now(), Date.now()))));
+    if (progress.read > 0) {
+      await refreshRecurring().catch(() => {});
+      await refreshIous().catch(() => {});
+      notifyLedgerChange();
+    }
+    return progress;
+  });
+  importing = run;
+  run.finally(() => {
+    if (importing === run) importing = null;
+  }).catch(() => {});
+  return run;
+}
+
+/**
+ * Catch-up: reads bank SMS newer than the last one processed, which is
+ * whatever arrived while the receiver couldn't run. Before the first import
+ * it reads the default 6 months.
  */
 export function importInbox(onProgress?: (progress: ImportProgress) => void): Promise<ImportProgress> {
-  importing ??= (async () => {
-    try {
-      const firstRun = (await kvGet(INBOX_CURSOR_KEY)) === null;
-      if (firstRun) {
-        // Pull what other devices already synced first, so this phone doesn't re-create those entries.
-        await syncNow().catch(() => {});
-      }
-      await ensureBalanceRefs();
-      let cursor = Number((await kvGet(INBOX_CURSOR_KEY)) ?? Date.now() - FIRST_IMPORT_DAYS * DAY);
-      const progress: ImportProgress = { read: 0, created: 0, merged: 0 };
-      for (;;) {
-        const page = await readInbox(cursor, BANK_SENDER_TOKENS, PAGE_SIZE);
-        for (const message of page) {
-          const outcome = await captureSms(message);
-          progress.read++;
-          if (outcome?.outcome === 'created') progress.created++;
-          if (outcome?.outcome === 'attached' || outcome?.outcome === 'transfer') progress.merged++;
-          cursor = Math.max(cursor, message.receivedAt);
-        }
-        await kvSet(INBOX_CURSOR_KEY, String(cursor));
-        onProgress?.({ ...progress });
-        if (page.length < PAGE_SIZE) break;
-      }
-      if (progress.read > 0) {
-        await refreshRecurring().catch(() => {});
-        await refreshIous().catch(() => {});
-        notifyLedgerChange();
-      }
-      return progress;
-    } finally {
-      importing = null;
-    }
-  })();
-  return importing;
+  return runImport((cursor) => cursor ?? startOfDate(addMonthsToDate(dateKey(new Date()), -DEFAULT_IMPORT_MONTHS)).getTime(), null, onProgress);
+}
+
+/**
+ * CAP-2: reads bank SMS from a range the user picked, from the start of
+ * `from` to the end of `to` (both dates on the phone's calendar). Messages
+ * already read are skipped, so importing a range again is safe.
+ */
+export function importRange(from: DateKey, to: DateKey, onProgress?: (progress: ImportProgress) => void): Promise<ImportProgress> {
+  const until = startOfDate(addDays(to, 1)).getTime() - 1;
+  return runImport(() => startOfDate(from).getTime() - 1, until, onProgress);
 }
 
 export async function hasImportedInbox(): Promise<boolean> {

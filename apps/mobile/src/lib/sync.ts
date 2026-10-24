@@ -48,6 +48,7 @@ import { ensureDefaultCategories } from './categories';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
 import { supabase } from './supabase';
+import { wipeLocal } from './wipe';
 
 const ACCOUNTS_CURSOR = 'sync.accounts.cursor';
 const TRANSACTIONS_CURSOR = 'sync.transactions.cursor';
@@ -59,6 +60,8 @@ const RECURRING_CURSOR = 'sync.recurring.cursor';
 const SPLIT_GROUPS_CURSOR = 'sync.split_groups.cursor';
 const IOUS_CURSOR = 'sync.ious.cursor';
 const IOU_PAYMENTS_CURSOR = 'sync.iou_payments.cursor';
+/** When this phone last emptied itself after Clear my data (ACC-7), as the server's timestamp. */
+const CLEARED_KEY = 'account.cleared_at';
 const PUSH_BATCH = 200;
 const PULL_PAGE = 500;
 
@@ -412,6 +415,41 @@ export interface SyncResult {
 }
 
 let running: Promise<SyncResult> | null = null;
+let held = false;
+
+/**
+ * Runs `work` with sync stopped: a sync already running finishes first, and
+ * none starts until `work` is done. Clearing data uses it so nothing on the
+ * phone is pushed back while the server copy is being deleted.
+ */
+export async function holdSync<T>(work: () => Promise<T>): Promise<T> {
+  held = true;
+  try {
+    await running?.catch(() => {});
+    return await work();
+  } finally {
+    held = false;
+  }
+}
+
+/** Notes that this phone's copy is from after the clear at `at`, so it is not wiped again. */
+export async function recordClear(at: string): Promise<void> {
+  await kvSet(CLEARED_KEY, at);
+}
+
+/**
+ * ACC-7 on the user's other phones: Clear my data stamps the user's metadata,
+ * and a phone whose copy is older than the stamp empties itself before it
+ * could push old rows back. A phone that has never synced has nothing old.
+ */
+async function wipeIfClearedElsewhere(clearedAt: unknown): Promise<void> {
+  if (typeof clearedAt !== 'string') return;
+  const local = await kvGet(CLEARED_KEY);
+  if (local !== null && local >= clearedAt) return;
+  if (local === null && (await kvGet(ACCOUNTS_CURSOR)) === null) return recordClear(clearedAt);
+  await wipeLocal({ keepSession: true });
+  await recordClear(clearedAt);
+}
 
 /**
  * Push then pull, in reference order: account types, accounts (including
@@ -424,8 +462,9 @@ export function syncNow(): Promise<SyncResult> {
   running ??= (async () => {
     try {
       const { data } = await supabase.auth.getSession();
-      if (!data.session) return { pushed: 0, pulled: 0 };
+      if (!data.session || held) return { pushed: 0, pulled: 0 };
       const me = data.session.user.id;
+      await wipeIfClearedElsewhere(data.session.user.user_metadata?.data_cleared_at);
       await ensureDefaultCategories();
       const pushed =
         (await pushAccountTypes()) +

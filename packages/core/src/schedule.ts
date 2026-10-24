@@ -70,3 +70,10 @@ export function nextOccurrence(key: DateKey, cadence: Cadence, anchorDay?: numbe
   const lastDay = new Date(year, month + 1, 0).getDate();
   return dateKey(new Date(year, month, Math.min(day, lastDay)));
 }
+
+/** The same day `months` months later (or earlier when negative), on the month's last day when it is shorter. */
+export function addMonthsToDate(key: DateKey, months: number): DateKey {
+  const start = startOfDate(key);
+  const lastDay = new Date(start.getFullYear(), start.getMonth() + months + 1, 0).getDate();
+  return dateKey(new Date(start.getFullYear(), start.getMonth() + months, Math.min(start.getDate(), lastDay)));
+}
