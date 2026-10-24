@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { ActivityIndicator, View } from 'react-native';
 import { colors } from '@/components/ui';
+import { watchSharedIous } from '@/lib/realtime';
 import { useSession } from '@/lib/session';
 import { followSystemScheme, scheme } from '@/lib/theme';
 
@@ -32,6 +33,9 @@ export default function RootLayout() {
     SystemUI.setBackgroundColorAsync(colors.background).catch(() => {});
     return followSystemScheme();
   }, []);
+
+  const userId = session?.user.id;
+  useEffect(() => (userId ? watchSharedIous(userId) : undefined), [userId]);
 
   // A tapped reminder or budget alert opens the screen it is about.
   useEffect(() => {
@@ -81,9 +85,17 @@ export default function RootLayout() {
           <Stack.Screen name="budget/[id]" options={{ title: 'Budget' }} />
           <Stack.Screen name="account-types" options={{ title: 'Account types' }} />
           <Stack.Screen name="capture" options={{ title: 'Bank SMS' }} />
-          <Stack.Screen name="upi-test" options={{ title: 'UPI hand-off test' }} />
+          <Stack.Screen name="pay" options={{ title: 'Scan and pay', presentation: 'modal' }} />
           <Stack.Screen name="recurring/index" options={{ title: 'Recurring payments' }} />
           <Stack.Screen name="recurring/[id]" options={{ title: 'Recurring payment' }} />
+          <Stack.Screen name="people/index" options={{ title: 'People and IOUs' }} />
+          <Stack.Screen name="person/[id]" options={{ title: 'Person' }} />
+          <Stack.Screen name="iou/new" options={{ title: 'Record a loan', presentation: 'modal' }} />
+          <Stack.Screen name="iou/[id]" options={{ title: 'IOU' }} />
+          <Stack.Screen name="split/[id]" options={{ title: 'Split', presentation: 'modal' }} />
+          <Stack.Screen name="split/paid" options={{ title: 'Someone else paid', presentation: 'modal' }} />
+          <Stack.Screen name="group/[id]" options={{ title: 'Group' }} />
+          <Stack.Screen name="profile" options={{ title: 'Your name and UPI ID', presentation: 'modal' }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />

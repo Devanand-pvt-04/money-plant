@@ -89,19 +89,19 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | Table | Key fields | Notes |
 | --- | --- | --- |
 | users | id, phone, email, created_at | Supabase Auth owns identity |
-| accounts | id, user_id, type, account_type_id, parent_id, category_key, name, institution, last4, currency, opening_balance_paise, auto_confirm | Includes category and people accounts. parent_id and category_key apply to categories; account_type_id to custom types |
+| accounts | id, user_id, type, account_type_id, parent_id, category_key, name, institution, last4, currency, opening_balance_paise, auto_confirm, vpa, email | Includes category and people accounts. parent_id and category_key apply to categories; account_type_id to custom types; vpa and email to people (pay links, matching, sharing IOUs) |
 | account_types | id, user_id, name, icon, class (asset, liability), in_net_worth | User-defined account types |
 | transactions | id, user_id, occurred_at, description, merchant_id, status (pending, confirmed, ignored), confidence, category_reason (rule, pattern, dictionary, ai, user), user_set_fields, split_group_id, updated_at, deleted_at | One real-world money movement. user_set_fields lists the fields automation must not overwrite |
 | postings | id, transaction_id, account_id, amount_paise | Postings for each transaction sum to zero |
 | sources | id, transaction_id, kind (sms, notification, statement, cas, manual, shortcut, app_payment), external_ref (UPI RRN, card auth code), parsed_fields (JSON), received_at | A transaction can have several after merging; raw text is never stored on the server |
 | merchants | id, normalised_name, upi_handles, default_category, created_by (dictionary, ai) | Global table shared across users |
 | rules | id, user_id, kind (rule, pattern), match (merchant, VPA, keyword, amount range; for patterns also time window, weekdays, account, payee kind), category_account_id, auto_confirm, paused, hits | User rules win over everything; learned patterns come next |
-| split_groups | id, user_id, name | A trip or flatmates; balances come from postings to its members' person accounts |
-| split_group_members | id, user_id, group_id, person_account_id | People in a group |
+| split_groups | id, user_id, name, member_account_ids | A trip or flatmates, as a list of the user's person accounts; balances come from postings to them |
 | ignored_senders | id, user_id, sender | Senders whose messages never create entries |
 | budgets | id, user_id, month, category_account_id, limit_paise | One row per category per month |
 | recurring | id, user_id, name, vpa, merchant, amount_paise, cadence, anchor_day, next_due, account_id, category_account_id, status (active, paused, proposed, declined), origin (manual, history, pre_debit), mandate_ref, last_paid_at, last_transaction_id | Detected or added manually. next_due is a calendar date on the phone's clock |
-| ious | id, lender_user_id, borrower_user_id or person account, amount_paise, reason, due_date, status | Shared row when both people use the app |
+| ious | id, user_id (owner), owner_name, owner_email, owner_vpa, person_account_id, direction (lent, borrowed), amount_paise, reason, occurred_on, due_date, transaction_id, counterparty_email, counterparty_user_id, counterparty_person_account_id, counterparty_transaction_id, counterparty_vpa, confirmed_at, declined_at | One row per IOU. With counterparty_email set, the other person sees it and answers through respond_iou |
+| iou_payments | id, user_id, iou_id, amount_paise, paid_at, transaction_id | Repayments each side's ledger saw. What is still owed is the amount minus the larger side's total |
 | holdings | id, user_id, account_id, instrument (ISIN or scheme code), units, cost_paise, as_of | Rebuilt from each CAS import |
 | prices | instrument, date, price | Global, filled daily |
 | balance_anchors | id, account_id, balance_paise, observed_at, source_id | Balances seen in SMS and statements, used for reconciliation |
@@ -145,12 +145,21 @@ Learned patterns (CAT-8) are computed on the phone from the user's own correctio
 
 Splits are personal: they exist only in the payer's ledger, so friends need not use the app.
 
-- **Converting an entry.** Splitting replaces the entry's postings with the user's share on the category and each friend's share on their person account. Sources stay attached, so dedupe and reconciliation are unaffected.
-- **Someone else paid.** The user's share goes to the category, and a negative posting on the payer's person account records what the user owes.
-- **Groups.** A group is a named set of person accounts. Its balances come from postings, and "who pays whom" is simplified on the phone.
+- **Converting an entry.** Splitting replaces the entry's postings with the user's share on the category and each friend's share on their person account. Sources stay attached, so dedupe and reconciliation are unaffected. Shares are worked out in integer paise (equally, exact amounts, percentages or shares), and leftover paise go one each to the first people. Each friend's share also becomes a lent IOU linked to the entry, so their repayment settles it. Undoing a split folds the shares back into the category, and is refused once someone has paid part of it back.
+- **Someone else paid.** The user's share goes to the category, and a negative posting on the payer's person account records what the user owes. The entry has a `manual` source and no account of the user's, and a borrowed IOU links to it.
+- **Groups.** A group is a named set of person accounts, used to add everyone to a split at once. Each member's balance is their whole balance with the user, already netted across splits and loans, so one payment per person settles the group.
 - **Settling** reuses IOU settlement: a UPI pay link and the matcher's IOU settlement rule.
 - **Contacts.** With the contacts permission (expo-contacts), the phone matches payees to contacts: by a 10-digit mobile number in the UPI ID (98xxxxxx10@ybl), then by fuzzy name match against the SMS or notification payee name. A match links the person account to the contact on the phone only. The contact list is never synced or uploaded.
 - **Finding friends on the app** is by email invite for now. Shared groups between app users come after the friends release.
+
+## IOUs
+
+An IOU (IOU-1) is a loan between the user and a person account. Its ledger entry moves money between one of the user's accounts and the person, with kind `iou`: a bank entry already in the ledger is converted (its category leg moves to the person and its sources stay), or a new entry with a `manual` source is added. The person's balance is always the sum of their postings.
+
+- **Sharing (IOU-2).** A person with an email shares every IOU with them: the server stores `counterparty_email`, and row-level security lets a user signed in with that email read the row. They confirm or decline through the `respond_iou` function, which only writes the answering side's fields, and say which entry in their own ledger is the loan (a candidate of the same amount within 3 days, or a new one). The `ious_guard` trigger keeps the owner from writing those fields, and clears the confirmation when the amount, direction or due date changes. Friends are found by the email the owner types; no email is sent, and the reminder message the user shares says to sign in with that address.
+- **Repayments (IOU-4).** After each capture and on app open, a payment from a person who owes the user (or to one the user owes), for no more than is open, becomes a repayment: the entry moves to the person and `iou_payments` rows record the parts, oldest due first. A repayment the app did not see is recorded by hand with a manual entry. Each side records only what its own ledger saw, so the outstanding amount is the IOU minus the larger side's total and a repayment both sides saw is counted once.
+- **Paying (IOU-3)** opens a `upi://pay` link to the person's UPI ID in the user's own UPI app. The user's own UPI ID, kept in their sign-in profile, goes into the "pay me" link in reminder messages (IOU-5).
+- **Reminders (IOU-5)** are local notifications at 9 am the day before and on the due date.
 
 ## Scan and pay
 
@@ -159,8 +168,8 @@ The app never moves money (PAY-1, PAY-2). It reads a UPI QR, then hands the paym
 1. The camera (expo-camera barcode scanning) reads the QR. A UPI QR is a `upi://pay` link with `pa` (payee UPI ID), `pn` (name) and optionally `am` (amount), `tn` (note) and `mc` (merchant code). Other QR codes are rejected.
 2. The user confirms the amount, category and optional split. The app adds its own `tr` reference.
 3. On Android the app starts the `upi://pay` intent for the chosen app's package, or a chooser, and waits for the activity result. UPI apps return a response string with `Status`, `txnId` and `responseCode`, but not reliably.
-4. The app writes the entry with an `app_payment` source holding the payee, amount, our reference and the app's response. A SUCCESS response confirms it. No response leaves it pending and asks "Did it go through?"
-5. The entry has no account until the bank SMS arrives, because the user picks the bank inside the UPI app. The matcher merges the first debit of the same amount within 10 minutes into it, and the SMS supplies the account. Without SMS tracking, the user picks the account when confirming.
+4. Before the UPI app opens, the app writes the entry with an `app_payment` source holding the payee, amount, our reference and, afterwards, the app's response. It waits in Review as "didn't say if it went through" (`payment_unconfirmed`). A SUCCESS response confirms it, a FAILURE removes it, and anything else asks "Did it go through?". Writing first means the entry survives Android killing Money Plant while the UPI app is open.
+5. The user picks an account when confirming (the one they last paid this payee from), but the bank is really chosen inside the UPI app. The matcher merges the first debit SMS of the same amount within 10 minutes into the entry on any of the user's accounts, moves the entry to the account the SMS names, and confirms it. A shop's own `tr` reference, which may be signed, is passed through unchanged, and a QR that fixes the amount can't be changed.
 
 Some UPI apps decline or limit payments started by another app, especially to personal UPI IDs. A test build checks Google Pay, PhonePe, a bank app and slice before milestone 3. Where an app refuses, the fallback is to log the entry and open that app's own scanner, or copy the UPI ID. IOU-3's pay links use the same hand-off and inherit the result.
 
@@ -182,6 +191,7 @@ The matcher runs these rules in order and stops at the first that fits. The thre
 | --- | --- | --- |
 | Same reference | Same UPI RRN, card auth code or NEFT UTR as an existing source | Attach as another source; raise confidence |
 | Same payment, no reference | Same account last 4, same amount, same direction, within 10 minutes | Attach as another source |
+| Payment started in the app | A debit of the same amount on any of the user's accounts, within 10 minutes after a scan-and-pay entry that has no SMS yet | Attach as another source; move the entry to that account and confirm it |
 | Self-transfer | Debit in one owned account and credit of the same amount in another owned account within 24 hours | Merge into one transfer transaction with no category |
 | Card bill payment | Debit from a bank account to a payee that matches an owned card's issuer, and a card credit within 3 days | Post as a transfer to the card's liability account |
 | Refund | Credit from a merchant that had an earlier debit of an equal or larger amount in the last 60 days | Post against the original category |
@@ -242,7 +252,7 @@ Data gets server-side protection for now, as decided. The design keeps a later m
 
 | Control | How |
 | --- | --- |
-| Row-level security | Every user table (including account_types, split_groups and ignored_senders) has a user_id = auth.uid() policy. ious rows are visible to both lender and borrower. merchants and prices are read-only for clients |
+| Row-level security | Every user table (including account_types, split_groups and ignored_senders) has a user_id = auth.uid() policy. An ious row is also visible to the user signed in with its counterparty_email, who can change it only through respond_iou; iou_payments are visible to both people once the IOU is confirmed. merchants and prices are read-only for clients |
 | Encryption at rest | Supabase-managed for Postgres and Storage. SQLCipher on the phone, with its key in Android Keystore or iOS Keychain |
 | App lock | PIN plus biometrics before any screen shows money |
 | Raw SMS | Never synced or logged; only parsed fields leave the parser |

@@ -112,9 +112,27 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
   const duplicate = findDuplicate(recent, { accountId: account.id, amount, at, reference: parsed.reference, sender: capture.sender });
   const transfer = duplicate ? null : findTransferLeg(recent, accountsById, { account, amount, at, reference: parsed.reference });
 
+  const handOff = duplicate || transfer ? null : findAppPayment(recent, accountsById, { amount, at });
+
   if (duplicate) {
-    await store.saveTransaction(withExtraSource(duplicate, source, { counterparty: duplicate.counterparty ?? parsed.counterparty }));
+    await store.saveTransaction(
+      withExtraSource(duplicate, source, {
+        counterparty: duplicate.counterparty ?? parsed.counterparty,
+        // The bank's SMS proves a payment handed to a UPI app went through (PAY-2).
+        ...(duplicate.reviewReason === 'payment_unconfirmed' ? { reviewReason: null, status: 'confirmed' as const } : {}),
+      }),
+    );
     result = { outcome: 'attached', transactionId: duplicate.id };
+  } else if (handOff) {
+    // PAY-2: the bank SMS for a payment started from Money Plant. The SMS knows the account, and proves it went through.
+    const previous = handOff.postings.find((p) => OWNED.has(accountsById.get(p.accountId)?.type ?? 'category') && p.amount === amount);
+    const merged = withExtraSource(handOff, source, {
+      postings: handOff.postings.map((p) => (p === previous ? { ...p, accountId: account.id } : p)),
+      ...(handOff.reviewReason === 'payment_unconfirmed' ? { reviewReason: null, status: 'confirmed' as const } : {}),
+    });
+    await store.saveTransaction(merged);
+    if (previous && previous.accountId !== account.id) await rebaseOpening(store, previous.accountId);
+    result = { outcome: 'attached', transactionId: handOff.id };
   } else if (transfer) {
     const { transaction, refsMatch } = transfer;
     const postings: LedgerPosting[] = transaction.postings
@@ -351,6 +369,33 @@ function findDuplicate(
         !tx.sources.some((s) => s.kind === 'sms' && s.sender === c.sender) &&
         !refsConflict(tx, c.reference),
     ),
+    c.at,
+  );
+}
+
+/**
+ * PAY-2: a payment the user started from Money Plant, waiting for its bank
+ * SMS. The user picked an account before paying, but chose the bank inside
+ * the UPI app, so the first debit of the same amount within 10 minutes after
+ * it matches on any of the user's accounts.
+ */
+function findAppPayment(
+  recent: readonly LedgerTransaction[],
+  accountsById: ReadonlyMap<string, LedgerAccount>,
+  c: { amount: Paise; at: number },
+): LedgerTransaction | null {
+  if (c.amount >= 0) return null;
+  return closest(
+    recent.filter((tx) => {
+      const started = Date.parse(tx.occurredAt);
+      return (
+        tx.sources.some((s) => s.kind === 'app_payment') &&
+        !tx.sources.some((s) => s.kind === 'sms') &&
+        c.at >= started - MINUTE &&
+        c.at - started <= DUPLICATE_WINDOW &&
+        tx.postings.some((p) => OWNED.has(accountsById.get(p.accountId)?.type ?? 'category') && p.amount === c.amount)
+      );
+    }),
     c.at,
   );
 }

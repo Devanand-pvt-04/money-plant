@@ -4,9 +4,12 @@ import type {
   LocalAccountType,
   LocalBalanceAnchor,
   LocalBudget,
+  LocalIou,
+  LocalIouPayment,
   LocalPosting,
   LocalRecurring,
   LocalRule,
+  LocalSplitGroup,
   LocalSource,
   LocalTransaction,
 } from './sqlite';
@@ -24,6 +27,8 @@ export interface RemoteAccount {
   account_type_id: string | null;
   parent_id: string | null;
   category_key: string | null;
+  vpa: string | null;
+  email: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -44,6 +49,8 @@ export function toRemoteAccount(row: LocalAccount): RemoteAccountWrite {
     account_type_id: row.accountTypeId,
     parent_id: row.parentId,
     category_key: row.categoryKey,
+    vpa: row.vpa,
+    email: row.email,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -61,6 +68,8 @@ export function fromRemoteAccount(row: RemoteAccount): LocalAccount {
     accountTypeId: row.account_type_id ?? null,
     parentId: row.parent_id ?? null,
     categoryKey: row.category_key ?? null,
+    vpa: row.vpa ?? null,
+    email: row.email ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -467,6 +476,157 @@ export function fromRemoteRecurring(row: RemoteRecurring): LocalRecurring {
     mandateRef: row.mandate_ref,
     lastPaidAt: row.last_paid_at === null ? null : iso(row.last_paid_at),
     lastTransactionId: row.last_transaction_id,
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteIou {
+  id: string;
+  user_id: string;
+  owner_name: string | null;
+  owner_email: string | null;
+  owner_vpa: string | null;
+  person_account_id: string;
+  direction: LocalIou['direction'];
+  amount_paise: number;
+  reason: string | null;
+  occurred_on: string;
+  due_date: string | null;
+  transaction_id: string | null;
+  counterparty_email: string | null;
+  counterparty_user_id: string | null;
+  counterparty_person_account_id: string | null;
+  counterparty_transaction_id: string | null;
+  counterparty_vpa: string | null;
+  confirmed_at: string | null;
+  declined_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+/**
+ * What the owner sends. The counterparty's fields, the response times and
+ * owner_email are set on the server (ious_guard, respond_iou), so they are
+ * left out; the server would ignore them anyway.
+ */
+export function toRemoteIou(row: LocalIou) {
+  return {
+    id: row.id,
+    owner_name: row.ownerName,
+    owner_vpa: row.ownerVpa,
+    person_account_id: row.personAccountId,
+    direction: row.direction,
+    amount_paise: row.amountPaise,
+    reason: row.reason,
+    occurred_on: row.occurredOn,
+    due_date: row.dueDate,
+    transaction_id: row.transactionId,
+    counterparty_email: row.counterpartyEmail,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteIou(row: RemoteIou): LocalIou {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    ownerName: row.owner_name,
+    ownerEmail: row.owner_email,
+    ownerVpa: row.owner_vpa,
+    personAccountId: row.person_account_id,
+    direction: row.direction,
+    amountPaise: Number(row.amount_paise),
+    reason: row.reason,
+    occurredOn: row.occurred_on,
+    dueDate: row.due_date,
+    transactionId: row.transaction_id,
+    counterpartyEmail: row.counterparty_email,
+    counterpartyUserId: row.counterparty_user_id,
+    counterpartyPersonAccountId: row.counterparty_person_account_id,
+    counterpartyTransactionId: row.counterparty_transaction_id,
+    counterpartyVpa: row.counterparty_vpa,
+    confirmedAt: row.confirmed_at === null ? null : iso(row.confirmed_at),
+    declinedAt: row.declined_at === null ? null : iso(row.declined_at),
+    response: null,
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteIouPayment {
+  id: string;
+  user_id: string;
+  iou_id: string;
+  amount_paise: number;
+  paid_at: string;
+  transaction_id: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteIouPayment(row: LocalIouPayment): Omit<RemoteIouPayment, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    iou_id: row.iouId,
+    amount_paise: row.amountPaise,
+    paid_at: row.paidAt,
+    transaction_id: row.transactionId,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteIouPayment(row: RemoteIouPayment): LocalIouPayment {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    iouId: row.iou_id,
+    amountPaise: Number(row.amount_paise),
+    paidAt: iso(row.paid_at),
+    transactionId: row.transaction_id,
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteSplitGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  member_account_ids: string[];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteSplitGroup(row: LocalSplitGroup): Omit<RemoteSplitGroup, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    name: row.name,
+    member_account_ids: JSON.parse(row.memberAccountIds) as string[],
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteSplitGroup(row: RemoteSplitGroup): LocalSplitGroup {
+  return {
+    id: row.id,
+    name: row.name,
+    memberAccountIds: JSON.stringify(row.member_account_ids ?? []),
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

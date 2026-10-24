@@ -151,6 +151,19 @@ function ReviewCard({ row, onChangeCategory }: { row: TransactionRow; onChangeCa
           <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={() => confirmEntry(tx.id)} />
         </View>
       </View>
+      {/* IOU-1, SPL-1: a payment to or from a person is often a loan or a shared bill. */}
+      {tx.reviewReason === 'person' && legs[0] && (
+        <View style={styles.links}>
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/new?from=${tx.id}`)}>
+            <Text style={styles.link}>{legs[0].amount < 0 ? 'I lent this' : 'I borrowed this'}</Text>
+          </Pressable>
+          {tx.kind === 'expense' && (
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/split/${tx.id}`)}>
+              <Text style={styles.link}>Split it</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
       {!isTransfer && (
         <Pressable
           accessibilityRole="button"
@@ -241,6 +254,8 @@ const styles = StyleSheet.create({
   },
   actions: { flexDirection: 'row', gap: 8 },
   action: { flex: 1 },
+  links: { flexDirection: 'row', justifyContent: 'center', gap: 24 },
+  link: { fontSize: 14, fontWeight: '600', color: colors.primary, paddingVertical: 4 },
   quiet: { alignSelf: 'center', paddingVertical: 4 },
   quietText: { fontSize: 13, fontWeight: '500', color: colors.muted },
   done: { alignItems: 'center', gap: 10, marginTop: 96, paddingHorizontal: 40 },

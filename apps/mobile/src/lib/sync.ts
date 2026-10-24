@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import {
   accountTypes,
   accounts,
@@ -8,28 +8,40 @@ import {
   fromRemoteAccountType,
   fromRemoteAnchor,
   fromRemoteBudget,
+  fromRemoteIou,
+  fromRemoteIouPayment,
   fromRemoteRecurring,
   fromRemoteRule,
+  fromRemoteSplitGroup,
   fromRemoteTransaction,
+  iouPayments,
+  ious,
   nextCursor,
   postings,
   recurring,
   rules,
   sources,
+  splitGroups,
   toRemoteAccount,
   toRemoteAccountType,
   toRemoteAnchor,
   toRemoteBudget,
+  toRemoteIou,
+  toRemoteIouPayment,
   toRemoteRecurring,
   toRemoteRule,
+  toRemoteSplitGroup,
   toTransactionPush,
   transactions,
   type RemoteAccount,
   type RemoteAccountType,
   type RemoteBalanceAnchor,
   type RemoteBudget,
+  type RemoteIou,
+  type RemoteIouPayment,
   type RemoteRecurring,
   type RemoteRule,
+  type RemoteSplitGroup,
   type RemoteTransaction,
 } from '@money-plant/db-schema';
 import { ensureDefaultCategories } from './categories';
@@ -44,6 +56,9 @@ const ACCOUNT_TYPES_CURSOR = 'sync.account_types.cursor';
 const RULES_CURSOR = 'sync.rules.cursor';
 const BUDGETS_CURSOR = 'sync.budgets.cursor';
 const RECURRING_CURSOR = 'sync.recurring.cursor';
+const SPLIT_GROUPS_CURSOR = 'sync.split_groups.cursor';
+const IOUS_CURSOR = 'sync.ious.cursor';
+const IOU_PAYMENTS_CURSOR = 'sync.iou_payments.cursor';
 const PUSH_BATCH = 200;
 const PULL_PAGE = 500;
 
@@ -158,6 +173,57 @@ async function pushRecurring(): Promise<number> {
   const db = await getDb();
   return pushSimple('recurring', db.select().from(recurring).where(eq(recurring.dirty, 1)).all(), toRemoteRecurring, (row) =>
     db.update(recurring).set({ dirty: 0 }).where(and(eq(recurring.id, row.id), eq(recurring.rev, row.rev))).run(),
+  );
+}
+
+async function pushSplitGroups(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('split_groups', db.select().from(splitGroups).where(eq(splitGroups.dirty, 1)).all(), toRemoteSplitGroup, (row) =>
+    db.update(splitGroups).set({ dirty: 0 }).where(and(eq(splitGroups.id, row.id), eq(splitGroups.rev, row.rev))).run(),
+  );
+}
+
+/**
+ * IOUs this user added go up as rows. An answer to one shared with them goes
+ * through respond_iou, which only writes the answering side's fields (IOU-2).
+ */
+async function pushIous(me: string): Promise<number> {
+  const db = await getDb();
+  const owned = db.select().from(ious).where(and(eq(ious.dirty, 1), eq(ious.userId, me))).all();
+  let pushed = await pushSimple('ious', owned, toRemoteIou, (row) =>
+    db.update(ious).set({ dirty: 0 }).where(and(eq(ious.id, row.id), eq(ious.rev, row.rev))).run(),
+  );
+  const answers = db.select().from(ious).where(isNotNull(ious.response)).all();
+  for (const row of answers) {
+    const { error } = await supabase.rpc('respond_iou', {
+      p_id: row.id,
+      p_accept: row.response === 'accept',
+      p_person_account_id: row.counterpartyPersonAccountId,
+      p_transaction_id: row.counterpartyTransactionId,
+      p_vpa: row.counterpartyVpa,
+    });
+    if (error?.code === '42501') {
+      // The owner deleted it or shared it with someone else meanwhile: it is no longer this user's to answer.
+      db.delete(ious).where(eq(ious.id, row.id)).run();
+      continue;
+    }
+    if (error) throw error;
+    db.update(ious).set({ response: null }).where(and(eq(ious.id, row.id), eq(ious.response, row.response!))).run();
+    // Repayments the owner recorded before this user confirmed are older than the pull cursor.
+    if (row.response === 'accept') await pullPaymentsOf([row.id]);
+    pushed++;
+  }
+  return pushed;
+}
+
+/** Only this user's own repayment records; the other side's come down in the pull. */
+async function pushIouPayments(me: string): Promise<number> {
+  const db = await getDb();
+  return pushSimple(
+    'iou_payments',
+    db.select().from(iouPayments).where(and(eq(iouPayments.dirty, 1), eq(iouPayments.userId, me))).all(),
+    toRemoteIouPayment,
+    (row) => db.update(iouPayments).set({ dirty: 0 }).where(and(eq(iouPayments.id, row.id), eq(iouPayments.rev, row.rev))).run(),
   );
 }
 
@@ -286,6 +352,60 @@ async function pullRecurring(): Promise<number> {
   });
 }
 
+async function pullSplitGroups(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteSplitGroup>('split_groups', '*', SPLIT_GROUPS_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: splitGroups.dirty }).from(splitGroups).where(eq(splitGroups.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteSplitGroup(row);
+      db.insert(splitGroups).values(incoming).onConflictDoUpdate({ target: splitGroups.id, set: incoming }).run();
+    }
+  });
+}
+
+/** Both the user's own IOUs and ones shared with them (RLS decides which). */
+async function pullIous(me: string): Promise<number> {
+  const db = await getDb();
+  const confirmed: string[] = [];
+  const total = await pullTable<RemoteIou>('ious', '*', IOUS_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: ious.dirty, response: ious.response }).from(ious).where(eq(ious.id, row.id)).get();
+      // An edit or an answer not yet sent wins.
+      if (local?.dirty === 1 || local?.response) continue;
+      const incoming = fromRemoteIou(row);
+      db.insert(ious).values(incoming).onConflictDoUpdate({ target: ious.id, set: incoming }).run();
+      if (row.user_id !== me && row.confirmed_at) confirmed.push(row.id);
+    }
+  });
+  // A confirmation from another of this user's phones: the repayments on it may be older than the cursor.
+  if (confirmed.length > 0) await pullPaymentsOf(confirmed);
+  return total;
+}
+
+function applyPayments(db: Awaited<ReturnType<typeof getDb>>, rows: readonly RemoteIouPayment[]): void {
+  for (const row of rows) {
+    const local = db.select({ dirty: iouPayments.dirty }).from(iouPayments).where(eq(iouPayments.id, row.id)).get();
+    if (local?.dirty === 1) continue;
+    const incoming = fromRemoteIouPayment(row);
+    db.insert(iouPayments).values(incoming).onConflictDoUpdate({ target: iouPayments.id, set: incoming }).run();
+  }
+}
+
+async function pullPaymentsOf(iouIds: readonly string[]): Promise<void> {
+  const db = await getDb();
+  for (let i = 0; i < iouIds.length; i += 100) {
+    const { data, error } = await supabase.from('iou_payments').select('*').in('iou_id', iouIds.slice(i, i + 100));
+    if (error) throw error;
+    applyPayments(db, (data ?? []) as RemoteIouPayment[]);
+  }
+}
+
+async function pullIouPayments(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteIouPayment>('iou_payments', '*', IOU_PAYMENTS_CURSOR, async (rows) => applyPayments(db, rows));
+}
+
 export interface SyncResult {
   pushed: number;
   pulled: number;
@@ -295,15 +415,17 @@ let running: Promise<SyncResult> | null = null;
 
 /**
  * Push then pull, in reference order: account types, accounts (including
- * categories), rules, transactions, anchors, budgets, recurring payments.
- * Postings point at accounts, rules, budgets and recurring payments at
- * accounts and categories, anchors at sources. Concurrent calls share one run.
+ * categories), rules, transactions, anchors, budgets, recurring payments,
+ * split groups, IOUs, IOU repayments. Postings point at accounts, rules,
+ * budgets, recurring payments, groups and IOUs at accounts and categories,
+ * anchors at sources, repayments at IOUs. Concurrent calls share one run.
  */
 export function syncNow(): Promise<SyncResult> {
   running ??= (async () => {
     try {
       const { data } = await supabase.auth.getSession();
       if (!data.session) return { pushed: 0, pulled: 0 };
+      const me = data.session.user.id;
       await ensureDefaultCategories();
       const pushed =
         (await pushAccountTypes()) +
@@ -312,7 +434,10 @@ export function syncNow(): Promise<SyncResult> {
         (await pushTransactions()) +
         (await pushAnchors()) +
         (await pushBudgets()) +
-        (await pushRecurring());
+        (await pushRecurring()) +
+        (await pushSplitGroups()) +
+        (await pushIous(me)) +
+        (await pushIouPayments(me));
       const pulled =
         (await pullAccountTypes()) +
         (await pullAccounts()) +
@@ -320,7 +445,10 @@ export function syncNow(): Promise<SyncResult> {
         (await pullTransactions()) +
         (await pullAnchors()) +
         (await pullBudgets()) +
-        (await pullRecurring());
+        (await pullRecurring()) +
+        (await pullSplitGroups()) +
+        (await pullIous(me)) +
+        (await pullIouPayments());
       return { pushed, pulled };
     } finally {
       running = null;

@@ -22,6 +22,10 @@ export const accounts = sqliteTable(
     parentId: text('parent_id'),
     /** For categories: the standard category key the shared dictionary uses, e.g. "food.lunch". */
     categoryKey: text('category_key'),
+    /** For people: their UPI ID, to pay them and recognise their payments (IOU-3, IOU-4). */
+    vpa: text('vpa'),
+    /** For people: the email they use Money Plant with, to share IOUs (IOU-2). */
+    email: text('email'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -45,7 +49,7 @@ export const transactions = sqliteTable(
     id: text('id').primaryKey(),
     occurredAt: text('occurred_at').notNull(),
     counterparty: text('counterparty'),
-    kind: text('kind').$type<'expense' | 'income' | 'transfer' | 'adjustment'>().notNull(),
+    kind: text('kind').$type<'expense' | 'income' | 'transfer' | 'adjustment' | 'iou'>().notNull(),
     status: text('status').$type<'pending' | 'confirmed'>().notNull(),
     confidence: real('confidence').notNull(),
     reviewReason: text('review_reason'),
@@ -250,7 +254,85 @@ export const recurring = sqliteTable(
   (table) => [index('recurring_dirty_idx').on(table.dirty)],
 );
 
+/**
+ * IOUs (IOU-1 to IOU-5). The same row as public.ious, so a shared IOU has
+ * the owner's view of `person_account_id` and `direction`; lib/ious.ts turns
+ * it round for the other person. `response` is local only: a confirm or
+ * decline waiting to reach the server through respond_iou.
+ */
+export const ious = sqliteTable(
+  'ious',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    ownerName: text('owner_name'),
+    ownerEmail: text('owner_email'),
+    ownerVpa: text('owner_vpa'),
+    personAccountId: text('person_account_id').notNull(),
+    direction: text('direction').$type<'lent' | 'borrowed'>().notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    reason: text('reason'),
+    occurredOn: text('occurred_on').notNull(),
+    dueDate: text('due_date'),
+    transactionId: text('transaction_id'),
+    counterpartyEmail: text('counterparty_email'),
+    counterpartyUserId: text('counterparty_user_id'),
+    counterpartyPersonAccountId: text('counterparty_person_account_id'),
+    counterpartyTransactionId: text('counterparty_transaction_id'),
+    counterpartyVpa: text('counterparty_vpa'),
+    confirmedAt: text('confirmed_at'),
+    declinedAt: text('declined_at'),
+    response: text('response').$type<'accept' | 'decline'>(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('ious_dirty_idx').on(table.dirty)],
+);
+
+/** Repayments of IOUs, each recorded by the user whose ledger saw it (IOU-4). */
+export const iouPayments = sqliteTable(
+  'iou_payments',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    iouId: text('iou_id').notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    paidAt: text('paid_at').notNull(),
+    transactionId: text('transaction_id'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('iou_payments_iou_idx').on(table.iouId), index('iou_payments_dirty_idx').on(table.dirty)],
+);
+
+/** Personal split groups: a trip, flatmates (SPL-3). `member_account_ids` is a JSON array of person account ids. */
+export const splitGroups = sqliteTable('split_groups', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  memberAccountIds: text('member_account_ids').notNull().default('[]'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at'),
+  deletedAt: text('deleted_at'),
+  dirty: integer('dirty').notNull().default(1),
+  rev: integer('rev').notNull().default(0),
+});
+
+/** Local only, never synced: which phone contact a person account is (SPL-4). */
+export const personContacts = sqliteTable('person_contacts', {
+  personAccountId: text('person_account_id').primaryKey(),
+  contactId: text('contact_id').notNull(),
+});
+
 export type LocalAccount = typeof accounts.$inferSelect;
+export type LocalIou = typeof ious.$inferSelect;
+export type LocalIouPayment = typeof iouPayments.$inferSelect;
+export type LocalSplitGroup = typeof splitGroups.$inferSelect;
 export type LocalRecurring = typeof recurring.$inferSelect;
 export type LocalAccountType = typeof accountTypes.$inferSelect;
 export type LocalRule = typeof rules.$inferSelect;
@@ -442,4 +524,64 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     rev INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX recurring_dirty_idx ON recurring (dirty);`,
+  // Milestone 4: people, IOUs, splits and groups.
+  `ALTER TABLE accounts ADD COLUMN vpa TEXT;
+  ALTER TABLE accounts ADD COLUMN email TEXT;
+  CREATE TABLE ious (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    owner_name TEXT,
+    owner_email TEXT,
+    owner_vpa TEXT,
+    person_account_id TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL,
+    reason TEXT,
+    occurred_on TEXT NOT NULL,
+    due_date TEXT,
+    transaction_id TEXT,
+    counterparty_email TEXT,
+    counterparty_user_id TEXT,
+    counterparty_person_account_id TEXT,
+    counterparty_transaction_id TEXT,
+    counterparty_vpa TEXT,
+    confirmed_at TEXT,
+    declined_at TEXT,
+    response TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX ious_dirty_idx ON ious (dirty);
+  CREATE TABLE iou_payments (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    iou_id TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL,
+    paid_at TEXT NOT NULL,
+    transaction_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX iou_payments_iou_idx ON iou_payments (iou_id);
+  CREATE INDEX iou_payments_dirty_idx ON iou_payments (dirty);
+  CREATE TABLE split_groups (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    member_account_ids TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE person_contacts (
+    person_account_id TEXT PRIMARY KEY NOT NULL,
+    contact_id TEXT NOT NULL
+  );`,
 ];

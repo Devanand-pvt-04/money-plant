@@ -13,6 +13,7 @@ import { readInbox, type CaptureTaskData } from '../../modules/sms-reader';
 import { categoriseWithAi } from './ai-categorise';
 import { checkPaceAlerts } from './budgets';
 import { pipelineCategoriser } from './categories';
+import { refreshIous } from './ious';
 import { applyPreDebitNotice, refreshRecurring } from './recurring';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
@@ -169,6 +170,7 @@ export function importInbox(onProgress?: (progress: ImportProgress) => void): Pr
       }
       if (progress.read > 0) {
         await refreshRecurring().catch(() => {});
+        await refreshIous().catch(() => {});
         notifyLedgerChange();
       }
       return progress;
@@ -237,6 +239,7 @@ export async function runCaptureTask(data: CaptureTaskData): Promise<void> {
     notifyLedgerChange();
     await checkPaceAlerts().catch(() => {});
     await refreshRecurring().catch(() => {});
+    await refreshIous().catch(() => {});
     await syncNow();
     await categoriseWithAi();
   } catch (e) {

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { AppState, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMonth, formatWholeRupees } from '@/components/format';
@@ -11,6 +11,7 @@ import { ensureDefaultCategories } from '@/lib/categories';
 import { currentMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
 import { hasImportedInbox, importInbox } from '@/lib/capture';
 import { countPending, listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
+import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
 import { refreshRecurring, upcomingPayments, type UpcomingPayment } from '@/lib/recurring';
 import { syncNow } from '@/lib/sync';
 import { useLedger } from '@/lib/use-ledger';
@@ -21,14 +22,15 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 async function loadHome() {
   await ensureDefaultCategories();
-  const [balances, pending, imported, overview, upcoming] = await Promise.all([
+  const [balances, pending, imported, overview, upcoming, owed] = await Promise.all([
     listAccountBalances(),
     countPending(),
     hasImportedInbox(),
     monthOverview(currentMonth()),
     upcomingPayments(7),
+    owedSummary(),
   ]);
-  return { balances, pending, imported, month: overview.overall, elapsed: overview.elapsed, upcoming };
+  return { balances, pending, imported, month: overview.overall, elapsed: overview.elapsed, upcoming, owed };
 }
 
 function greeting(now: Date): string {
@@ -46,6 +48,7 @@ export default function Home() {
     month: null as BudgetLine | null,
     elapsed: 0,
     upcoming: [] as UpcomingPayment[],
+    owed: null as OwedSummary | null,
   });
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +62,8 @@ export default function Home() {
       setError(null);
       // REC-1, REC-4: new debits mark payments paid, steady ones become suggestions, reminders follow.
       refreshRecurring().catch(() => {});
+      // IOU-4: payments from people who owe the user settle their IOUs.
+      refreshIous().catch(() => {});
       // CAT-2: only merchants that rules, patterns and the dictionary couldn't place; capped on the server.
       categoriseWithAi().catch(() => {});
     } catch (e) {
@@ -89,11 +94,25 @@ export default function Home() {
         contentContainerStyle={[styles.container, { paddingTop: insets.top + 20 }]}
         refreshControl={<RefreshControl refreshing={syncing} onRefresh={refresh} progressViewOffset={insets.top} />}
       >
-        <View>
-          <Text style={styles.date}>
-            {DAYS[now.getDay()]}, {now.getDate()} {MONTHS[now.getMonth()]}
-          </Text>
-          <Text style={styles.hello}>{greeting(now)}</Text>
+        <View style={styles.between}>
+          <View>
+            <Text style={styles.date}>
+              {DAYS[now.getDay()]}, {now.getDate()} {MONTHS[now.getMonth()]}
+            </Text>
+            <Text style={styles.hello}>{greeting(now)}</Text>
+          </View>
+          {Platform.OS === 'android' && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Scan and pay"
+              hitSlop={8}
+              onPress={() => router.push('/pay')}
+              style={({ pressed }) => [styles.scan, pressed && styles.pressed]}
+            >
+              <Feather name="maximize" size={18} color={colors.text} />
+              <Text style={styles.scanText}>Pay</Text>
+            </Pressable>
+          )}
         </View>
 
         {!smsReady && (
@@ -148,6 +167,18 @@ export default function Home() {
             note={flagged > 0 ? `${flagged} off from the bank` : undefined}
           />
         </View>
+
+        {data.owed && (data.owed.owedToMe > 0 || data.owed.iOwe > 0 || data.owed.toConfirm > 0) && (
+          <View style={styles.tiles}>
+            <Tile
+              label="Owed to you"
+              value={formatWholeRupees(data.owed.owedToMe)}
+              note={data.owed.toConfirm > 0 ? `${data.owed.toConfirm} to confirm` : undefined}
+              href="/people"
+            />
+            <Tile label="You owe" value={formatWholeRupees(data.owed.iOwe)} href="/people" />
+          </View>
+        )}
 
         {error && <ErrorText>{error}</ErrorText>}
       </ScrollView>
@@ -206,9 +237,9 @@ function MonthCard({ line, elapsed }: { line: BudgetLine; elapsed: number }) {
   );
 }
 
-function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
+function Tile({ label, value, note, href = '/money' }: { label: string; value: string; note?: string; href?: Href }) {
   return (
-    <Pressable accessibilityRole="button" onPress={() => router.push('/money')} style={styles.tile}>
+    <Pressable accessibilityRole="button" onPress={() => router.push(href)} style={styles.tile}>
       <Card style={styles.tileCard}>
         <Text style={styles.meta}>{label}</Text>
         <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>
@@ -230,6 +261,8 @@ const styles = StyleSheet.create({
   calloutText: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   month: { padding: 20, borderRadius: 20, backgroundColor: colors.subtle, gap: 14 },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  scan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 40, borderRadius: radius.pill, backgroundColor: colors.subtle },
+  scanText: { fontSize: 14, fontWeight: '600', color: colors.text },
   monthLabel: { fontSize: 13, fontWeight: '500', color: colors.muted },
   pill: { fontSize: 12, fontWeight: '600', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' },
   pillOk: { color: colors.primary, backgroundColor: colors.primarySurface },

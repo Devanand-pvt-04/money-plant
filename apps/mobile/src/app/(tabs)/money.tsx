@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatRupees } from '@money-plant/core';
@@ -47,12 +47,13 @@ export default function Money() {
 
       <SectionTitle>Settings</SectionTitle>
       <Card>
-        <Link icon="repeat" title="Recurring payments" href="/recurring" first />
+        <Link icon="users" title="People and IOUs" href="/people" first />
+        <Link icon="repeat" title="Recurring payments" href="/recurring" />
         <Link icon="tag" title="Categories" href="/categories" />
         <Link icon="sliders" title="Rules and patterns" href="/rules" />
         <Link icon="layers" title="Account types" href="/account-types" />
         <Link icon="message-square" title="Bank SMS" href="/capture" />
-        {Platform.OS === 'android' && <Link icon="smartphone" title="UPI hand-off test" href="/upi-test" />}
+        <Link icon="user" title="Your name and UPI ID" href="/profile" />
       </Card>
       <Button title="Sign out" variant="secondary" onPress={signOut} />
     </ScrollView>
