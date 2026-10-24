@@ -31,6 +31,14 @@ export function formatWholeRupees(amount: number): string {
   return `${rounded < 0 ? '-' : ''}₹${grouped}`;
 }
 
+/** How long a review of `count` entries takes, at about 8 seconds each: "under a minute", "about 5 minutes". */
+export function reviewTime(count: number): string {
+  const minutes = Math.round((count * 8) / 60);
+  if (minutes < 1) return 'under a minute';
+  if (minutes < 90) return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+  return `about ${Math.round(minutes / 60)} hours`;
+}
+
 /** "₹480" or "₹480.50": exact, without ".00" noise. */
 export function formatAmount(amount: number): string {
   const text = formatWholeRupees(Math.trunc(amount / 100) * 100);

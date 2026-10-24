@@ -63,12 +63,32 @@ export interface MonthOverview {
   overall: BudgetLine;
   /** Top-level spending categories, each followed by its sub-categories. */
   lines: BudgetLine[];
+  /** Invested or withdrawn as cash: shown, but not counted as spending. */
+  moved: { category: CategoryNode; amount: Paise }[];
 }
 
+/**
+ * Money that leaves an account without being spent: investing it, or taking it
+ * out as cash (whose spends are logged from the Cash account). These stay
+ * categories the user can pick, but don't count toward spending or budgets.
+ */
+const NOT_SPENDING = new Set(['investments', 'cash']);
+
+const isSpending = (category: CategoryNode) => !NOT_SPENDING.has((category.key ?? '').split('.')[0]!);
+
 async function spendingTree() {
-  const tree = (await listCategories()).filter((c) => c.flow === 'expense');
+  const expense = (await listCategories()).filter((c) => c.flow === 'expense');
+  const tree = expense.filter(isSpending);
   const all = flatten(tree);
-  return { tree, all, ids: new Set(all.map((c) => c.id)), parents: new Map(all.map((c) => [c.id, c.parentId])) };
+  const moved = expense.filter((c) => !isSpending(c));
+  return { tree, all, moved, ids: new Set(all.map((c) => c.id)), parents: new Map(all.map((c) => [c.id, c.parentId])) };
+}
+
+/** What left the user's accounts this month as investments or cash, per top-level category. */
+async function movedThisMonth(month: MonthKey, moved: CategoryNode[]): Promise<{ category: CategoryNode; amount: Paise }[]> {
+  const all = flatten(moved);
+  const totals = rollUp(await spendByCategory(month, new Set(all.map((c) => c.id))), new Map(all.map((c) => [c.id, c.parentId])));
+  return moved.map((category) => ({ category, amount: totals.get(category.id) ?? paise(0) })).filter((m) => m.amount > 0);
 }
 
 function budgetRows(db: Awaited<ReturnType<typeof getDb>>) {
@@ -83,7 +103,7 @@ function budgetRows(db: Awaited<ReturnType<typeof getDb>>) {
 /** BUD-1 and BUD-2: spend against budget for every spending category in a month. */
 export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   const db = await getDb();
-  const { tree, ids, parents } = await spendingTree();
+  const { tree, ids, parents, moved } = await spendingTree();
   const spent = rollUp(await spendByCategory(month, ids), parents);
   const limits = effectiveBudgets(budgetRows(db), month);
   const elapsed = month === currentMonth() ? monthElapsed(month, new Date()) : month < currentMonth() ? 1 : 0;
@@ -101,6 +121,7 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
     elapsed,
     overall: line(null),
     lines: tree.flatMap((root) => [line(root), ...root.children.map(line)]),
+    moved: await movedThisMonth(month, moved),
   };
 }
 

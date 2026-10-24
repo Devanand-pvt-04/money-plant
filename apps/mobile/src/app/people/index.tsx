@@ -1,6 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { formatAmount } from '@/components/format';
+import { formatAmount, formatWholeRupees } from '@/components/format';
 import { Balance } from '@/components/people-rows';
 import { Button, Card, Initial, SectionTitle, colors } from '@/components/ui';
 import { listIous, type IouView } from '@/lib/ious';
@@ -27,11 +27,11 @@ export default function People() {
       <View style={styles.totals}>
         <View style={styles.total}>
           <Text style={styles.meta}>Owed to you</Text>
-          <Text style={[styles.totalAmount, owedToMe > 0 && { color: colors.primary }]}>{formatAmount(owedToMe)}</Text>
+          <Text style={[styles.totalAmount, owedToMe > 0 && { color: colors.primary }]}>{formatWholeRupees(owedToMe)}</Text>
         </View>
         <View style={styles.total}>
           <Text style={styles.meta}>You owe</Text>
-          <Text style={styles.totalAmount}>{formatAmount(iOwe)}</Text>
+          <Text style={styles.totalAmount}>{formatWholeRupees(iOwe)}</Text>
         </View>
       </View>
 

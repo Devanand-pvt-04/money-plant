@@ -3,7 +3,7 @@ import { AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, 
 import { router, useFocusEffect, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { formatMonth, formatWholeRupees } from '@/components/format';
+import { formatMonth, formatWholeRupees, reviewTime } from '@/components/format';
 import { UpcomingRow } from '@/components/recurring-rows';
 import { Card, ErrorText, ProgressBar, colors, radius } from '@/components/ui';
 import { categoriseWithAi } from '@/lib/ai-categorise';
@@ -137,7 +137,7 @@ export default function Home() {
             </View>
             <View style={styles.grow}>
               <Text style={styles.rowTitle}>{data.pending === 1 ? 'Entry to review' : 'Entries to review'}</Text>
-              <Text style={styles.meta}>About {Math.max(10, Math.ceil((data.pending * 8) / 10) * 10)} seconds</Text>
+              <Text style={styles.meta}>{reviewTime(data.pending).replace(/^\w/, (c) => c.toUpperCase())}</Text>
             </View>
             <Feather name="chevron-right" size={20} color={colors.muted} />
           </Pressable>

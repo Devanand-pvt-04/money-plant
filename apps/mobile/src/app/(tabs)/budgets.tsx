@@ -48,6 +48,12 @@ export default function Budgets() {
       {withBudget.map((line) => (
         <Line key={line.category!.id} line={line} month={month} title={line.category!.name} child={line.category!.parentId !== null} />
       ))}
+      {data.moved.length > 0 && (
+        <Text style={styles.meta}>
+          Not counted as spending: {data.moved.map((m) => `${m.category.name} ${rupees(m.amount)}`).join(', ')}. This money left your accounts but
+          wasn't spent.
+        </Text>
+      )}
       <View style={styles.actions}>
         <Button title="Suggest budgets from last 3 months" variant="secondary" onPress={suggest} />
         <Text style={styles.meta}>Tap a category to set its budget. A budget carries over to later months until you change it.</Text>

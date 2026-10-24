@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
@@ -6,13 +6,13 @@ import { formatRupees, paise } from '@money-plant/core';
 import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
 import { Button, Card, colors, radius } from '@/components/ui';
-import { formatDateTime, formatDay, formatTime } from '@/components/format';
+import { formatDate, formatDateTime, formatDay, formatTime, formatWholeRupees, reviewTime } from '@/components/format';
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { whyLabel } from '@/components/why';
 import { useCategoryChange } from '@/components/use-category-change';
 import { Suggestion } from '@/components/recurring-rows';
 import { categoryNames } from '@/lib/categories';
-import { acceptPattern, confirmEntry, declinePattern } from '@/lib/entries';
+import { acceptPattern, confirmEntries, confirmEntry, declinePattern } from '@/lib/entries';
 import {
   deleteTransaction,
   listAccountBalances,
@@ -75,7 +75,7 @@ export default function Review() {
           <>
             {data.pending.length > 0 && (
               <Text style={styles.count}>
-                {data.pending.length} left · about {Math.max(10, Math.ceil((data.pending.length * 8) / 10) * 10)} seconds
+                {data.pending.length} left · {reviewTime(data.pending.length)}
               </Text>
             )}
             {data.proposals.map((p) => (
@@ -85,6 +85,7 @@ export default function Review() {
               <Suggestion key={item.id} item={item} />
             ))}
             {data.gaps.length > 0 && <Gaps gaps={data.gaps} />}
+            <BulkReview pending={data.pending} onChangeCategory={change} />
           </>
         }
         ListEmptyComponent={
@@ -183,6 +184,119 @@ function ReviewCard({ row, onChangeCategory }: { row: TransactionRow; onChangeCa
   );
 }
 
+/** Review reasons a whole group can settle at once. The rest need a look at each entry. */
+const BULK_REASONS = new Set(['person', 'pattern', 'category_unsure', 'low_confidence']);
+const OLD_AFTER_DAYS = 30;
+const SHOWN_GROUPS = 5;
+
+interface PayeeGroup {
+  key: string;
+  title: string;
+  rows: TransactionRow[];
+  total: number;
+  /** The category every entry shares, or null when they differ or have none. */
+  category: string | null;
+}
+
+/** Groups pending entries by payee, so a backlog from the first import takes a few taps. */
+function payeeGroups(pending: readonly TransactionRow[]): PayeeGroup[] {
+  const groups = new Map<string, TransactionRow[]>();
+  for (const row of pending) {
+    if (row.tx.kind === 'transfer' || !row.tx.reviewReason || !BULK_REASONS.has(row.tx.reviewReason)) continue;
+    const key = transactionTitle(row).trim().toLowerCase();
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups]
+    .filter(([, rows]) => rows.length >= 2)
+    .map(([key, rows]) => {
+      const names = new Set(rows.map((r) => r.category?.name ?? null));
+      return {
+        key,
+        title: transactionTitle(rows[0]!),
+        rows,
+        total: rows.reduce((sum, r) => sum + Math.abs(r.legs[0]?.amount ?? 0), 0),
+        category: names.size === 1 ? [...names][0]! : null,
+      };
+    })
+    .sort((a, b) => b.rows.length - a.rows.length);
+}
+
+/** Bulk review: whole payees at once, and a way to clear old imported entries. */
+function BulkReview({
+  pending,
+  onChangeCategory,
+}: {
+  pending: TransactionRow[];
+  onChangeCategory: (ids: string[], flow: 'expense' | 'income', merchant: string | null) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const groups = useMemo(() => payeeGroups(pending), [pending]);
+  const cutoff = new Date(Date.now() - OLD_AFTER_DAYS * 86_400_000).toISOString();
+  const old = pending.filter(
+    (r) => r.tx.occurredAt < cutoff && r.tx.kind !== 'transfer' && r.tx.reviewReason !== null && BULK_REASONS.has(r.tx.reviewReason),
+  );
+  if (groups.length === 0 && old.length < 2) return null;
+  const shown = showAll ? groups : groups.slice(0, SHOWN_GROUPS);
+
+  function confirmOld() {
+    Alert.alert(
+      `Confirm ${old.length} older entries?`,
+      `Entries from before ${formatDate(cutoff)} are confirmed as they are. They stay in Activity, and any without a category counts as Uncategorised in Budgets. You can still change each one.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', onPress: () => void confirmEntries(old.map((r) => r.tx.id)) },
+      ],
+    );
+  }
+
+  return (
+    <View style={styles.bulk}>
+      {groups.length > 0 && <Text style={styles.bulkTitle}>Review by payee</Text>}
+      {shown.map((group) => {
+        const ids = group.rows.map((r) => r.tx.id);
+        const flow = group.rows[0]!.tx.kind === 'income' ? 'income' : 'expense';
+        return (
+          <Card key={group.key} style={styles.card}>
+            <View style={styles.top}>
+              <View style={styles.grow}>
+                <Text style={styles.title} numberOfLines={1}>
+                  {group.title}
+                </Text>
+                <Text style={styles.meta}>
+                  {group.rows.length} entries · {formatWholeRupees(group.total)} · {group.category ?? 'No category yet'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.actions}>
+              <View style={styles.action}>
+                <Button title="Category for all" variant="secondary" onPress={() => onChangeCategory(ids, flow, group.rows[0]!.tx.counterparty)} />
+              </View>
+              {group.category && (
+                <View style={styles.action}>
+                  <Button title="All look right" onPress={() => void confirmEntries(ids)} />
+                </View>
+              )}
+            </View>
+          </Card>
+        );
+      })}
+      {groups.length > SHOWN_GROUPS && (
+        <Pressable accessibilityRole="button" hitSlop={8} style={styles.quiet} onPress={() => setShowAll(!showAll)}>
+          <Text style={styles.link}>{showAll ? 'Show fewer payees' : `Show ${groups.length - SHOWN_GROUPS} more payees`}</Text>
+        </Pressable>
+      )}
+      {old.length >= 2 && (
+        <View style={styles.gapCard}>
+          <Text style={styles.gapTitle}>{old.length} entries are older than {OLD_AFTER_DAYS} days</Text>
+          <Text style={styles.gapText}>Most of these came from importing your SMS history. Confirm them as they are and keep the inbox for new entries.</Text>
+          <Button title={`Confirm ${old.length} older entries`} variant="secondary" onPress={confirmOld} />
+        </View>
+      )}
+      {groups.length > 0 && <Text style={styles.bulkTitle}>One by one</Text>}
+    </View>
+  );
+}
+
 /** CAT-8: a pattern learned from the user's corrections, waiting for a yes or no. */
 function PatternCard({ proposal }: { proposal: Proposal }) {
   const [autoConfirm, setAutoConfirm] = useState(false);
@@ -263,6 +377,8 @@ const styles = StyleSheet.create({
   doneTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
   doneText: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20 },
   gaps: { gap: 12, marginBottom: 12 },
+  bulk: { gap: 12, marginBottom: 12 },
+  bulkTitle: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 4 },
   gapCard: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.warningSurface, gap: 8 },
   patternCard: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.primarySurface, gap: 8, marginBottom: 12 },
   gapTitle: { fontSize: 15, fontWeight: '600', color: colors.text },

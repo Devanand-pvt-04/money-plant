@@ -2,23 +2,24 @@ import { useState } from 'react';
 import { Alert } from 'react-native';
 import type { CategoryFlow } from '@money-plant/categoriser';
 import type { CategoryNode } from '@/lib/categories';
-import { addRule, setEntryCategory } from '@/lib/entries';
+import { addRule, setCategoryForEntries } from '@/lib/entries';
 import { CategoryPicker } from './category-picker';
 
 /**
  * The change-category flow shared by the review inbox and the entry screen:
  * pick a category, then offer "always do this" (CAT-3) and mention any
- * pattern the correction completed (CAT-8).
+ * pattern the correction completed (CAT-8). Bulk review passes several
+ * entries from one payee.
  */
 export function useCategoryChange() {
-  const [target, setTarget] = useState<{ id: string; flow: CategoryFlow; merchant: string | null } | null>(null);
+  const [target, setTarget] = useState<{ ids: string[]; flow: CategoryFlow; merchant: string | null } | null>(null);
 
   async function pick(category: CategoryNode) {
     if (!target) return;
-    const { id, merchant } = target;
+    const { ids, merchant } = target;
     setTarget(null);
     try {
-      const { offer, proposed } = await setEntryCategory(id, category.id);
+      const { offer, proposed } = await setCategoryForEntries(ids, category.id);
       const label = offer?.merchant ? (merchant ?? offer.merchant) : offer?.vpa;
       if (offer && label) {
         Alert.alert(`Always use ${category.name}?`, `Put every payment ${offer.direction === 'credit' ? 'from' : 'to'} ${label} in ${category.name}.`, [
@@ -38,6 +39,7 @@ export function useCategoryChange() {
   );
   return {
     picker,
-    change: (id: string, flow: CategoryFlow, merchant: string | null) => setTarget({ id, flow, merchant }),
+    change: (ids: string | string[], flow: CategoryFlow, merchant: string | null) =>
+      setTarget({ ids: typeof ids === 'string' ? [ids] : ids, flow, merchant }),
   };
 }
