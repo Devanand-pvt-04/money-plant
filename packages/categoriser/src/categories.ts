@@ -81,6 +81,32 @@ export const STANDARD_CATEGORIES: readonly StandardCategory[] = [
   income('income.other', 'Other income'),
 ];
 
+/**
+ * CAT-1: the categories a new user starts with, all top level. Each maps to a
+ * standard key, so dictionary matches for the keys under it land there (Rent
+ * takes the whole of housing, Other income takes interest and refunds).
+ * Investments and Cash withdrawal aren't spending (BUD-1) but need a home for
+ * SIP and ATM entries. Keys with no match here, such as EMIs or insurance,
+ * stay Uncategorised until the user picks or makes a category.
+ */
+export const DEFAULT_CATEGORIES: readonly StandardCategory[] = [
+  expense('food', 'Food'),
+  expense('food.groceries', 'Groceries'),
+  expense('transport', 'Transport'),
+  expense('shopping', 'Shopping'),
+  expense('bills', 'Bills'),
+  expense('housing', 'Rent'),
+  expense('health', 'Health'),
+  expense('entertainment', 'Entertainment'),
+  expense('travel', 'Travel'),
+  expense('family', 'Family and gifts'),
+  expense('other', 'Other'),
+  expense('investments', 'Investments'),
+  expense('cash', 'Cash withdrawal'),
+  income('income.salary', 'Salary'),
+  income('income', 'Other income'),
+];
+
 const BY_KEY = new Map(STANDARD_CATEGORIES.map((category) => [category.key, category]));
 
 export function standardCategory(key: string): StandardCategory | undefined {

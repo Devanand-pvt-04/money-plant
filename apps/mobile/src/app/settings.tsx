@@ -62,7 +62,6 @@ export default function Settings() {
       <SectionTitle>How entries are filled</SectionTitle>
       <Card>
         <Link icon="message-square" title="Bank SMS" href="/capture" first />
-        <Link icon="tag" title="Categories" href="/categories" />
         <Link icon="sliders" title="Rules and patterns" href="/rules" />
         <Link icon="layers" title="Account types" href="/account-types" />
       </Card>

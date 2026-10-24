@@ -1,10 +1,10 @@
-import { and, eq, gte, isNull, lt } from 'drizzle-orm';
+import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm';
 import {
   OVERALL,
   addMonths,
   breakdown,
   budgetPace,
-  effectiveBudgets,
+  budgetSettings,
   monthBounds,
   monthElapsed,
   monthOf,
@@ -12,6 +12,7 @@ import {
   rollUp,
   suggestBudget,
   type MonthKey,
+  type BudgetSetting,
   type Pace,
   type Paise,
   type SpendBreakdown,
@@ -29,6 +30,13 @@ const now = () => new Date().toISOString();
 
 export function currentMonth(): MonthKey {
   return monthOf(new Date());
+}
+
+/** Days left in the current month, today included; null for any other month. */
+export function daysLeft(month: MonthKey): number | null {
+  if (month !== currentMonth()) return null;
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate() + 1;
 }
 
 /** Spending per category in a month: postings on spending categories, refunds subtracted. */
@@ -54,6 +62,8 @@ export interface BudgetLine {
   /** Spent this month, sub-categories included (CAT-5). */
   spent: Paise;
   limit: Paise | null;
+  /** The every-month default and this month's override behind `limit`. */
+  setting: BudgetSetting;
   pace: Pace | null;
 }
 
@@ -109,15 +119,17 @@ function budgetRows(db: Awaited<ReturnType<typeof getDb>>) {
     .from(budgets)
     .where(isNull(budgets.deletedAt))
     .all()
-    .map((row) => ({ month: row.month, categoryId: row.categoryAccountId, limit: row.limitPaise === null ? null : paise(row.limitPaise) }));
+    .flatMap((row) => (row.limitPaise === null ? [] : [{ month: row.month, categoryId: row.categoryAccountId, limit: paise(row.limitPaise) }]));
 }
+
+const NO_SETTING: BudgetSetting = { default: null, override: null, limit: null };
 
 /** BUD-1 and BUD-2: spend against budget for every spending category in a month. */
 export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   const db = await getDb();
   const { tree, ids, parents, moved } = await spendingTree();
   const spent = rollUp(await spendByCategory(month, ids), parents);
-  const limits = effectiveBudgets(budgetRows(db), month);
+  const settings = budgetSettings(budgetRows(db), month);
   const elapsed = month === currentMonth() ? monthElapsed(month, new Date()) : month < currentMonth() ? 1 : 0;
   const line = (category: CategoryNode | null): BudgetLine => {
     const key = category?.id ?? OVERALL;
@@ -125,8 +137,9 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
       category === null
         ? paise(tree.reduce((sum, root) => sum + (spent.get(root.id) ?? 0), 0))
         : (spent.get(category.id) ?? paise(0));
-    const limit = limits.get(key) ?? null;
-    return { category, spent: amount, limit, pace: limit === null ? null : budgetPace(amount, limit, elapsed) };
+    const setting = settings.get(key) ?? NO_SETTING;
+    const limit = setting.limit;
+    return { category, spent: amount, limit, setting, pace: limit === null ? null : budgetPace(amount, limit, elapsed) };
   };
   return {
     month,
@@ -137,14 +150,18 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   };
 }
 
-/** BUD-1: sets (or with null, removes) a budget from `month` onward. */
-export async function setBudget(month: MonthKey, categoryId: string | null, limit: Paise | null): Promise<void> {
+/**
+ * BUD-1: sets (or with null, removes) a budget. With no month it is the
+ * default for every month; with a month it overrides the default for that
+ * month only, and null resets the month to the default.
+ */
+export async function setBudget(month: MonthKey | null, categoryId: string | null, limit: Paise | null): Promise<void> {
   const db = await getDb();
-  const id = await derivedId(`budget:${month}:${categoryId ?? 'overall'}`);
-  const values = { month, categoryAccountId: categoryId, limitPaise: limit, deletedAt: null, dirty: 1 };
+  const id = await derivedId(`budget:${month ?? 'default'}:${categoryId ?? 'overall'}`);
+  const values = { month, categoryAccountId: categoryId, limitPaise: limit, deletedAt: limit === null ? now() : null, dirty: 1 };
   db.insert(budgets)
     .values({ id, ...values, createdAt: now() })
-    .onConflictDoUpdate({ target: budgets.id, set: values })
+    .onConflictDoUpdate({ target: budgets.id, set: { ...values, rev: sql`${budgets.rev} + 1` } })
     .run();
   notifyLedgerChange();
 }
@@ -166,14 +183,21 @@ export async function suggestBudgets(month: MonthKey): Promise<Map<string, Paise
 }
 
 export interface CategoryBreakdown extends SpendBreakdown {
-  /** Average spend over the 3 months before, for comparison (BUD-3). */
+  /** Average over the 3 months before, for comparison (BUD-3). */
   previousAverage: Paise;
+  /** The month and the 3 before it, oldest first. */
+  history: { month: MonthKey; total: Paise }[];
 }
 
-/** BUD-3: where a category's (or with null, all) spending went in a month. */
+/**
+ * BUD-3: where a category's (or with null, all) spending went in a month. An
+ * income category works too, with what came in counted as positive.
+ */
 export async function categoryBreakdown(month: MonthKey, categoryId: string | null): Promise<CategoryBreakdown> {
   const db = await getDb();
-  const { all, ids } = await spendingTree();
+  const { ids } = await spendingTree();
+  const all = flatten(await listCategories());
+  const income = categoryId !== null && all.find((c) => c.id === categoryId)?.flow === 'income';
   const inTree = new Set(
     categoryId === null ? ids : all.filter((c) => c.id === categoryId || c.parentId === categoryId).map((c) => c.id),
   );
@@ -192,11 +216,24 @@ export async function categoryBreakdown(month: MonthKey, categoryId: string | nu
       .where(and(isNull(transactions.deletedAt), gte(transactions.occurredAt, start), lt(transactions.occurredAt, end)))
       .all()
       .filter((row) => inTree.has(row.categoryId))
-      .map((row) => ({ ...row, amount: paise(row.amount) }));
+      // Income categories are credited, so their postings are negative.
+      .map((row) => ({ ...row, amount: paise(income ? -row.amount : row.amount) }));
   };
   const result = breakdown(itemsFor(month));
-  const previous = [1, 2, 3].map((n) => breakdown(itemsFor(addMonths(month, -n))).total);
-  return { ...result, previousAverage: paise(Math.round(previous.reduce((sum, t) => sum + t, 0) / previous.length)) };
+  const history = [3, 2, 1].map((n) => addMonths(month, -n)).map((m) => ({ month: m, total: breakdown(itemsFor(m)).total }));
+  const previousAverage = paise(Math.round(history.reduce((sum, h) => sum + h.total, 0) / history.length));
+  return { ...result, previousAverage, history: [...history, { month, total: result.total }] };
+}
+
+/** Money in per top-level income category in a month, sub-categories included, largest first. */
+export async function incomeByCategory(month: MonthKey): Promise<{ category: CategoryNode; amount: Paise }[]> {
+  const tree = (await listCategories()).filter((c) => c.flow === 'income');
+  const all = flatten(tree);
+  const totals = rollUp(await spendByCategory(month, new Set(all.map((c) => c.id))), new Map(all.map((c) => [c.id, c.parentId])));
+  return tree
+    .map((category) => ({ category, amount: paise(-(totals.get(category.id) ?? 0)) }))
+    .filter((line) => line.amount !== 0)
+    .sort((a, b) => b.amount - a.amount);
 }
 
 /**

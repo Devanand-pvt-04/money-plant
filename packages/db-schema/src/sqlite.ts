@@ -191,15 +191,15 @@ export const rules = sqliteTable(
 );
 
 /**
- * Monthly budgets (BUD-1). A row applies from its month until a later row for
- * the same category; a null category is the overall budget; a null limit
- * removes the budget. Ids are derived from user, month and category.
+ * Monthly budgets (BUD-1). A null month is the category's default for every
+ * month; a row with a month overrides it for that month only. A null category
+ * is the overall budget. Ids are derived from user, month and category.
  */
 export const budgets = sqliteTable(
   'budgets',
   {
     id: text('id').primaryKey(),
-    month: text('month').notNull(),
+    month: text('month'),
     categoryAccountId: text('category_account_id'),
     limitPaise: integer('limit_paise'),
     createdAt: text('created_at').notNull(),
@@ -584,4 +584,21 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     person_account_id TEXT PRIMARY KEY NOT NULL,
     contact_id TEXT NOT NULL
   );`,
+  // App review round 1: a budget's month becomes optional (null is the default
+  // for every month). Old rows meant "from this month on"; the server converts
+  // them, so the phone drops its copy and pulls budgets again.
+  `DROP TABLE budgets;
+  CREATE TABLE budgets (
+    id TEXT PRIMARY KEY NOT NULL,
+    month TEXT,
+    category_account_id TEXT,
+    limit_paise INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX budgets_dirty_idx ON budgets (dirty);
+  DELETE FROM kv WHERE key = 'sync.budgets.cursor';`,
 ];

@@ -380,8 +380,8 @@ export function fromRemoteRule(row: RemoteRule): LocalRule {
 export interface RemoteBudget {
   id: string;
   user_id: string;
-  /** First day of the month, "2026-10-01". */
-  month: string;
+  /** First day of the month, "2026-10-01"; null for the default that applies to every month. */
+  month: string | null;
   category_account_id: string | null;
   limit_paise: number | null;
   created_at: string;
@@ -393,7 +393,7 @@ export interface RemoteBudget {
 export function toRemoteBudget(row: LocalBudget): Omit<RemoteBudget, 'user_id' | 'updated_at'> {
   return {
     id: row.id,
-    month: `${row.month}-01`,
+    month: row.month === null ? null : `${row.month}-01`,
     category_account_id: row.categoryAccountId,
     limit_paise: row.limitPaise,
     created_at: row.createdAt,
@@ -404,7 +404,7 @@ export function toRemoteBudget(row: LocalBudget): Omit<RemoteBudget, 'user_id' |
 export function fromRemoteBudget(row: RemoteBudget): LocalBudget {
   return {
     id: row.id,
-    month: row.month.slice(0, 7),
+    month: row.month === null ? null : row.month.slice(0, 7),
     categoryAccountId: row.category_account_id,
     limitPaise: row.limit_paise === null ? null : Number(row.limit_paise),
     createdAt: iso(row.created_at),

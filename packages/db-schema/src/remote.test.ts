@@ -165,6 +165,12 @@ describe('budget mapping', () => {
     const back = fromRemoteBudget({ ...remote, user_id: 'u', updated_at: '2026-10-22T10:00:01+00:00', limit_paise: '5000000' as unknown as number });
     expect(back).toMatchObject({ month: '2026-10', limitPaise: 5000000, dirty: 0 });
   });
+
+  it('keeps a default budget without a month', () => {
+    const remote = toRemoteBudget({ id: 'b-2', month: null, categoryAccountId: 'food', limitPaise: 300000, createdAt: '2026-10-22T10:00:00.000Z', updatedAt: null, deletedAt: null, dirty: 1, rev: 0 });
+    expect(remote.month).toBeNull();
+    expect(fromRemoteBudget({ ...remote, user_id: 'u', updated_at: '2026-10-22T10:00:01+00:00' }).month).toBeNull();
+  });
 });
 
 describe('rule mapping', () => {

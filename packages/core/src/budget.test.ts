@@ -1,32 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { OVERALL, addMonths, breakdown, budgetPace, effectiveBudgets, rollUp, suggestBudget } from './budget';
+import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, effectiveBudgets, rollUp, suggestBudget } from './budget';
 
 describe('effectiveBudgets', () => {
   const rows = [
-    { month: '2026-08', categoryId: 'food', limit: paise(800000) },
+    { month: null, categoryId: 'food', limit: paise(800000) },
     { month: '2026-10', categoryId: 'food', limit: paise(1000000) },
-    { month: '2026-09', categoryId: null, limit: paise(5000000) },
+    { month: null, categoryId: null, limit: paise(5000000) },
     { month: '2026-09', categoryId: 'fuel', limit: paise(300000) },
-    { month: '2026-10', categoryId: 'fuel', limit: null },
   ];
 
-  it('carries a budget forward until a later month changes it (BUD-1)', () => {
-    const sept = effectiveBudgets(rows, '2026-09');
-    expect(sept.get('food')).toBe(800000);
-    expect(sept.get(OVERALL)).toBe(5000000);
-    expect(sept.get('fuel')).toBe(300000);
-    const nov = effectiveBudgets(rows, '2026-11');
-    expect(nov.get('food')).toBe(1000000);
-    expect(nov.get(OVERALL)).toBe(5000000);
+  it('applies a default to every month (BUD-1)', () => {
+    for (const month of ['2026-07', '2026-09', '2026-11']) {
+      const limits = effectiveBudgets(rows, month);
+      expect(limits.get('food')).toBe(800000);
+      expect(limits.get(OVERALL)).toBe(5000000);
+    }
   });
 
-  it('treats a null limit as removing the budget from that month', () => {
+  it('lets an override change one month only', () => {
+    expect(effectiveBudgets(rows, '2026-10').get('food')).toBe(1000000);
+    expect(effectiveBudgets(rows, '2026-09').get('fuel')).toBe(300000);
     expect(effectiveBudgets(rows, '2026-10').has('fuel')).toBe(false);
   });
 
-  it('ignores rows from later months', () => {
-    expect(effectiveBudgets(rows, '2026-07').size).toBe(0);
+  it('keeps the default next to the override, for resetting', () => {
+    expect(budgetSettings(rows, '2026-10').get('food')).toEqual({ default: 800000, override: 1000000, limit: 1000000 });
+    expect(budgetSettings(rows, '2026-09').get('fuel')).toEqual({ default: null, override: 300000, limit: 300000 });
   });
 });
 

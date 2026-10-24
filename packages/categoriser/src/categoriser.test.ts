@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from '@money-plant/core';
 import {
+  DEFAULT_CATEGORIES,
   STANDARD_CATEGORIES,
   categorise,
   categoryForKey,
@@ -55,6 +56,17 @@ describe('default categories', () => {
       const parent = parentKey(key);
       if (parent) expect(keys).toContain(parent);
     }
+  });
+
+  it('starts new users with a short flat list that the dictionary keys land in (CAT-1)', () => {
+    const standard = new Set(STANDARD_CATEGORIES.map((c) => c.key));
+    for (const c of DEFAULT_CATEGORIES) expect(standard.has(c.key)).toBe(true);
+    const defaults: UserCategory[] = DEFAULT_CATEGORIES.map((c) => ({ id: c.key, name: c.name, key: c.key, parentId: null }));
+    expect(categoryForKey(defaults, 'food.groceries')?.name).toBe('Groceries');
+    expect(categoryForKey(defaults, 'food.delivery')?.name).toBe('Food');
+    expect(categoryForKey(defaults, 'housing.rent')?.name).toBe('Rent');
+    expect(categoryForKey(defaults, 'income.interest')?.name).toBe('Other income');
+    expect(categoryForKey(defaults, 'loans.emi')).toBeNull();
   });
 
   it('falls back to the parent when a sub-category is missing', () => {
