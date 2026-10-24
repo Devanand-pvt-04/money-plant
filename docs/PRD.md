@@ -94,8 +94,8 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| BUD-1 | Monthly budget per category (parent or sub-category) and overall: a default that applies to every month, and an override for one month only that can be reset. Investments, cash withdrawals and transfers between the user's own accounts are not spending, and are listed apart | Must |
-| BUD-2 | Mid-month pace alerts when a category is on track to overspend | Must |
+| BUD-1 | Monthly budgets on the categories the user picks: a default that applies to every month, and an override for one month only that can be reset. A branch has either one budget on the parent, covering the parent and its sub-categories, or budgets on its sub-categories, never both. The month's total budget is the sum of the category budgets; there is no separate overall budget. Only spending in budgeted categories counts against the total; the rest is shown as spending outside budgets. Investments, cash withdrawals and transfers between the user's own accounts are not spending, and are listed apart | Must |
+| BUD-2 | Mid-month pace alerts when a budgeted category, or the month's total budget, is on track to overspend | Must |
 | BUD-3 | Overspend breakdown by category, merchant and largest transactions, versus budget and the last 3 months | Must |
 | BUD-4 | Month review on the 1st: what went over, why, and suggested budget changes the user can accept in one tap. It starts as a numbers review; the AI-written explanation comes in milestone 6 | Must |
 
