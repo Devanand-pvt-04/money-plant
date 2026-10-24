@@ -99,6 +99,7 @@ export interface RemoteTransaction {
   category_rule_id: string | null;
   user_set_fields: string[] | null;
   note: string | null;
+  split_group_id?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -143,6 +144,7 @@ export interface TransactionPush {
   category_rule_id: string | null;
   user_set_fields: string[];
   note: string | null;
+  split_group_id: string | null;
   created_at: string;
   deleted_at: string | null;
   postings: { id: string; account_id: string; amount_paise: number; created_at: string }[];
@@ -180,6 +182,7 @@ export function toTransactionPush(
     category_rule_id: tx.categoryRuleId,
     user_set_fields: JSON.parse(tx.userSetFields) as string[],
     note: tx.note,
+    split_group_id: tx.splitGroupId,
     created_at: tx.createdAt,
     deleted_at: tx.deletedAt,
     postings: txPostings.map((p) => ({
@@ -220,6 +223,7 @@ export function fromRemoteTransaction(row: RemoteTransaction): {
       categoryRuleId: row.category_rule_id ?? null,
       userSetFields: JSON.stringify(row.user_set_fields ?? []),
       note: row.note ?? null,
+      splitGroupId: row.split_group_id ?? null,
       createdAt: iso(row.created_at),
       updatedAt: row.updated_at,
       deletedAt: row.deleted_at,

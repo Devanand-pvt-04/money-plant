@@ -90,6 +90,8 @@ export interface LedgerTransaction {
   categoryRuleId: string | null;
   userSetFields: UserSetField[];
   note: string | null;
+  /** SPL-3: the group an expense was added to, if any. Left out when unknown, so a write keeps what is stored. */
+  splitGroupId?: string | null;
   postings: LedgerPosting[];
   sources: LedgerSource[];
 }
