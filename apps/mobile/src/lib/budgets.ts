@@ -276,7 +276,8 @@ export async function categoryBreakdown(month: MonthKey, categoryId: string | nu
       // Income categories are credited, so their postings are negative.
       .map((row) => ({ ...row, amount: paise(income ? -row.amount : row.amount) }));
   };
-  const result = breakdown(itemsFor(month));
+  // Every payee, so the screen can list all of them on request (BUD-3).
+  const result = breakdown(itemsFor(month), { top: Number.POSITIVE_INFINITY });
   const history = [3, 2, 1].map((n) => addMonths(month, -n)).map((m) => ({ month: m, total: breakdown(itemsFor(m)).total }));
   const previousAverage = paise(Math.round(history.reduce((sum, h) => sum + h.total, 0) / history.length));
   return { ...result, previousAverage, history: [...history, { month, total: result.total }] };

@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
-import { eq, lt } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { addDays, addMonthsToDate, dateKey, startOfDate, type DateKey } from '@money-plant/core';
-import { captureLog, pendingNotifications } from '@money-plant/db-schema';
+import { captureLog, pendingNotifications, sources, transactions } from '@money-plant/db-schema';
 import { ingestNotification, ingestSms, type IngestResult, type PipelineContext } from '@money-plant/matcher';
 import {
   BANK_SENDER_TOKENS,
@@ -218,6 +218,41 @@ export function importRange(from: DateKey, to: DateKey, onProgress?: (progress: 
 
 export async function hasImportedInbox(): Promise<boolean> {
   return (await kvGet(INBOX_CURSOR_KEY)) !== null;
+}
+
+/** Bump when a parser change can find payees it missed before, so entries get them on the next start. */
+const PAYEE_PASS = '1';
+const PAYEE_PASS_KEY = 'capture.payees.pass';
+
+/**
+ * Re-reads the stored SMS of entries with no payee once per parser change,
+ * and fills in the payee it now finds (for example ICICI autopay debits).
+ * A payee the user typed is never replaced. Runs on the phone; the text
+ * never leaves it.
+ */
+export async function fillMissingPayees(): Promise<number> {
+  if ((await kvGet(PAYEE_PASS_KEY)) === PAYEE_PASS) return 0;
+  const db = await getDb();
+  const rows = db
+    .select({ id: transactions.id, userSetFields: transactions.userSetFields, sender: sources.sender, rawText: sources.rawText })
+    .from(transactions)
+    .innerJoin(sources, eq(sources.transactionId, transactions.id))
+    .where(and(isNull(transactions.deletedAt), isNull(transactions.counterparty), eq(sources.kind, 'sms'), isNotNull(sources.rawText)))
+    .all();
+  let filled = 0;
+  for (const row of rows) {
+    if ((JSON.parse(row.userSetFields) as string[]).includes('counterparty')) continue;
+    const result = parseSms({ sender: row.sender ?? '', body: row.rawText! });
+    if (result.status !== 'parsed' || !result.transaction.counterparty) continue;
+    db.update(transactions)
+      .set({ counterparty: result.transaction.counterparty, dirty: 1, rev: sql`${transactions.rev} + 1` })
+      .where(and(eq(transactions.id, row.id), isNull(transactions.counterparty)))
+      .run();
+    filled++;
+  }
+  await kvSet(PAYEE_PASS_KEY, PAYEE_PASS);
+  if (filled > 0) notifyLedgerChange();
+  return filled;
 }
 
 /** Re-parses messages that failed before, for example after a parser update. */

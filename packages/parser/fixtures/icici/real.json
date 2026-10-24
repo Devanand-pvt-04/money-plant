@@ -3,7 +3,23 @@
     {
       "sender": "JD-ICICIT-S",
       "body": "Your AutoPay mandate with ASPRESENTED is successfully created towards Google Play from 13-May-26 to 31-Dec-36 for Rs 1300.00, RRN 629412345678-ICICI Bank.",
-      "expect": { "status": "ignored" }
+      "expect": {
+        "status": "ignored"
+      }
+    },
+    {
+      "sender": "JD-ICICIT-S",
+      "body": "Rs 12000.00 debited from ICICI Bank Savings Account XX123 on 01-Oct-26 towards SHIVALIK SMALL  for UPI Mandate AutoPay Retrieval Ref No.629400000001",
+      "expect": {
+        "template": "icici.mandate_debit",
+        "direction": "debit",
+        "amount": 1200000,
+        "instrument": "account",
+        "accountLast": "123",
+        "counterparty": "SHIVALIK SMALL",
+        "reference": "629400000001",
+        "channel": "upi"
+      }
     }
   ]
 }

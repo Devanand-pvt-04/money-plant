@@ -33,7 +33,7 @@
     {
       "sender": "VM-ICICIB",
       "body": "Dear Customer, your ICICI Bank Acct XX234 has been debited with INR 799.00 on 10-Oct-26 towards NETFLIX for e-mandate. Avl Bal INR 41,546.67.",
-      "expect": { "template": "generic", "direction": "debit", "amount": 79900, "accountLast": "234", "balance": 4154667 }
+      "expect": { "template": "generic", "direction": "debit", "amount": 79900, "accountLast": "234", "counterparty": "NETFLIX", "balance": 4154667 }
     },
     {
       "sender": "VM-ICICIB",
