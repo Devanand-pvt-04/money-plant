@@ -15,6 +15,7 @@ import {
 } from '@money-plant/core';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { CategoryPicker } from '@/components/category-picker';
+import { DateField } from '@/components/date-fields';
 import { formatDate, formatDateTime } from '@/components/format';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
@@ -139,7 +140,7 @@ export default function RecurringDetail() {
           <Chip key={c} label={CADENCE_LABELS[c]} selected={cadence === c} onPress={() => setCadence(c)} />
         ))}
       </Chips>
-      <Field label="Next due date" value={nextDue} onChangeText={setNextDue} placeholder="2026-11-05" autoCapitalize="none" />
+      <DateField label="Next due date" value={nextDue} onChange={(key) => key && setNextDue(key)} style={styles.date} />
 
       <Text style={styles.label}>Paid from</Text>
       <Chips>
@@ -214,6 +215,7 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted },
   link: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 4 },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
+  date: { marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   actions: { marginTop: 24, gap: 10 },
   remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },

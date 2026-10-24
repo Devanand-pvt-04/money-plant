@@ -66,6 +66,7 @@ export default function CategoryDetail() {
         visible={picking !== null}
         flow={category.flow}
         topLevelOnly={picking === 'move'}
+        allowCreate={false}
         exclude={[id]}
         title={picking === 'move' ? `Move ${category.name} under` : `Merge ${category.name} into`}
         onPick={(target) => {

@@ -2,8 +2,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { cleanCounterparty } from '@money-plant/parser';
 import type { TransactionRow } from '@/lib/ledger';
+import Feather from '@expo/vector-icons/Feather';
+import { CategoryIcon } from './sheet';
 import { Initial, colors } from './ui';
-import { formatAmount, formatSigned } from './format';
+import { formatAmount, formatSigned, formatTime } from './format';
 
 export function transactionTitle({ tx, legs }: TransactionRow): string {
   if (tx.kind === 'transfer') {
@@ -46,26 +48,39 @@ export function displayAmount({ tx, legs }: TransactionRow): { text: string; col
   return { text: formatSigned(amount), color: amount > 0 ? colors.primary : colors.text };
 }
 
-/** One ledger entry in a list. Transfers are muted; money out is plain, money in is green. */
-export function TransactionItem({ row }: { row: TransactionRow }) {
+/**
+ * One ledger entry in a list, with its category's icon. Transfers are muted;
+ * money out is plain, money in is green. `showTime` is for lists already
+ * grouped by day; otherwise the account is shown.
+ */
+export function TransactionItem({ row, showTime }: { row: TransactionRow; showTime?: boolean }) {
   const { tx, legs } = row;
   const title = transactionTitle(row);
   const { text, color } = displayAmount(row);
   const detail = tx.kind === 'transfer' ? 'Transfer' : (row.category?.name ?? 'No category');
+  const where = showTime ? formatTime(tx.occurredAt) : tx.kind !== 'transfer' ? legs[0]?.accountName : undefined;
   return (
     <Pressable
       accessibilityRole="button"
       onPress={() => router.push(`/transaction/${tx.id}`)}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      <Initial name={title} />
+      {tx.kind === 'transfer' ? (
+        <View style={styles.transfer}>
+          <Feather name="repeat" size={16} color={colors.muted} />
+        </View>
+      ) : row.category ? (
+        <CategoryIcon categoryKey={row.category.key} size={40} />
+      ) : (
+        <Initial name={title} />
+      )}
       <View style={styles.text}>
         <Text style={styles.title} numberOfLines={1}>
           {title}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
           {detail}
-          {tx.kind !== 'transfer' && legs[0] ? ` · ${legs[0].accountName}` : ''}
+          {where ? ` · ${where}` : ''}
           {tx.status === 'pending' ? ' · to review' : ''}
         </Text>
       </View>
@@ -77,6 +92,7 @@ export function TransactionItem({ row }: { row: TransactionRow }) {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8 },
   pressed: { opacity: 0.6 },
+  transfer: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.subtle, alignItems: 'center', justifyContent: 'center' },
   text: { flex: 1, minWidth: 0 },
   title: { fontSize: 15, fontWeight: '500', color: colors.text },
   meta: { fontSize: 13, color: colors.muted, marginTop: 2 },

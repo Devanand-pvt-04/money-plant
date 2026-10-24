@@ -9,6 +9,7 @@
     "@money-plant/db-schema": "workspace:*",
     "@money-plant/matcher": "workspace:*",
     "@money-plant/parser": "workspace:*",
+    "@react-native-community/datetimepicker": "9.2.1",
     "@supabase/supabase-js": "^2.118.0",
     "drizzle-orm": "^0.45.4",
     "expo": "~58.0.16",
@@ -28,8 +29,11 @@
     "expo-updates": "~58.0.17",
     "react": "19.3.0",
     "react-native": "0.88.0",
+    "react-native-gesture-handler": "~3.3.0",
+    "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.10.1",
-    "react-native-screens": "~4.30.0"
+    "react-native-screens": "~4.30.0",
+    "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { formatRupees, isDateKey, parseRupees, splitAmount, type Paise } from '@money-plant/core';
+import { DateField } from '@/components/date-fields';
 import { CategoryPicker } from '@/components/category-picker';
 import { PersonPicker } from '@/components/person-picker';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
@@ -94,8 +95,8 @@ export default function PaidBySomeoneElse() {
       <Chips>
         <Chip label={categoryId ? (names.get(categoryId) ?? 'Category') : 'Pick a category'} selected={categoryId !== null} onPress={() => setPicking(true)} />
       </Chips>
-      <Field label="Date" value={occurredOn} onChangeText={setOccurredOn} autoCapitalize="none" />
-      <Field label="Pay back by (optional)" value={dueDate} onChangeText={setDueDate} placeholder="2026-11-30" autoCapitalize="none" />
+      <DateField label="Date" value={occurredOn} onChange={(key) => key && setOccurredOn(key)} max={today()} style={styles.date} />
+      <DateField label="Pay back by" value={dueDate || null} onChange={(key) => setDueDate(key ?? '')} optional placeholder="No date" min={occurredOn} style={styles.date} />
       <Text style={styles.hint}>Your share counts as spending now, and as money you owe them until you pay it back.</Text>
 
       {error && <ErrorText>{error}</ErrorText>}
@@ -119,6 +120,7 @@ export default function PaidBySomeoneElse() {
 const styles = StyleSheet.create({
   container: { paddingHorizontal: 20, paddingBottom: 48 },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
+  date: { marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   actions: { marginTop: 24, gap: 10 },
 });

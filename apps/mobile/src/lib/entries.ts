@@ -247,3 +247,61 @@ export async function addManualEntry(entry: ManualEntry): Promise<string> {
   notifyLedgerChange();
   return id;
 }
+
+export interface ManualTransfer {
+  fromId: string;
+  toId: string;
+  /** Positive. */
+  amount: Paise;
+  note?: string | null;
+  occurredAt?: string;
+}
+
+/**
+ * CAP-7: money moved between the user's own accounts (a cash withdrawal to
+ * the Cash wallet, a card bill, a move to another bank). It is not spending,
+ * so there is no category leg: one account goes down and the other up.
+ */
+export async function addManualTransfer(entry: ManualTransfer): Promise<string> {
+  if (!Number.isSafeInteger(entry.amount) || entry.amount <= 0) throw new Error('Enter an amount above zero');
+  if (entry.fromId === entry.toId) throw new Error('Pick two different accounts');
+  const db = await getDb();
+  const owned = ownedAccountIds(db);
+  if (!owned.has(entry.fromId) || !owned.has(entry.toId)) throw new Error('Pick two of your accounts');
+  const id = Crypto.randomUUID();
+  writeTransaction(db, {
+    id,
+    occurredAt: entry.occurredAt ?? new Date().toISOString(),
+    counterparty: null,
+    kind: 'transfer',
+    status: 'confirmed',
+    confidence: 1,
+    reviewReason: null,
+    categoryReason: null,
+    categoryRuleId: null,
+    userSetFields: ['kind', 'amount', 'account', 'occurredAt'],
+    note: entry.note?.trim() || null,
+    postings: [
+      { id: Crypto.randomUUID(), accountId: entry.fromId, amount: paise(-entry.amount) },
+      { id: Crypto.randomUUID(), accountId: entry.toId, amount: entry.amount },
+    ],
+    sources: [
+      {
+        id: Crypto.randomUUID(),
+        kind: 'manual',
+        sender: null,
+        externalRef: null,
+        fingerprint: `manual:${id}`,
+        parsedFields: { direction: 'transfer', amount: entry.amount },
+        receivedAt: new Date().toISOString(),
+        confidence: 1,
+        rawText: null,
+      },
+    ],
+  });
+  const store = new SqliteLedgerStore(db);
+  await rebaseOpening(store, entry.fromId);
+  await rebaseOpening(store, entry.toId);
+  notifyLedgerChange();
+  return id;
+}

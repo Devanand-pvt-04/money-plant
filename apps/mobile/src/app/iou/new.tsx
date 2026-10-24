@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { dateOf, formatRupees, isDateKey, paise, parseRupees, type Paise } from '@money-plant/core';
 import type { IouDirection, LedgerTransaction } from '@money-plant/matcher';
+import { DateField } from '@/components/date-fields';
 import { formatDate } from '@/components/format';
 import { PersonPicker } from '@/components/person-picker';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
@@ -99,8 +100,12 @@ export default function NewIou() {
       </Chips>
       <Field label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" editable={!fromTx} />
       <Field label="What for" value={reason} onChangeText={setReason} placeholder="Concert tickets" maxLength={200} />
-      <Field label="Date" value={occurredOn} onChangeText={setOccurredOn} autoCapitalize="none" editable={!fromTx} />
-      <Field label="Due date (optional)" value={dueDate} onChangeText={setDueDate} placeholder="2026-11-30" autoCapitalize="none" />
+      {fromTx ? (
+        <Field label="Date" value={formatDate(fromTx.occurredAt)} editable={false} />
+      ) : (
+        <DateField label="Date" value={occurredOn} onChange={(key) => key && setOccurredOn(key)} max={today()} style={styles.date} />
+      )}
+      <DateField label="Due date" value={dueDate || null} onChange={(key) => setDueDate(key ?? '')} optional placeholder="None" min={occurredOn} style={styles.date} />
       <Text style={styles.hint}>You get a reminder the day before and on the day.</Text>
 
       <Text style={styles.label}>{direction === 'lent' ? 'The money went out from' : 'The money came into'}</Text>
@@ -148,6 +153,7 @@ const styles = StyleSheet.create({
   container: { paddingHorizontal: 20, paddingBottom: 48 },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
   value: { fontSize: 15, color: colors.text },
+  date: { marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   actions: { marginTop: 24, gap: 10 },
 });

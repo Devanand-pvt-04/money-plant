@@ -80,8 +80,8 @@ export function netWorth(balances: readonly AccountBalance[]): Paise {
 
 export interface TransactionRow {
   tx: LedgerTransaction;
-  /** The category the entry counts toward, as "Food › Lunch" (CAT-5, CAT-6). */
-  category: { id: string; name: string } | null;
+  /** The category the entry counts toward, as "Food › Lunch" (CAT-5, CAT-6), with its standard key for the icon. */
+  category: { id: string; name: string; key: string | null } | null;
   /** For AI-categorised entries: how sure the AI was (CAT-6). */
   aiConfidence: number | null;
   /** The posting on the user's own account(s), for display. */
@@ -97,6 +97,10 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
   const merchants = txs.some((tx) => tx.categoryReason === 'ai')
     ? new Map(db.select().from(merchantCache).all().map((m) => [m.merchant, m.confidence]))
     : new Map<string, number>();
+  const keyOf = (id: string) => {
+    const account = byId.get(id);
+    return account?.categoryKey ?? (account?.parentId ? (byId.get(account.parentId)?.categoryKey ?? null) : null);
+  };
   const path = (id: string) => {
     const account = byId.get(id);
     const parent = account?.parentId ? byId.get(account.parentId) : undefined;
@@ -106,7 +110,7 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
     const categoryLeg = tx.kind === 'transfer' ? undefined : tx.postings.find((p) => byId.get(p.accountId)?.type === 'category');
     return {
       tx,
-      category: categoryLeg ? { id: categoryLeg.accountId, name: path(categoryLeg.accountId) } : null,
+      category: categoryLeg ? { id: categoryLeg.accountId, name: path(categoryLeg.accountId), key: keyOf(categoryLeg.accountId) } : null,
       aiConfidence: tx.categoryReason === 'ai' && tx.counterparty ? (merchants.get(normaliseMerchant(tx.counterparty)) ?? null) : null,
       legs: tx.postings
         .filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'))
