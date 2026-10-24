@@ -11,6 +11,13 @@ export function Balance({ amount }: { amount: number }) {
   return <Text style={[styles.amount, amount > 0 && { color: colors.primary }]}>{formatAmount(paise(Math.abs(amount)))}</Text>;
 }
 
+/** A balance with its sign, for lists: +₹1,800 they owe the user, −₹620 the user owes. */
+export function Net({ amount }: { amount: number }) {
+  if (amount === 0) return <Text style={styles.amountMuted}>₹0</Text>;
+  const text = formatAmount(paise(Math.abs(amount))).replace(/\.00$/, '');
+  return <Text style={[styles.amount, { color: amount > 0 ? colors.primary : colors.danger }]}>{amount > 0 ? `+${text}` : `−${text}`}</Text>;
+}
+
 const STATE_LABELS: Record<IouView['state'], string | null> = {
   personal: null,
   awaiting_them: 'waiting for them to confirm',

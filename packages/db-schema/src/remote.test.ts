@@ -82,6 +82,7 @@ describe('transaction push', () => {
     categoryRuleId: null,
     userSetFields: '["category"]',
     note: 'Team lunch',
+    splitGroupId: 'group-1',
     createdAt: '2026-10-21T10:00:01.000Z',
     updatedAt: null,
     deletedAt: null,
@@ -114,7 +115,7 @@ describe('transaction push', () => {
     expect(json).not.toContain('raw');
     expect(json).not.toContain('Sent Rs.450.00');
     expect(payload.sources[0]!.parsed_fields).toEqual({ amount: 45000, direction: 'debit' });
-    expect(payload).toMatchObject({ category_reason: 'user', user_set_fields: ['category'], note: 'Team lunch' });
+    expect(payload).toMatchObject({ category_reason: 'user', user_set_fields: ['category'], note: 'Team lunch', split_group_id: 'group-1' });
   });
 
   it('round-trips a pulled transaction, dropping deleted postings', () => {
@@ -144,6 +145,8 @@ describe('transaction push', () => {
     expect(pulled.postings.map((p) => p.amountPaise)).toEqual([-45000, 45000]);
     expect(pulled.transaction.dirty).toBe(0);
     expect(pulled.transaction.userSetFields).toBe('["counterparty"]');
+    // Rows from before group expenses have no split_group_id.
+    expect(pulled.transaction.splitGroupId).toBeNull();
   });
 });
 

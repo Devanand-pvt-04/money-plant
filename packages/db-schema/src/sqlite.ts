@@ -58,6 +58,7 @@ export const transactions = sqliteTable(
     /** JSON array of fields the user changed by hand (LED-8). */
     userSetFields: text('user_set_fields').notNull().default('[]'),
     note: text('note'),
+    splitGroupId: text('split_group_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -601,4 +602,6 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX budgets_dirty_idx ON budgets (dirty);
   DELETE FROM kv WHERE key = 'sync.budgets.cursor';`,
+  // App review round 1: group expenses (SPL-3).
+  `ALTER TABLE transactions ADD COLUMN split_group_id TEXT;`,
 ];

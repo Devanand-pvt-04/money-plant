@@ -452,7 +452,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
             />
           )}
           <View style={styles.answer}>
-            <Pressable accessibilityRole="button" onPress={() => router.replace(`/split/${id}`)} style={styles.tile}>
+            <Pressable accessibilityRole="button" onPress={() => router.replace(`/expense?from=${id}`)} style={styles.tile}>
               <Feather name="users" size={16} color={colors.text} />
               <Text style={styles.tileText}>Split it</Text>
             </Pressable>

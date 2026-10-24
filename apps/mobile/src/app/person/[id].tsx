@@ -96,6 +96,7 @@ export default function PersonDetail() {
               ))}
             </Card>
           )}
+          <Button title="Add an expense with them" onPress={() => router.push(`/expense?person=${id}`)} />
           <Button title="Record a loan" variant="secondary" onPress={() => router.push(`/iou/new?person=${id}`)} />
         </>
       )}

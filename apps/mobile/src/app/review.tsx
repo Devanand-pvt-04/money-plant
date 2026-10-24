@@ -168,7 +168,7 @@ function ReviewCard({ row, onChangeCategory }: { row: TransactionRow; onChangeCa
               <Text style={styles.link}>{legs[0].amount < 0 ? 'I lent this' : 'I borrowed this'}</Text>
             </Pressable>
             {tx.kind === 'expense' && (
-              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/split/${tx.id}`)}>
+              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/expense?from=${tx.id}`)}>
                 <Text style={styles.link}>Split it</Text>
               </Pressable>
             )}

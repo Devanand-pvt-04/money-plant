@@ -57,6 +57,7 @@ export function loadTransactions(db: Database, rows: (typeof transactions.$infer
     categoryRuleId: row.categoryRuleId,
     userSetFields: JSON.parse(row.userSetFields) as UserSetField[],
     note: row.note,
+    splitGroupId: row.splitGroupId,
     postings: postingRows
       .filter((p) => p.transactionId === row.id)
       .map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise) })),
@@ -97,6 +98,7 @@ export function writeTransaction(db: Database, tx: LedgerTransaction): void {
         categoryRuleId: tx.categoryRuleId,
         userSetFields: JSON.stringify(tx.userSetFields),
         note: tx.note,
+        splitGroupId: tx.splitGroupId ?? null,
         createdAt,
         dirty: 1,
       })
@@ -113,6 +115,7 @@ export function writeTransaction(db: Database, tx: LedgerTransaction): void {
           categoryRuleId: tx.categoryRuleId,
           userSetFields: JSON.stringify(tx.userSetFields),
           note: tx.note,
+          ...(tx.splitGroupId !== undefined ? { splitGroupId: tx.splitGroupId } : {}),
           dirty: 1,
           rev: sql`${transactions.rev} + 1`,
         },

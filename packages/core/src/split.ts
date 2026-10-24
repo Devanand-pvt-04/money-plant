@@ -5,14 +5,14 @@ export type SplitMethod = 'equal' | 'exact' | 'percent' | 'shares';
 
 export const SPLIT_METHOD_LABELS: Record<SplitMethod, string> = {
   equal: 'Equally',
-  exact: 'Exact amounts',
-  percent: 'Percentages',
-  shares: 'Shares',
+  exact: 'Amounts',
+  percent: 'Percent',
+  shares: 'Units',
 };
 
 /**
  * One person's part of a split. `value` means: nothing for equal, paise for
- * exact, basis points (1% = 100) for percent, a whole number for shares.
+ * exact, basis points (1% = 100) for percent, a whole number of units for shares.
  */
 export interface SplitPart {
   id: string;

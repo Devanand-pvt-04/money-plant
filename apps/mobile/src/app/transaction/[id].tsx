@@ -83,7 +83,7 @@ export default function TransactionDetail() {
             label="Category"
             value={row.category.name}
             note={why ? `Why: ${why.charAt(0).toLowerCase()}${why.slice(1)}${ruleText ? `, ${ruleText}` : ''}` : undefined}
-            onPress={() => (split ? router.push(`/split/${tx.id}`) : change(tx.id, flow, tx.counterparty))}
+            onPress={() => (split ? router.push(`/expense?from=${tx.id}`) : change(tx.id, flow, tx.counterparty))}
             first
           />
         )}
@@ -109,7 +109,7 @@ export default function TransactionDetail() {
       <View style={styles.actions}>
         <Button title="Edit entry" variant="secondary" onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
         {tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0 && (
-          <Button title={split ? 'Change the split' : 'Split with people'} variant="secondary" onPress={() => router.push(`/split/${tx.id}`)} />
+          <Button title={split ? 'Change the split' : 'Split with people'} variant="secondary" onPress={() => router.push(`/expense?from=${tx.id}`)} />
         )}
         {(tx.kind === 'expense' || tx.kind === 'income') && !split && row.legs.length === 1 && tx.postings.length === 2 && (
           <Button
