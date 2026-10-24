@@ -5,12 +5,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMonth, formatWholeRupees, reviewTime } from '@/components/format';
 import { UpcomingRow } from '@/components/recurring-rows';
+import { Avatar, useMe } from '@/components/avatar';
 import { Card, ErrorText, ProgressBar, colors, radius } from '@/components/ui';
 import { categoriseWithAi } from '@/lib/ai-categorise';
 import { ensureDefaultCategories } from '@/lib/categories';
 import { currentMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
 import { hasImportedInbox, importInbox } from '@/lib/capture';
-import { countPending, listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
+import { countPending, listAccountBalances, type AccountBalance } from '@/lib/ledger';
+import { displayName } from '@/lib/me';
 import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
 import { refreshRecurring, upcomingPayments, type UpcomingPayment } from '@/lib/recurring';
 import { syncNow } from '@/lib/sync';
@@ -50,6 +52,7 @@ export default function Home() {
     upcoming: [] as UpcomingPayment[],
     owed: null as OwedSummary | null,
   });
+  const me = useMe();
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,20 +102,28 @@ export default function Home() {
             <Text style={styles.date}>
               {DAYS[now.getDay()]}, {now.getDate()} {MONTHS[now.getMonth()]}
             </Text>
-            <Text style={styles.hello}>{greeting(now)}</Text>
+            <Text style={styles.hello}>
+              {greeting(now)}
+              {me?.name ? `, ${displayName(me).split(' ')[0]}` : ''}
+            </Text>
           </View>
-          {Platform.OS === 'android' && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Scan and pay"
-              hitSlop={8}
-              onPress={() => router.push('/pay')}
-              style={({ pressed }) => [styles.scan, pressed && styles.pressed]}
-            >
-              <Feather name="maximize" size={18} color={colors.text} />
-              <Text style={styles.scanText}>Pay</Text>
+          <View style={styles.headerActions}>
+            {Platform.OS === 'android' && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Scan and pay"
+                hitSlop={8}
+                onPress={() => router.push('/pay')}
+                style={({ pressed }) => [styles.scan, pressed && styles.pressed]}
+              >
+                <Feather name="maximize" size={18} color={colors.text} />
+                <Text style={styles.scanText}>Pay</Text>
+              </Pressable>
+            )}
+            <Pressable accessibilityRole="button" accessibilityLabel="Profile and settings" hitSlop={8} onPress={() => router.push('/settings')}>
+              <Avatar me={me} />
             </Pressable>
-          )}
+          </View>
         </View>
 
         {!smsReady && (
@@ -159,14 +170,15 @@ export default function Home() {
           </View>
         )}
 
-        <View style={styles.tiles}>
-          <Tile label="Net worth" value={formatWholeRupees(netWorth(data.balances))} />
-          <Tile
-            label="Accounts"
-            value={String(data.balances.length)}
-            note={flagged > 0 ? `${flagged} off from the bank` : undefined}
-          />
-        </View>
+        {flagged > 0 && (
+          <Pressable accessibilityRole="button" onPress={() => router.push('/accounts')} style={({ pressed }) => [styles.review, pressed && styles.pressed]}>
+            <Feather name="alert-circle" size={20} color={colors.warning} />
+            <Text style={[styles.rowTitle, styles.grow]}>
+              {flagged === 1 ? '1 account is' : `${flagged} accounts are`} off from the bank
+            </Text>
+            <Feather name="chevron-right" size={20} color={colors.muted} />
+          </Pressable>
+        )}
 
         {data.owed && (data.owed.owedToMe > 0 || data.owed.iOwe > 0 || data.owed.toConfirm > 0) && (
           <View style={styles.tiles}>
@@ -237,7 +249,7 @@ function MonthCard({ line, elapsed }: { line: BudgetLine; elapsed: number }) {
   );
 }
 
-function Tile({ label, value, note, href = '/money' }: { label: string; value: string; note?: string; href?: Href }) {
+function Tile({ label, value, note, href }: { label: string; value: string; note?: string; href: Href }) {
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(href)} style={styles.tile}>
       <Card style={styles.tileCard}>
@@ -260,6 +272,7 @@ const styles = StyleSheet.create({
   calloutTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   calloutText: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   month: { padding: 20, borderRadius: 20, backgroundColor: colors.subtle, gap: 14 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   scan: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, minHeight: 40, borderRadius: radius.pill, backgroundColor: colors.subtle },
   scanText: { fontSize: 14, fontWeight: '600', color: colors.text },

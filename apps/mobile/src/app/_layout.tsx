@@ -93,7 +93,6 @@ export default function RootLayout() {
             <Stack.Screen name="pay" options={{ title: 'Scan and pay', presentation: 'modal' }} />
             <Stack.Screen name="recurring/index" options={{ title: 'Recurring payments' }} />
             <Stack.Screen name="recurring/[id]" options={{ title: 'Recurring payment' }} />
-            <Stack.Screen name="people/index" options={{ title: 'People and IOUs' }} />
             <Stack.Screen name="person/[id]" options={{ title: 'Person' }} />
             <Stack.Screen name="iou/new" options={{ title: 'Record a loan', presentation: 'modal' }} />
             <Stack.Screen name="iou/[id]" options={{ title: 'IOU' }} />
@@ -101,6 +100,7 @@ export default function RootLayout() {
             <Stack.Screen name="split/paid" options={{ title: 'Someone else paid', presentation: 'modal' }} />
             <Stack.Screen name="group/[id]" options={{ title: 'Group' }} />
             <Stack.Screen name="profile" options={{ title: 'Your name and UPI ID', presentation: 'modal' }} />
+            <Stack.Screen name="settings" options={{ title: 'Profile and settings' }} />
           </Stack.Protected>
           <Stack.Protected guard={!signedIn}>
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />

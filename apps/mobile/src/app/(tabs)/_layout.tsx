@@ -10,7 +10,7 @@ function icon(name: ComponentProps<typeof Feather>['name']) {
   return ({ color, size }: { color: ColorValue; size: number }) => <Feather name={name} color={color as string} size={size - 2} />;
 }
 
-/** The four places a user goes every day. Everything else opens on top of them. */
+/** NAV-1: the five places a user goes every day. Everything else opens on top of them. */
 export default function TabsLayout() {
   const { data: pending } = useLedger(countPending, 0);
   return (
@@ -38,7 +38,8 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen name="budgets" options={{ title: 'Budgets', tabBarIcon: icon('pie-chart') }} />
-      <Tabs.Screen name="money" options={{ title: 'Money', tabBarIcon: icon('credit-card') }} />
+      <Tabs.Screen name="accounts" options={{ title: 'Accounts', tabBarIcon: icon('credit-card') }} />
+      <Tabs.Screen name="people" options={{ title: 'People', tabBarIcon: icon('users') }} />
     </Tabs>
   );
 }
