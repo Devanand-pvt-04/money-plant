@@ -33,6 +33,9 @@ async function load(id: string, month: MonthKey): Promise<Data> {
   return { category, line, detail, names, outside: overview.outside, parentName };
 }
 
+/** Payees and entries shown before "Show all". */
+const TOP = 5;
+
 const shortMonth = (month: MonthKey) => formatMonth(month).slice(0, 3);
 const monthName = (month: MonthKey) => formatMonth(month).split(' ')[0]!;
 
@@ -47,6 +50,7 @@ export default function CategoryMonth() {
   const { data } = useLedger(() => load(params.id, month), null as Data | null);
   const [editing, setEditing] = useState<'default' | 'month' | null>(null);
   const [start, setStart] = useState<Paise | null>(null);
+  const [allPayees, setAllPayees] = useState(false);
   if (!data) return null;
 
   const { category, line, detail, names } = data;
@@ -174,15 +178,20 @@ export default function CategoryMonth() {
       {detail.byMerchant.length > 0 && (
         <>
           <SectionTitle>Where it went</SectionTitle>
-          {detail.byMerchant.map((m) => (
+          {(allPayees ? detail.byMerchant : detail.byMerchant.slice(0, TOP)).map((m) => (
             <Row key={m.merchant} label={`${m.merchant} · ${m.count}×`} amount={m.amount} />
           ))}
+          {!allPayees && detail.byMerchant.length > TOP && (
+            <Pressable accessibilityRole="button" onPress={() => setAllPayees(true)} style={styles.more}>
+              <Text style={styles.link}>Show all {detail.byMerchant.length} payees</Text>
+            </Pressable>
+          )}
         </>
       )}
       {detail.largest.length > 0 && (
         <>
           <SectionTitle>Largest entries</SectionTitle>
-          {detail.largest.map((item) => (
+          {detail.largest.slice(0, TOP).map((item) => (
             <Row
               key={item.transactionId}
               label={`${item.counterparty ?? 'Unknown'} · ${formatDate(item.occurredAt)}`}
@@ -286,6 +295,7 @@ const styles = StyleSheet.create({
   note: { fontSize: 12, color: colors.muted, marginTop: 2 },
   amount: { fontSize: 16, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
   link: { fontSize: 14, fontWeight: '600', color: colors.primary },
+  more: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   chart: { flexDirection: 'row', gap: 12, height: 150, paddingHorizontal: 4 },
   column: { flex: 1, alignItems: 'center', gap: 6 },
   barLabel: { fontSize: 11, color: colors.muted, fontVariant: ['tabular-nums'] },
