@@ -1,5 +1,5 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AccountClass, AccountType, Cadence } from '@money-plant/core';
+import type { AccountClass, AccountType, Cadence, DepositKind, DepositPayout } from '@money-plant/core';
 
 /**
  * Local copy of public.accounts (see supabase/migrations). Extra local-only
@@ -255,6 +255,33 @@ export const recurring = sqliteTable(
   (table) => [index('recurring_dirty_idx').on(table.dirty)],
 );
 
+/** The terms of an FD or RD account (NW-2). Interest and the value today are computed from them, never stored. */
+export const deposits = sqliteTable(
+  'deposits',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    kind: text('kind').$type<DepositKind>().notNull(),
+    /** The principal for an FD, the monthly instalment for an RD. */
+    amountPaise: integer('amount_paise').notNull(),
+    rateBp: integer('rate_bp').notNull(),
+    /** "2026-04-01", on the phone's calendar. */
+    startDate: text('start_date').notNull(),
+    maturityDate: text('maturity_date').notNull(),
+    payout: text('payout').$type<DepositPayout>().notNull().default('reinvest'),
+    paidFromAccountId: text('paid_from_account_id'),
+    /** Part of the payee name on instalment debits, matched case-insensitively. */
+    payee: text('payee'),
+    closedAt: text('closed_at'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('deposits_account_idx').on(table.accountId), index('deposits_dirty_idx').on(table.dirty)],
+);
+
 /**
  * IOUs (IOU-1 to IOU-5). The same row as public.ious, so a shared IOU has
  * the owner's view of `person_account_id` and `direction`; lib/ious.ts turns
@@ -335,6 +362,7 @@ export type LocalIou = typeof ious.$inferSelect;
 export type LocalIouPayment = typeof iouPayments.$inferSelect;
 export type LocalSplitGroup = typeof splitGroups.$inferSelect;
 export type LocalRecurring = typeof recurring.$inferSelect;
+export type LocalDeposit = typeof deposits.$inferSelect;
 export type LocalAccountType = typeof accountTypes.$inferSelect;
 export type LocalRule = typeof rules.$inferSelect;
 export type LocalBudget = typeof budgets.$inferSelect;
@@ -607,4 +635,25 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   // Decision 0009: no overall budget; the month's total is the sum of category budgets (BUD-1).
   `UPDATE budgets SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), dirty = 1, rev = rev + 1
    WHERE category_account_id IS NULL AND deleted_at IS NULL;`,
+  // Milestone 5: FD and RD terms (NW-2).
+  `CREATE TABLE deposits (
+    id TEXT PRIMARY KEY NOT NULL,
+    account_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL,
+    rate_bp INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    maturity_date TEXT NOT NULL,
+    payout TEXT NOT NULL DEFAULT 'reinvest',
+    paid_from_account_id TEXT,
+    payee TEXT,
+    closed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX deposits_account_idx ON deposits (account_id);
+  CREATE INDEX deposits_dirty_idx ON deposits (dirty);`,
 ];

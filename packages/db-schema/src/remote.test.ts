@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   fromRemoteBudget,
   fromRemoteRecurring,
+  fromRemoteDeposit,
+  toRemoteDeposit,
   toRemoteRecurring,
   fromRemoteRule,
   toRemoteBudget,
@@ -232,5 +234,38 @@ describe('recurring mapping', () => {
       last_paid_at: '2026-09-25T06:30:00+00:00',
     });
     expect(back).toEqual({ ...local, updatedAt: '2026-10-23T10:00:01+00:00', dirty: 0, rev: 0 });
+  });
+});
+
+describe('deposit mapping', () => {
+  it('keeps dates plain and the rate and amount as integers', () => {
+    const local = {
+      id: 'dep-1',
+      accountId: 'rd-account',
+      kind: 'rd' as const,
+      amountPaise: 1_200_000,
+      rateBp: 750,
+      startDate: '2026-04-01',
+      maturityDate: '2027-04-01',
+      payout: 'reinvest' as const,
+      paidFromAccountId: 'icici',
+      payee: 'SHIVALIK',
+      closedAt: null,
+      createdAt: '2026-10-25T10:00:00.000Z',
+      updatedAt: null,
+      deletedAt: null,
+      dirty: 1,
+      rev: 2,
+    };
+    const remote = toRemoteDeposit(local);
+    expect(remote).toMatchObject({ amount_paise: 1_200_000, rate_bp: 750, start_date: '2026-04-01', payee: 'SHIVALIK' });
+    const back = fromRemoteDeposit({
+      ...remote,
+      user_id: 'u',
+      updated_at: '2026-10-25T10:00:01+00:00',
+      amount_paise: '1200000' as unknown as number,
+      created_at: '2026-10-25T10:00:00+00:00',
+    });
+    expect(back).toEqual({ ...local, updatedAt: '2026-10-25T10:00:01+00:00', dirty: 0, rev: 0 });
   });
 });
