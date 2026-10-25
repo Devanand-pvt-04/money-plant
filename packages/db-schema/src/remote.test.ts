@@ -3,6 +3,8 @@ import {
   fromRemoteBudget,
   fromRemoteRecurring,
   fromRemoteDeposit,
+  fromRemoteHolding,
+  toRemoteHolding,
   toRemoteDeposit,
   toRemoteRecurring,
   fromRemoteRule,
@@ -264,6 +266,43 @@ describe('deposit mapping', () => {
       user_id: 'u',
       updated_at: '2026-10-25T10:00:01+00:00',
       amount_paise: '1200000' as unknown as number,
+      created_at: '2026-10-25T10:00:00+00:00',
+    });
+    expect(back).toEqual({ ...local, updatedAt: '2026-10-25T10:00:01+00:00', dirty: 0, rev: 0 });
+  });
+});
+
+describe('holding mapping', () => {
+  it('turns bigint strings back into numbers and keeps nulls', () => {
+    const local = {
+      id: 'h-1',
+      accountId: 'fund-account',
+      scheme: 'Parag Parikh Flexi Cap Fund - Direct Plan - Growth',
+      isin: 'INF879O01027',
+      amfiCode: '122639',
+      folio: '12345678',
+      amc: 'PPFAS Mutual Fund',
+      unitsE4: 1_234_560,
+      costPaise: 5_000_000,
+      navE4: 812_345,
+      navDate: '2026-09-30',
+      asOf: '2026-09-30',
+      sipPaise: null,
+      sipDay: null,
+      createdAt: '2026-10-25T10:00:00.000Z',
+      updatedAt: null,
+      deletedAt: null,
+      dirty: 1,
+      rev: 1,
+    };
+    const remote = toRemoteHolding(local);
+    expect(remote).toMatchObject({ units_e4: 1_234_560, amfi_code: '122639', as_of: '2026-09-30', sip_paise: null });
+    const back = fromRemoteHolding({
+      ...remote,
+      user_id: 'u',
+      updated_at: '2026-10-25T10:00:01+00:00',
+      units_e4: '1234560' as unknown as number,
+      nav_e4: '812345' as unknown as number,
       created_at: '2026-10-25T10:00:00+00:00',
     });
     expect(back).toEqual({ ...local, updatedAt: '2026-10-25T10:00:01+00:00', dirty: 0, rev: 0 });

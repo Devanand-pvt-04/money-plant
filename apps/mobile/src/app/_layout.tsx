@@ -81,6 +81,7 @@ export default function RootLayout() {
             <Stack.Screen name="account/[id]" options={{ title: 'Account' }} />
             <Stack.Screen name="account/balance" options={{ title: 'Set balance', presentation: 'modal' }} />
             <Stack.Screen name="deposit" options={{ title: 'Deposit terms', presentation: 'modal' }} />
+            <Stack.Screen name="cas-import" options={{ title: 'Import mutual funds', presentation: 'modal' }} />
             <Stack.Screen name="transaction/[id]" options={{ title: '' }} />
             <Stack.Screen name="transaction/edit" options={{ title: 'Edit entry', presentation: 'modal' }} />
             <Stack.Screen name="review" options={{ title: 'Review' }} />

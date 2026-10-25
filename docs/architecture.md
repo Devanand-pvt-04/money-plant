@@ -6,7 +6,7 @@ Money Plant is one React Native app (Expo, TypeScript) for Android, with iOS to 
 
 ## System overview
 
-Each phone captures and parses transactions and keeps the full ledger locally. Supabase stores the synced copy, shares IOUs between friends, and runs the AI and price jobs.
+Each phone captures and parses transactions and keeps the full ledger locally. Supabase stores the synced copy, shares IOUs between friends, and runs the AI jobs and fetches fund prices.
 
 ```
 React Native app (Expo), on Android now and iOS later
@@ -19,7 +19,7 @@ React Native app (Expo), on Android now and iOS later
         v
 Supabase, Mumbai region
   Postgres + RLS (ledger, shared IOUs) | Edge functions (sync, AI, imports)
-  | CAS parser (Python) | Scheduled jobs (prices, month reviews)
+  | CAS parser (Python) | Scheduled jobs (month reviews)
         ^ keys stay server-side
         v
 External services
@@ -67,7 +67,7 @@ money-plant/
     db-schema/                  Drizzle schema shared by SQLite and Postgres
   supabase/
     migrations/                 SQL, including row-level security policies
-    functions/                  edge functions: categorise, parse-cas, parse-statement, prices, month-review (milestone 6), delete-account
+    functions/                  edge functions: categorise, parse-cas, parse-statement, nav-prices, month-review (milestone 6), delete-account
   services/
     cas-parser/                 Python + casparser, deployed separately
   docs/
@@ -103,8 +103,8 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | ious | id, user_id (owner), owner_name, owner_email, owner_vpa, person_account_id, direction (lent, borrowed), amount_paise, reason, occurred_on, due_date, transaction_id, counterparty_email, counterparty_user_id, counterparty_person_account_id, counterparty_transaction_id, counterparty_vpa, confirmed_at, declined_at | One row per IOU. With counterparty_email set, the other person sees it and answers through respond_iou |
 | iou_payments | id, user_id, iou_id, amount_paise, paid_at, transaction_id | Repayments each side's ledger saw. What is still owed is the amount minus the larger side's total |
 | deposits | id, user_id, account_id, kind (fd, rd), amount_paise (the FD's principal or the RD's monthly instalment), rate_bp, start_date, maturity_date, payout (reinvest, monthly, quarterly; RDs reinvest), paid_from_account_id, payee, closed_at | The terms of an FD or RD account, one per account. Interest is computed on the phone with quarterly compounding, and the value today is shown, not posted. Debits that pay into the deposit become transfers into its account; the account's balance follows the instalment schedule; the maturity credit becomes a transfer out of it, with the interest posted as income, and closes it |
-| holdings | id, user_id, account_id, instrument (ISIN or scheme code), units, cost_paise, as_of | Rebuilt from each CAS import |
-| prices | instrument, date, price | Global, filled nightly from AMFI's NAV file for schemes someone holds |
+| holdings | id, user_id, account_id, scheme, isin, amfi_code, folio, amc, units_e4, cost_paise, nav_e4, nav_date, as_of, sip_paise, sip_day | One per scheme and folio, each on its own mutual_fund account, updated by each CAS import. The account's balance is the cost on `as_of`, so later SIPs add to it. Its value is the units at the latest NAV plus money in or out since `as_of` |
+| navs (phone only) | amfi_code, isin, nav_e4, date | The latest AMFI NAV for each scheme held. The phone asks the nav-prices edge function once a day; it reads AMFI's public NAV file and returns only the schemes asked for. Nothing is stored on the server |
 | balance_anchors | id, account_id, balance_paise, observed_at, source_id | Balances seen in SMS and statements, used for reconciliation |
 | month_reviews | id, user_id, month, summary (JSON), suggestions, created_at | Output of the AI month review (milestone 6). The milestone 5 numbers review is computed on the phone and stores nothing |
 
@@ -120,7 +120,7 @@ Every source ends in the same five steps on the phone: parse, match, categorise,
 - **Android notifications.** A NotificationListenerService watches only UPI app packages (GPay, PhonePe, Paytm, Cred, BHIM, slice and others) and passes each notification's title and text to the same task. These notifications mostly add payee names.
 - **iOS Shortcuts (later).** A Swift App Intent named "Add bank message" takes the message text and sender. A guided setup walks the user through creating a "When I get a message from <bank>" automation that runs without asking. The intent writes to a shared queue, which the app processes on its next launch or background refresh.
 - **Statement import.** The user picks a CSV, XLS or PDF in the app. CSV and XLS files are parsed on the phone. PDFs, with their password, go to the parse-statement edge function, which passes them to the Python service and returns rows; nothing is stored. Rows run through the pipeline as `statement` sources after a preview, attach to matching entries, and their closing balances become balance anchors.
-- **CAS import.** The user picks the CAS PDF and types its password. The parse-cas edge function, called as the signed-in user, passes both to the Python service with a secret only the function holds, and returns folios, schemes, units, cost and transactions. Nothing is stored on the way. Each scheme becomes a mutual fund account with its holdings; debits to the funds' payees then become transfers into them.
+- **CAS import.** The user picks the CAS PDF and types its password. The parse-cas edge function, called as the signed-in user, passes both to the Python service with a secret only the function holds, and returns folios, schemes, units, cost and transactions. Nothing is stored on the way. Each scheme still held becomes a mutual fund account with its holdings. Purchases and redemptions in the statement are matched to bank debits and credits already in the ledger (within ₹1, a week before to a day after, to a fund payee such as a clearing house, RTA or the AMC) and become transfers, and one debit that bought several schemes is split between them. After the import, debits of a fund's SIP amount to a fund payee become transfers into it, one per fund a month.
 - **Manual.** Quick add pre-fills the last-used account and guesses a category from the merchant the user types.
 - **Scan and pay.** The app hands a payment to the user's UPI app and logs it with an `app_payment` source (see Scan and pay below).
 
@@ -254,12 +254,12 @@ Data gets server-side protection for now, as decided. The design keeps a later m
 
 | Control | How |
 | --- | --- |
-| Row-level security | Every user table (including account_types, split_groups and ignored_senders) has a user_id = auth.uid() policy. An ious row is also visible to the user signed in with its counterparty_email, who can change it only through respond_iou; iou_payments are visible to both people once the IOU is confirmed. merchants and prices are read-only for clients |
+| Row-level security | Every user table (including account_types, split_groups and ignored_senders) has a user_id = auth.uid() policy. An ious row is also visible to the user signed in with its counterparty_email, who can change it only through respond_iou; iou_payments are visible to both people once the IOU is confirmed. merchants are read-only for clients |
 | Encryption at rest | Supabase-managed for Postgres and Storage. SQLCipher on the phone, with its key in Android Keystore or iOS Keychain |
 | App lock | PIN plus biometrics before any screen shows money |
 | Raw SMS | Never synced or logged; only parsed fields leave the parser |
 | Contacts | Read and matched only on the phone; never synced or uploaded |
-| Uploaded files | Statements and CAS PDFs are kept for at most 1 hour and deleted after parsing; passwords are never stored |
+| Uploaded files | Statements and CAS PDFs are read in memory and never stored; passwords are never stored |
 | Secrets | AI and SMTP keys live only in edge function secrets |
 | Logging | Sentry, with amount, merchant and account fields scrubbed |
 | Consent and rights | Consent screen at sign-up. Export (ACC-4) writes CSV files (entries, postings, accounts, budgets, recurring payments, IOUs) to a folder the user picks through Android's folder picker; SMS text is never included. Clear my data (ACC-7) calls a `clear_my_data` database function that deletes the user's rows. Rows a friend can see (a shared IOU, repayments on shared IOUs) are soft-deleted and emptied instead, so the friend's phone drops them at its next sync; friends' IOUs shared with the user lose the user's side and ask for an answer again. The phone then wipes its database except the session and returns to first run, and stamps `data_cleared_at` in the user's metadata so the user's other phones wipe themselves before they could push old rows back. Delete account (ACC-4) calls a `delete-account` edge function that deletes the auth user with the built-in service role, so every user table cascades (including a friend's repayments on the user's IOUs); the phone then wipes its database and signs out. IOUs owned by other users stay with them, with the counterparty cleared. Both ask for a typed word and offer the export first |

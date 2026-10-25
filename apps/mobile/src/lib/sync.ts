@@ -5,11 +5,13 @@ import {
   balanceAnchors,
   budgets,
   deposits,
+  holdings,
   fromRemoteAccount,
   fromRemoteAccountType,
   fromRemoteAnchor,
   fromRemoteBudget,
   fromRemoteDeposit,
+  fromRemoteHolding,
   fromRemoteIou,
   fromRemoteIouPayment,
   fromRemoteRecurring,
@@ -29,6 +31,7 @@ import {
   toRemoteAnchor,
   toRemoteBudget,
   toRemoteDeposit,
+  toRemoteHolding,
   toRemoteIou,
   toRemoteIouPayment,
   toRemoteRecurring,
@@ -41,6 +44,7 @@ import {
   type RemoteBalanceAnchor,
   type RemoteBudget,
   type RemoteDeposit,
+  type RemoteHolding,
   type RemoteIou,
   type RemoteIouPayment,
   type RemoteRecurring,
@@ -62,6 +66,7 @@ const RULES_CURSOR = 'sync.rules.cursor';
 const BUDGETS_CURSOR = 'sync.budgets.cursor';
 const RECURRING_CURSOR = 'sync.recurring.cursor';
 const DEPOSITS_CURSOR = 'sync.deposits.cursor';
+const HOLDINGS_CURSOR = 'sync.holdings.cursor';
 const SPLIT_GROUPS_CURSOR = 'sync.split_groups.cursor';
 const IOUS_CURSOR = 'sync.ious.cursor';
 const IOU_PAYMENTS_CURSOR = 'sync.iou_payments.cursor';
@@ -188,6 +193,13 @@ async function pushDeposits(): Promise<number> {
   const db = await getDb();
   return pushSimple('deposits', db.select().from(deposits).where(eq(deposits.dirty, 1)).all(), toRemoteDeposit, (row) =>
     db.update(deposits).set({ dirty: 0 }).where(and(eq(deposits.id, row.id), eq(deposits.rev, row.rev))).run(),
+  );
+}
+
+async function pushHoldings(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('holdings', db.select().from(holdings).where(eq(holdings.dirty, 1)).all(), toRemoteHolding, (row) =>
+    db.update(holdings).set({ dirty: 0 }).where(and(eq(holdings.id, row.id), eq(holdings.rev, row.rev))).run(),
   );
 }
 
@@ -379,6 +391,18 @@ async function pullDeposits(): Promise<number> {
   });
 }
 
+async function pullHoldings(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteHolding>('holdings', '*', HOLDINGS_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: holdings.dirty }).from(holdings).where(eq(holdings.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteHolding(row);
+      db.insert(holdings).values(incoming).onConflictDoUpdate({ target: holdings.id, set: incoming }).run();
+    }
+  });
+}
+
 async function pullSplitGroups(): Promise<number> {
   const db = await getDb();
   return pullTable<RemoteSplitGroup>('split_groups', '*', SPLIT_GROUPS_CURSOR, async (rows) => {
@@ -478,8 +502,8 @@ async function wipeIfClearedElsewhere(clearedAt: unknown): Promise<void> {
 /**
  * Push then pull, in reference order: account types, accounts (including
  * categories), rules, transactions, anchors, budgets, recurring payments,
- * deposits, split groups, IOUs, IOU repayments. Postings point at accounts, rules,
- * budgets, recurring payments, deposits, groups and IOUs at accounts and categories,
+ * deposits, holdings, split groups, IOUs, IOU repayments. Postings point at accounts, rules,
+ * budgets, recurring payments, deposits, holdings, groups and IOUs at accounts and categories,
  * anchors at sources, repayments at IOUs. Concurrent calls share one run.
  */
 export function syncNow(): Promise<SyncResult> {
@@ -499,6 +523,7 @@ export function syncNow(): Promise<SyncResult> {
         (await pushBudgets()) +
         (await pushRecurring()) +
         (await pushDeposits()) +
+        (await pushHoldings()) +
         (await pushSplitGroups()) +
         (await pushIous(me)) +
         (await pushIouPayments(me));
@@ -511,6 +536,7 @@ export function syncNow(): Promise<SyncResult> {
         (await pullBudgets()) +
         (await pullRecurring()) +
         (await pullDeposits()) +
+        (await pullHoldings()) +
         (await pullSplitGroups()) +
         (await pullIous(me)) +
         (await pullIouPayments());

@@ -1,23 +1,29 @@
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { formatRupees, paise, type Paise } from '@money-plant/core';
-import type { LocalDeposit } from '@money-plant/db-schema';
+import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { Button, colors } from '@/components/ui';
 import { formatDate, formatDateTime } from '@/components/format';
 import { TransactionItem } from '@/components/transaction-item';
 import { deleteAccount } from '@/lib/accounts';
 import { depositValue, getDeposit } from '@/lib/deposits';
+import { fundValues, listHoldings, type FundValue } from '@/lib/funds';
 import { adoptBankBalance, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { useLedger } from '@/lib/use-ledger';
 
 async function load(id: string) {
-  const [balances, rows, deposit] = await Promise.all([listAccountBalances(), listTransactions({ accountId: id, limit: 100 }), getDeposit(id)]);
-  return { balance: balances.find((b) => b.account.id === id) ?? null, rows, deposit };
+  const [balances, rows, deposit, holdings] = await Promise.all([listAccountBalances(), listTransactions({ accountId: id, limit: 100 }), getDeposit(id), listHoldings()]);
+  const balance = balances.find((b) => b.account.id === id) ?? null;
+  const holding = holdings.find((h) => h.accountId === id) ?? null;
+  const fund = holding && balance ? { holding, value: (await fundValues(new Map([[id, balance.balance]]))).get(id)! } : null;
+  return { balance, rows, deposit, fund };
 }
+
+type Fund = { holding: LocalHolding; value: FundValue } | null;
 
 export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[], deposit: null as LocalDeposit | null });
+  const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[], deposit: null as LocalDeposit | null, fund: null as Fund });
   if (!data.balance) return null;
   const { account, balance, value, reconciliation, typeLabel } = data.balance;
   const isDeposit = account.type === 'fd' || account.type === 'rd';
@@ -44,6 +50,7 @@ export default function AccountDetail() {
           </Text>
           <Text style={styles.balance}>{formatRupees(value)}</Text>
           {isDeposit && <DepositCard accountId={account.id} deposit={data.deposit} balance={balance} />}
+          {data.fund && <FundCard fund={data.fund} balance={balance} />}
           {reconciliation && (
             <Text style={[styles.meta, reconciliation.flagged && styles.warn]}>
               Bank said {formatRupees(reconciliation.latest.anchor.balance)} on {formatDateTime(reconciliation.latest.anchor.observedAt)}
@@ -53,7 +60,7 @@ export default function AccountDetail() {
             </Text>
           )}
           <View style={styles.actions}>
-            {!data.deposit && (
+            {!data.deposit && !data.fund && (
               <View style={styles.action}>
                 <Button title="Set balance" variant="secondary" onPress={() => router.push(`/account/balance?id=${account.id}`)} />
               </View>
@@ -105,6 +112,33 @@ function DepositCard({ accountId, deposit, balance }: { accountId: string; depos
       )}
     </Pressable>
   );
+}
+
+/** NW-3: units, today's NAV and the gain on a fund imported from a CAS. */
+function FundCard({ fund, balance }: { fund: NonNullable<Fund>; balance: Paise }) {
+  const { holding, value } = fund;
+  const units = (holding.unitsE4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+  const nav = value.navE4 !== null ? `₹${(value.navE4 / 10_000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : null;
+  const since = balance - holding.costPaise;
+  return (
+    <View style={styles.card}>
+      <Line label="Invested" amount={paise(holding.costPaise)} />
+      <Line label={value.gain >= 0 ? 'Gain' : 'Loss'} amount={paise(Math.abs(value.gain))} />
+      {since !== 0 && <Line label={since > 0 ? 'Paid in since the statement' : 'Taken out since the statement'} amount={paise(Math.abs(since))} />}
+      <Text style={styles.note}>
+        {units} units on {formatDate(`${holding.asOf}T12:00:00`)}
+        {nav && value.navDate ? ` · NAV ${nav} on ${formatDate(`${value.navDate}T12:00:00`)}` : ''}
+        {holding.sipPaise ? ` · SIP ${formatRupees(paise(holding.sipPaise))} around the ${ordinal(holding.sipDay ?? 1)}` : ''}
+      </Text>
+      <Text style={styles.note}>{holding.folio ? `Folio ${holding.folio}. ` : ''}Import a newer CAS to update the units.</Text>
+    </View>
+  );
+}
+
+function ordinal(day: number): string {
+  const tens = day % 100;
+  const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th';
+  return `${day}${suffix}`;
 }
 
 function Line({ label, amount }: { label: string; amount: Paise }) {

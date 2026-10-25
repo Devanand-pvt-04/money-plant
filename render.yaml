@@ -1,0 +1,16 @@
+# Render blueprint for the CAS parsing service (decision 0010). Free plan, Singapore.
+services:
+  - type: web
+    name: money-plant-cas-parser
+    runtime: python
+    plan: free
+    region: singapore
+    rootDir: services/cas-parser
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --no-access-log
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SERVICE_TOKEN
+        sync: false
