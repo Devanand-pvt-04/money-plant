@@ -68,6 +68,23 @@ describe('settleRecurring (REC-4)', () => {
     expect(settleRecurring(rent, [debit('2026-10-31', 20000, { vpa: 'other@okicici', merchant: 'ravi kumar' })]).paid).toHaveLength(0);
   });
 
+  it('takes the only debit of the same amount from the same account when the payee is printed differently', () => {
+    const autopay = { ...netflix, name: 'Google Play', merchant: 'google india digital services', amount: paise(14900), nextDue: '2026-10-23', anchorDay: 23, accountId: 'hdfc', origin: 'pre_debit' as const };
+    const paid = debit('2026-10-23', 149, { merchant: 'google play' });
+    expect(settleRecurring(autopay, [paid]).item).toMatchObject({ nextDue: '2026-11-23', lastTransactionId: paid.transactionId });
+    // Two such debits, another account, or a different amount: not sure enough.
+    expect(settleRecurring(autopay, [paid, debit('2026-10-24', 149, { merchant: 'zomato' })]).paid).toHaveLength(0);
+    expect(settleRecurring({ ...autopay, accountId: 'card' }, [paid]).paid).toHaveLength(0);
+    expect(settleRecurring(autopay, [debit('2026-10-23', 152, { merchant: 'google play' })]).paid).toHaveLength(0);
+  });
+
+  it('never lets one debit pay two payments', () => {
+    const paid = debit('2026-10-25', 649, { merchant: 'netflix' });
+    const taken = new Set<string>();
+    expect(settleRecurring(netflix, [paid], taken).paid).toHaveLength(1);
+    expect(settleRecurring({ ...netflix, id: 'r2', merchant: 'netflix india' }, [paid], taken).paid).toHaveLength(0);
+  });
+
   it('leaves paused and proposed payments alone', () => {
     const paid = debit('2026-10-25', 649, { merchant: 'netflix' });
     expect(settleRecurring({ ...netflix, status: 'paused' }, [paid]).paid).toHaveLength(0);

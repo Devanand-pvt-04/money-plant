@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from '@money-plant/core';
-import { normaliseSender, parseNotification, parseSms } from '@money-plant/parser';
+import { normaliseSender, parseNotification, parseSms, parseStatementRow } from '@money-plant/parser';
 import { MemoryStore } from './memory-store';
-import { checkTransaction, ingestNotification, ingestSms, type PipelineContext } from './pipeline';
+import { checkTransaction, ingestNotification, ingestSms, ingestStatementRow, type PipelineContext } from './pipeline';
 
 function setup() {
   const store = new MemoryStore();
@@ -228,5 +228,49 @@ describe('payments started from Money Plant (PAY-2)', () => {
     await sms('VM-HDFCBK', HDFC_SENT('80.00', 'CHAIPOINT', '629400000011'), '2026-10-21T10:30:00.000Z');
     expect(store.transactions.get('paid')!.sources).toHaveLength(1);
     expect(store.live()).toHaveLength(3);
+  });
+});
+
+describe('ingestStatementRow (CAP-5)', () => {
+  // UTC noon and midnight stand in for the phone's local day.
+  const row = (date: string, payee: string, ref: string, debit: string | null, credit: string | null = null) => {
+    const parsed = parseStatementRow('hdfc', { date, lines: [payee.slice(0, 10), `UPI/${payee}/XXab12@okicici/UPI/HDFC BANK/${ref}/ICI00`], debit, credit, balance: null });
+    if (!parsed) throw new Error('not parsed');
+    return parsed;
+  };
+  const ingest = (ctx: PipelineContext, accountId: string, parsed: ReturnType<typeof row>, claimed: Set<string>, n = 0) =>
+    ingestStatementRow(ctx, { parsed, accountId, occurredAt: `${parsed.date}T12:00:00.000Z`, dayStart: `${parsed.date}T00:00:00.000Z`, fingerprint: `st|${parsed.date}|${parsed.reference}|${parsed.amount}|${n}` }, claimed);
+
+  it('attaches a row to the SMS entry for the same payment, by reference or amount and day', async () => {
+    const { store, ctx, sms, accountNamed } = setup();
+    await sms('VM-HDFCBK', HDFC_SENT('450.00', 'SWIGGY', '629412345678'), '2026-10-21T22:30:00.000Z');
+    await sms('VM-HDFCBK', HDFC_SENT('20.00', 'CHAI POINT', '629400000001'), '2026-10-21T10:00:00.000Z');
+    const account = accountNamed('HDFC Bank ••1234');
+    const claimed = new Set<string>();
+    // The statement dates the late payment a day later.
+    expect((await ingest(ctx, account.id, row('2026-10-22', 'SWIGGY', '629412345678', '450.00'), claimed)).outcome).toBe('attached');
+    expect((await ingest(ctx, account.id, row('2026-10-21', 'CHAI POINT', '000000000000', '20.00'), claimed)).outcome).toBe('created');
+    // No reference in common but none conflicting either: matched by amount and day.
+    const noRef = parseStatementRow('hdfc', { date: '2026-10-21', lines: ['CHAI POINT', 'BIL/ONL/CHAI POINT'], debit: '20.00', credit: null, balance: null })!;
+    expect((await ingest(ctx, account.id, noRef, claimed, 1)).outcome).toBe('attached');
+    expect(store.live()).toHaveLength(3);
+    expect(store.live().every((tx) => checkTransaction(tx) === null)).toBe(true);
+  });
+
+  it('adds payments the SMS missed, once, and keeps same-amount rows apart', async () => {
+    const { store, ctx, sms, accountNamed } = setup();
+    await sms('VM-HDFCBK', HDFC_SENT('70.00', 'ANNA IDLI', '629400000010'), '2026-10-21T08:00:00.000Z');
+    const account = accountNamed('HDFC Bank ••1234');
+    const claimed = new Set<string>();
+    const first = row('2026-10-21', 'ANNA IDLI', '629400000010', '70.00');
+    const second = row('2026-10-21', 'ANNA IDLI', '629400000011', '70.00');
+    expect((await ingest(ctx, account.id, first, claimed)).outcome).toBe('attached');
+    expect((await ingest(ctx, account.id, second, claimed)).outcome).toBe('created');
+    // Importing the same statement again changes nothing.
+    expect((await ingest(ctx, account.id, second, new Set())).outcome).toBe('duplicate_source');
+    expect(store.live()).toHaveLength(2);
+    expect(store.balance(account.id)).toBe(-14000);
+    const added = store.live().find((tx) => tx.sources.every((s) => s.kind === 'statement'))!;
+    expect(added).toMatchObject({ kind: 'expense', counterparty: 'ANNA IDLI', occurredAt: '2026-10-21T12:00:00.000Z' });
   });
 });

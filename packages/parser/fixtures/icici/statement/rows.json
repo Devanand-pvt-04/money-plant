@@ -1,0 +1,42 @@
+{
+  "note": "Anonymised rows in the shape of ICICI's statement of transactions (October 2026). Names, UPI IDs and references are made up.",
+  "bank": "icici",
+  "cases": [
+    {
+      "row": { "date": "2026-10-01", "lines": ["ANNA IDLI", "UPI/ANNA IDLI/XX123a@pty/UPI/YES BANK", "P/600000000002/ICI00aa00aa00aa00aa00aa0000", "00aa00a"], "debit": "135.00", "credit": null, "balance": "98377.05" },
+      "expect": { "direction": "debit", "amount": 13500, "counterparty": "ANNA IDLI", "vpa": null, "reference": "600000000002", "balance": 9837705, "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-10-01", "lines": ["SHIVALIK S", "UPI/SHIVALIK S/XXk.", "up@yespay/Autopay/YesBank_Ye/600000000003/U", "PSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"], "debit": "12000.00", "credit": null, "balance": "86377.05" },
+      "expect": { "direction": "debit", "amount": 1200000, "counterparty": "SHIVALIK S", "reference": "600000000003", "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-10-01", "lines": ["A FRIEND", "UPI/A FRIEND/XXn124@okhdfcb/UPI/HDFC", "BANK/100000000004/HDF00aa00aa00aa00aa00aa00", "00aa00aa00aa"], "debit": null, "credit": "766.50", "balance": "87143.55" },
+      "expect": { "direction": "credit", "amount": 76650, "counterparty": "A FRIEND", "reference": "100000000004", "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-10-07", "lines": ["WISE PAYME", "MMT/IMPS/600000000005/RDA remittance /WISE", "PAYME/Yes Bank"], "debit": null, "credit": "6315.81", "balance": "87112.43" },
+      "expect": { "direction": "credit", "amount": 631581, "counterparty": "WISE PAYME", "reference": "600000000005", "channel": "imps" }
+    },
+    {
+      "row": { "date": "2026-10-13", "lines": ["Self", "BIL/INFT/ABC1234567/CC BillPay-0000/Self"], "debit": "10168.00", "credit": null, "balance": "70524.29" },
+      "expect": { "direction": "debit", "amount": 1016800, "counterparty": "Self", "reference": "ABC1234567", "channel": "other" }
+    },
+    {
+      "row": { "date": "2026-10-15", "lines": ["Credit trxn", "CMS/UPI/CRED CCBP/XXopay@axisb/remarks/AXIS", "BANK/600000000006/ACD00aa00aa00aa00aa00aa00", "00aa00aa00aa0"], "debit": null, "credit": "1.00", "balance": "41926.01" },
+      "expect": { "direction": "credit", "amount": 100, "counterparty": "CRED CCBP", "reference": "600000000006", "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-10-19", "lines": ["Amazon Pay", "UPI/Amazon Pay/XX88ye@yapl/Request fr/YES", "BANK", "L/600000000007/APY00aa00aa00aa00aa00aa00a", "a00aa00a"], "debit": "219.00", "credit": null, "balance": "17281.36" },
+      "expect": { "direction": "debit", "amount": 21900, "counterparty": "Amazon Pay", "reference": "600000000007", "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-10-20", "lines": ["RAVI", "UPI/RAVI KUMAR/ravi.kumar@okicici/UPI/HDFC", "BANK/600000000008/ICI00aa"], "debit": "1,250.00", "credit": null, "balance": "16031.36" },
+      "expect": { "direction": "debit", "amount": 125000, "counterparty": "RAVI KUMAR", "vpa": "ravi.kumar@okicici", "reference": "600000000008" }
+    },
+    {
+      "row": { "date": "2026-10-20", "lines": ["Opening balance"], "debit": null, "credit": null, "balance": "16031.36" },
+      "expect": null
+    }
+  ]
+}

@@ -215,8 +215,10 @@ export function refreshRecurring(): Promise<number> {
       const debits = await recentDebits();
       const items = await listRecurring();
       let changed = 0;
+      // A debit pays one payment only. Payments already settled by it keep it.
+      const taken = new Set(items.map((item) => item.lastTransactionId).filter((id): id is string => id !== null));
       for (const item of items) {
-        const { item: settled, paid } = settleRecurring(item, debits);
+        const { item: settled, paid } = settleRecurring(item, debits, taken);
         if (paid.length === 0) continue;
         await write(settled);
         changed++;

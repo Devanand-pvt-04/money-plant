@@ -1,5 +1,4 @@
 import * as Crypto from 'expo-crypto';
-import { FunctionsHttpError } from '@supabase/supabase-js';
 import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   addDays,
@@ -31,51 +30,17 @@ import { notifyLedgerChange } from './events';
 import { derivedId } from './ids';
 import { kvGet, kvSet } from './kv';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
+import { PdfError, sendPdf } from './pdf-service';
 import { supabase } from './supabase';
 
 const now = () => new Date().toISOString();
 const today = () => dateKey(new Date());
 const NAV_FETCHED_KEY = 'funds.nav.fetched';
 
-/** Why a CAS couldn't be read, from the parser service or the edge function. */
-export type CasErrorCode =
-  | 'wrong_password'
-  | 'not_a_cas'
-  | 'demat_not_supported'
-  | 'too_large'
-  | 'not_configured'
-  | 'service_unavailable'
-  | 'unknown';
-
-export class CasError extends Error {
-  constructor(readonly code: CasErrorCode) {
-    super(code);
-  }
-}
-
-/**
- * NW-3: sends a CAS PDF and its password to the parse-cas edge function and
- * returns the holdings it found. Nothing is stored on the way. The parser
- * sleeps when idle, so the first call can take about a minute.
- */
+/** NW-3: reads a CAS PDF through the parse-cas edge function. */
 export async function readCas(file: { uri: string; name: string }, password: string): Promise<CasStatement> {
-  const form = new FormData();
-  // React Native's FormData sends a file from its uri.
-  form.append('file', { uri: file.uri, name: file.name || 'cas.pdf', type: 'application/pdf' } as unknown as Blob);
-  form.append('password', password);
-  const { data, error } = await supabase.functions.invoke<CasStatement>('parse-cas', { body: form });
-  if (error) {
-    let code: CasErrorCode = 'unknown';
-    if (error instanceof FunctionsHttpError) {
-      const body = await (error.context as Response).json().catch(() => null);
-      const detail = body?.error ?? body?.detail;
-      if (typeof detail === 'string') code = (['wrong_password', 'not_a_cas', 'demat_not_supported', 'too_large', 'not_configured', 'service_unavailable'] as const).find((c) => c === detail) ?? 'unknown';
-    } else {
-      code = 'service_unavailable';
-    }
-    throw new CasError(code);
-  }
-  if (!data || !Array.isArray(data.folios)) throw new CasError('not_a_cas');
+  const data = await sendPdf<CasStatement>('parse-cas', file, password);
+  if (!Array.isArray(data.folios)) throw new PdfError('not_a_cas');
   return data;
 }
 

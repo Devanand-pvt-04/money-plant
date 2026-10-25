@@ -95,3 +95,23 @@ def test_reports_a_wrong_password(client, monkeypatch):
 
 def test_wakes_up(client):
     assert client.get("/health").json() == {"ok": True}
+
+
+def post_statement(client, data, password="", token="secret"):
+    return client.post("/statement", files={"file": ("statement.pdf", data, "application/pdf")}, data={"password": password}, headers={"x-service-token": token})
+
+
+def test_statement_needs_the_token(client):
+    from synthetic_statement import build
+
+    assert post_statement(client, build(), token="nope").status_code == 401
+
+
+def test_reads_a_statement(client):
+    from synthetic_statement import ROWS, build
+
+    response = post_statement(client, build(password="pw1"), password="pw1")
+    assert response.status_code == 200
+    assert len(response.json()["rows"]) == len(ROWS)
+    assert post_statement(client, build(password="pw1"), password="x").json()["detail"] == "wrong_password"
+    assert post_statement(client, b"%PDF-1.4 nothing").json()["detail"] == "not_a_statement"
