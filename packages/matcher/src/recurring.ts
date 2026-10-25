@@ -101,31 +101,41 @@ export interface Settlement {
   paid: Debit[];
 }
 
+/** A debit within ₹1 of the amount counts as this payment even when its payee is printed differently. */
+export const EXACT_AMOUNT_TOLERANCE = 100;
+
 /**
  * REC-4: marks occurrences paid from matching debits and moves the due date
  * forward, as many times as debits allow (an import may cover several months).
+ * A debit matches by payee, or, when no debit's payee matches, as the only
+ * debit of the same amount (within ₹1) from the payment's own account inside
+ * the due window: banks often print an autopay's payee differently on the
+ * notice and on the debit. Debits in `taken` (paid another payment already)
+ * are skipped, and the ones used here are added to it.
  * Idempotent: a debit at or before the last paid one is never used again.
  */
-export function settleRecurring(item: RecurringPayment, debits: readonly Debit[]): Settlement {
+export function settleRecurring(item: RecurringPayment, debits: readonly Debit[], taken: Set<string> = new Set()): Settlement {
   if (item.status !== 'active') return { item, paid: [] };
   let next = item;
   const paid: Debit[] = [];
-  const used = new Set<string>();
   for (;;) {
-    const candidates = debits.filter(
+    const open = debits.filter(
       (d) =>
-        !used.has(d.transactionId) &&
+        !taken.has(d.transactionId) &&
         d.transactionId !== next.lastTransactionId &&
         (next.lastPaidAt === null || Date.parse(d.occurredAt) > Date.parse(next.lastPaidAt)) &&
-        Math.abs(daysBetween(next.nextDue, dateOf(d.occurredAt))) <= DUE_WINDOW_DAYS &&
-        amountClose(next.amount, d.amount) &&
-        payeeMatches(next, d),
+        Math.abs(daysBetween(next.nextDue, dateOf(d.occurredAt))) <= DUE_WINDOW_DAYS,
     );
+    let candidates = open.filter((d) => amountClose(next.amount, d.amount) && payeeMatches(next, d));
+    if (candidates.length === 0 && next.accountId !== null) {
+      const same = open.filter((d) => d.accountId === next.accountId && Math.abs(d.amount - next.amount) <= EXACT_AMOUNT_TOLERANCE);
+      if (same.length === 1) candidates = same;
+    }
     if (candidates.length === 0) return { item: next, paid };
     const best = candidates.reduce((a, b) =>
       Math.abs(daysBetween(next.nextDue, dateOf(b.occurredAt))) < Math.abs(daysBetween(next.nextDue, dateOf(a.occurredAt))) ? b : a,
     );
-    used.add(best.transactionId);
+    taken.add(best.transactionId);
     paid.push(best);
     next = {
       ...next,
