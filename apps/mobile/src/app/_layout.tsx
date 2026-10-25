@@ -88,6 +88,7 @@ export default function RootLayout() {
             <Stack.Screen name="rules" options={{ title: 'Rules and patterns' }} />
             <Stack.Screen name="rule/[id]" options={{ title: 'Rule' }} />
             <Stack.Screen name="budget/[id]" options={{ title: 'Budget' }} />
+            <Stack.Screen name="month-review" options={{ title: 'Month review' }} />
             <Stack.Screen name="account-types" options={{ title: 'Account types' }} />
             <Stack.Screen name="capture" options={{ title: 'Bank SMS' }} />
             <Stack.Screen name="pay" options={{ headerShown: false, presentation: 'modal', contentStyle: { backgroundColor: colors.background } }} />
