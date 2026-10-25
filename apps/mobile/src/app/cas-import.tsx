@@ -6,13 +6,15 @@ import { File } from 'expo-file-system';
 import { paise, type CasStatement } from '@money-plant/core';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
 import { Button, Card, ErrorText, Field, colors, radius } from '@/components/ui';
-import { CasError, casHoldings, importCas, readCas, shortSchemeName, type CasErrorCode, type CasHolding } from '@/lib/funds';
+import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
+import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
 
 const CAMS_CAS_URL = 'https://www.camsonline.com/Investors/Statements/Consolidated-Account-Statement';
 
-const ERRORS: Record<CasErrorCode, string> = {
+const ERRORS: Record<PdfErrorCode, string> = {
   wrong_password: "That password didn't open the PDF. It's the one you chose when you asked for the statement.",
   not_a_cas: "This doesn't look like a CAS from CAMS or KFintech. Ask for the detailed statement for all folios.",
+  not_a_statement: "This doesn't look like a CAS from CAMS or KFintech.",
   demat_not_supported: 'This is a demat statement from NSDL or CDSL. Funds come from the CAMS or KFintech CAS for now; stocks come later.',
   too_large: 'The PDF is over 10 MB.',
   not_configured: "The statement reader isn't set up on the server yet.",
@@ -49,7 +51,7 @@ export default function CasImport() {
     try {
       setStatement(await readCas(file, password));
     } catch (e) {
-      setError(ERRORS[e instanceof CasError ? e.code : 'unknown']);
+      setError(ERRORS[e instanceof PdfError ? e.code : 'unknown']);
     } finally {
       setReading(false);
     }

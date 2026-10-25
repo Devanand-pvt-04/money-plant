@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { formatRupees } from '@money-plant/core';
 import { BANKS, BANK_NAMES, parseBankText, type BankId, type SmsParseResult } from '@money-plant/parser';
 import { addMonthsToDate, dateKey, type DateKey } from '@money-plant/core';
@@ -137,6 +138,8 @@ export default function Capture() {
         {data.imported && (
           <Button title="Check for new messages" variant="secondary" onPress={() => run(() => importInbox(setProgress))} disabled={busy || !data.smsPermission} />
         )}
+        <Text style={styles.body}>Missing payments from before the SMS history, or messages that never came? A bank statement PDF fills them in.</Text>
+        <Button title="Import a bank statement" variant="secondary" onPress={() => router.push('/statement-import')} disabled={busy} />
       </Section>
 
       <Section title="3. UPI app notifications (optional)">

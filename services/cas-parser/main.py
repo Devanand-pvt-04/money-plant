@@ -1,8 +1,9 @@
-"""CAS parsing service (NW-3, decision 0010).
+"""CAS and statement parsing service (NW-3, CAP-5, decision 0010).
 
 Reads a CAMS or KFintech Consolidated Account Statement with casparser and
-returns the folios, schemes, units, valuation and transactions. Only the
-parse-cas edge function calls it, with a shared token; the phone never does.
+returns the folios, schemes, units, valuation and transactions; reads a bank
+statement PDF into transaction rows (statement.py). Only the parse-cas and
+parse-statement edge functions call it, with a shared token; the phone never does.
 
 Nothing is stored: the file and password live in memory for one request.
 Investor details (name, email, phone, address, PAN, nominees) are dropped
@@ -17,6 +18,7 @@ from enum import Enum
 from typing import Any, Optional
 
 import casparser
+import statement
 from casparser.exceptions import IncorrectPasswordError, ParserException
 from casparser.types import CASData
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -115,3 +117,23 @@ async def cas(
     if not isinstance(parsed, CASData):
         raise HTTPException(status_code=422, detail="demat_not_supported")
     return trim(parsed.model_dump(by_alias=True))
+
+
+@app.post("/statement")
+async def bank_statement(
+    file: UploadFile = File(...),
+    password: str = Form(default=""),
+    x_service_token: Optional[str] = Header(default=None),
+) -> dict:
+    _check_token(x_service_token)
+    data = await file.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="too_large")
+    try:
+        return statement.read_statement(io.BytesIO(data), password or None)
+    except statement.WrongPassword:
+        raise HTTPException(status_code=422, detail="wrong_password")
+    except statement.NotAStatement:
+        raise HTTPException(status_code=422, detail="not_a_statement")
+    finally:
+        del data

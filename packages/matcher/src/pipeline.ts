@@ -1,6 +1,6 @@
 import { validatePostings, type AccountType, type Paise } from '@money-plant/core';
 import type { CategoryDecision, PayeeKind } from '@money-plant/categoriser';
-import type { Direction, ParsedNotification, ParsedTransaction } from '@money-plant/parser';
+import type { Direction, ParsedNotification, ParsedStatementRow, ParsedTransaction } from '@money-plant/parser';
 import { looksLikePerson, resolveAccount } from './accounts';
 import type {
   LedgerAccount,
@@ -215,6 +215,126 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
   }
   await rebaseOpening(store, account.id);
   return result;
+}
+
+export interface StatementCapture {
+  parsed: ParsedStatementRow;
+  /** The account the user said the statement is for. */
+  accountId: string;
+  /** Local noon on the row's date; statements print no times. */
+  occurredAt: string;
+  /** Local midnight starting the row's date. */
+  dayStart: string;
+  fingerprint: string;
+  /** The new source's id, so the caller can anchor the closing balance to it. */
+  sourceId?: string;
+}
+
+/** A statement row matches an entry dated a day either side, since SMS times and statement dates can straddle midnight. */
+export const STATEMENT_MATCH_DAYS = 1;
+const DAY = 24 * HOUR;
+
+/**
+ * CAP-5: one statement row. The row usually repeats an entry the SMS already
+ * made: then it is attached to that entry as a second source. Otherwise it
+ * may be the other leg of a transfer, or it is a payment the SMS missed and
+ * becomes a new entry, categorised like one from SMS. `claimed` holds the
+ * entries earlier rows of the same import already attached to, so two
+ * same-amount rows on one day stay two entries. Idempotent by fingerprint.
+ * The caller rebases the account's opening balance once the import is done.
+ */
+export async function ingestStatementRow(ctx: PipelineContext, capture: StatementCapture, claimed: Set<string>): Promise<IngestResult> {
+  const { store, newId } = ctx;
+  if (await store.hasFingerprint(capture.fingerprint)) return { outcome: 'duplicate_source' };
+  const { parsed } = capture;
+  const accounts = await store.listAccounts();
+  const account = accounts.find((a) => a.id === capture.accountId);
+  if (!account) throw new Error('Statement account not found');
+  const accountsById = new Map(accounts.map((a) => [a.id, a]));
+
+  const source: LedgerSource = {
+    id: capture.sourceId ?? newId(),
+    kind: 'statement',
+    sender: parsed.bank,
+    externalRef: parsed.reference,
+    fingerprint: capture.fingerprint,
+    parsedFields: { ...parsed },
+    receivedAt: capture.occurredAt,
+    confidence: 0.95,
+    rawText: null,
+  };
+  const amount = signed(parsed.direction, parsed.amount);
+  const at = Date.parse(capture.occurredAt);
+  const day = Date.parse(capture.dayStart);
+  const recent = (await store.transactionsBetween(iso(day - STATEMENT_MATCH_DAYS * DAY), iso(day + (1 + STATEMENT_MATCH_DAYS) * DAY - 1))).filter(
+    (tx) => !claimed.has(tx.id),
+  );
+
+  const sameLeg = (tx: LedgerTransaction) => tx.postings.some((p) => p.accountId === account.id && p.amount === amount);
+  const open = recent.filter((tx) => sameLeg(tx) && !tx.sources.some((s) => s.kind === 'statement') && !refsConflict(tx, parsed.reference));
+  const duplicate = (parsed.reference !== null ? open.find((tx) => refsOf(tx).includes(parsed.reference!)) : undefined) ?? closest(open, at);
+  if (duplicate) {
+    claimed.add(duplicate.id);
+    await store.saveTransaction(withExtraSource(duplicate, source, { counterparty: duplicate.counterparty ?? parsed.counterparty }));
+    return { outcome: 'attached', transactionId: duplicate.id };
+  }
+
+  const transfer = findTransferLeg(recent, accountsById, { account, amount, at, reference: parsed.reference });
+  if (transfer) {
+    const { transaction, refsMatch } = transfer;
+    claimed.add(transaction.id);
+    const reviewReason: ReviewReason | null = refsMatch ? null : 'possible_transfer';
+    await store.saveTransaction({
+      ...transaction,
+      kind: 'transfer',
+      counterparty: null,
+      postings: transaction.postings
+        .filter((posting) => OWNED.has(accountsById.get(posting.accountId)?.type ?? 'category'))
+        .concat({ id: newId(), accountId: account.id, amount }),
+      sources: [...transaction.sources, source],
+      confidence: bumpConfidence(transaction.confidence, source.confidence),
+      reviewReason,
+      status: reviewReason ? 'pending' : 'confirmed',
+      categoryReason: null,
+      categoryRuleId: null,
+    });
+    return { outcome: 'transfer', transactionId: transaction.id };
+  }
+
+  const other = await store.systemAccount(parsed.direction === 'debit' ? 'uncategorised_expense' : 'uncategorised_income');
+  const transaction: LedgerTransaction = {
+    id: newId(),
+    occurredAt: capture.occurredAt,
+    counterparty: parsed.counterparty,
+    kind: parsed.direction === 'debit' ? 'expense' : 'income',
+    status: 'confirmed',
+    confidence: source.confidence,
+    reviewReason: null,
+    categoryReason: null,
+    categoryRuleId: null,
+    userSetFields: [],
+    note: null,
+    postings: [
+      { id: newId(), accountId: account.id, amount },
+      { id: newId(), accountId: other.id, amount: -amount as Paise },
+    ],
+    sources: [source],
+  };
+  const person = looksLikePerson({ channel: parsed.channel, counterparty: parsed.counterparty, vpa: parsed.vpa });
+  const decision = await ctx.categorise?.({
+    direction: parsed.direction,
+    amount: parsed.amount,
+    counterparty: parsed.counterparty,
+    vpa: parsed.vpa,
+    accountId: account.id,
+    occurredAt: capture.occurredAt,
+    payeeKind: person ? 'person' : 'business',
+  });
+  if (decision) applyDecision(transaction, decision);
+  transaction.reviewReason = decision ? decisionReview(decision) : person ? 'person' : null;
+  transaction.status = transaction.reviewReason ? 'pending' : 'confirmed';
+  await store.saveTransaction(transaction);
+  return { outcome: 'created', transactionId: transaction.id };
 }
 
 /**

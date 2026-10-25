@@ -65,6 +65,11 @@ export default function AccountDetail() {
                 <Button title="Set balance" variant="secondary" onPress={() => router.push(`/account/balance?id=${account.id}`)} />
               </View>
             )}
+            {account.type === 'bank' && (
+              <View style={styles.action}>
+                <Button title="Import statement" variant="secondary" onPress={() => router.push(`/statement-import?account=${account.id}`)} />
+              </View>
+            )}
             {reconciliation?.flagged && (
               <View style={styles.action}>
                 <Button title="Use bank's balance" variant="secondary" onPress={() => adoptBankBalance(account.id)} />
