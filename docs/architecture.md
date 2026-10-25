@@ -1,6 +1,6 @@
 # Money Plant architecture notes
 
-21 Oct 2026, updated 24 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
+21 Oct 2026, updated 25 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
 
 Money Plant is one React Native app (Expo, TypeScript) for Android, with iOS to follow. It has a Supabase backend in Mumbai and a shared TypeScript core for parsing and ledger rules. These notes describe how to build what `docs/PRD.md` specifies.
 
@@ -42,7 +42,7 @@ Everything is TypeScript except a few small native modules. The parser and ledge
 | Native modules | Kotlin: SMS receiver and notification listener. Swift (later): App Intent for Shortcuts | The only platform-specific code |
 | Backend | Supabase: Postgres, Auth, Row-Level Security, Storage, Edge Functions (TypeScript on Deno), scheduled jobs | Managed, Mumbai region, free tier |
 | Sign-in | Supabase Auth with email OTP through a free SMTP sender. Phone OTP comes later via a DLT-registered provider such as MSG91 | Email is free; SMS OTPs cost money |
-| CAS parsing | A small Python service running casparser on a free tier | casparser is Python; files are deleted after parsing |
+| CAS and statement PDFs | A small Python service (`services/cas-parser`: casparser for CAS, a table reader for bank statement PDFs) on Render's free tier, called only by edge functions with a shared secret | casparser is Python; files and passwords are never stored |
 | AI | A self-hosted open-weights model (7 to 8B, 4-bit) on Ollama on Deva's PC, fed by a job queue in Postgres (milestone 6) | No usage fees or prepaid credits, and Deva owns the model; an 8 GB GPU fits this size |
 | Push notifications | Expo Notifications (FCM, plus APNs later) | Reminders and review prompts |
 | Monitoring | Sentry (free plan) | Crash and error reports |
@@ -67,7 +67,7 @@ money-plant/
     db-schema/                  Drizzle schema shared by SQLite and Postgres
   supabase/
     migrations/                 SQL, including row-level security policies
-    functions/                  edge functions: categorise, month-review, prices, sync
+    functions/                  edge functions: categorise, parse-cas, parse-statement, prices, month-review (milestone 6), delete-account
   services/
     cas-parser/                 Python + casparser, deployed separately
   docs/
@@ -102,10 +102,11 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | recurring | id, user_id, name, vpa, merchant, amount_paise, cadence, anchor_day, next_due, account_id, category_account_id, status (active, paused, proposed, declined), origin (manual, history, pre_debit), mandate_ref, last_paid_at, last_transaction_id | Detected or added manually. next_due is a calendar date on the phone's clock |
 | ious | id, user_id (owner), owner_name, owner_email, owner_vpa, person_account_id, direction (lent, borrowed), amount_paise, reason, occurred_on, due_date, transaction_id, counterparty_email, counterparty_user_id, counterparty_person_account_id, counterparty_transaction_id, counterparty_vpa, confirmed_at, declined_at | One row per IOU. With counterparty_email set, the other person sees it and answers through respond_iou |
 | iou_payments | id, user_id, iou_id, amount_paise, paid_at, transaction_id | Repayments each side's ledger saw. What is still owed is the amount minus the larger side's total |
+| deposits | id, user_id, account_id, kind (fd, rd), principal_paise or instalment_paise, rate_bp, start_date, tenure_months, payout (reinvest, monthly, quarterly), instalment_day, payee, maturity_date, closed_at | The terms of an FD or RD account. Interest is computed on the phone with quarterly compounding; the value today is shown, not posted |
 | holdings | id, user_id, account_id, instrument (ISIN or scheme code), units, cost_paise, as_of | Rebuilt from each CAS import |
-| prices | instrument, date, price | Global, filled daily |
+| prices | instrument, date, price | Global, filled nightly from AMFI's NAV file for schemes someone holds |
 | balance_anchors | id, account_id, balance_paise, observed_at, source_id | Balances seen in SMS and statements, used for reconciliation |
-| month_reviews | id, user_id, month, summary (JSON), suggestions, created_at | Output of the AI month review |
+| month_reviews | id, user_id, month, summary (JSON), suggestions, created_at | Output of the AI month review (milestone 6). The milestone 5 numbers review is computed on the phone and stores nothing |
 
 All money is stored as integer paise. Every table has updated_at and deleted_at columns (soft delete) for sync.
 
@@ -118,8 +119,8 @@ Every source ends in the same five steps on the phone: parse, match, categorise,
 - **Android SMS.** A Kotlin BroadcastReceiver for SMS_RECEIVED checks each sender ID (for example VM-HDFCBK, AX-ICICIT) against an allowlist, then starts a headless JS task with the message. On first run, and later from settings, the app reads the SMS inbox for a date range the user picks (6 months by default) through the same path (CAP-2). Dedupe by reference and source makes a repeated range safe.
 - **Android notifications.** A NotificationListenerService watches only UPI app packages (GPay, PhonePe, Paytm, Cred, BHIM, slice and others) and passes each notification's title and text to the same task. These notifications mostly add payee names.
 - **iOS Shortcuts (later).** A Swift App Intent named "Add bank message" takes the message text and sender. A guided setup walks the user through creating a "When I get a message from <bank>" automation that runs without asking. The intent writes to a shared queue, which the app processes on its next launch or background refresh.
-- **Statement import.** The user shares a CSV, XLS or PDF into the app. CSV and XLS files are parsed on the phone. PDFs go to an edge function that extracts the tables and returns rows, and the file is then deleted.
-- **CAS import.** The PDF and its password go to the cas-parser service, which returns holdings and transactions. The file is deleted after parsing.
+- **Statement import.** The user picks a CSV, XLS or PDF in the app. CSV and XLS files are parsed on the phone. PDFs, with their password, go to the parse-statement edge function, which passes them to the Python service and returns rows; nothing is stored. Rows run through the pipeline as `statement` sources after a preview, attach to matching entries, and their closing balances become balance anchors.
+- **CAS import.** The user picks the CAS PDF and types its password. The parse-cas edge function, called as the signed-in user, passes both to the Python service with a secret only the function holds, and returns folios, schemes, units, cost and transactions. Nothing is stored on the way. Each scheme becomes a mutual fund account with its holdings; debits to the funds' payees then become transfers into them.
 - **Manual.** Quick add pre-fills the last-used account and guesses a category from the merchant the user types.
 - **Scan and pay.** The app hands a payment to the user's UPI app and logs it with an `app_payment` source (see Scan and pay below).
 
@@ -237,11 +238,11 @@ On the phone, `packages/categoriser` tries the user's rules, then learned patter
 4. Results with a confidence of 0.8 or more are cached in the merchants table for everyone. Lower-confidence results go to the user's review inbox. A category the user confirms is shared through the merchants table, which already works before milestone 6.
 5. Payments to people (a personal VPA, or a name with no business keywords) skip AI and go straight to the review inbox (CAT-4).
 
-### Month review (month-review function)
+### Month review
 
-1. A scheduled job runs on the 1st for each user, after the previous month's sync.
-2. The function computes the facts in SQL: spend per category against budget and the 3-month average, the top 10 transactions in each overspent category, recurring payments that changed, and IOUs that went overdue.
-3. In milestone 5 the review shows these facts directly: the headline overspend, the categories and transactions behind it, and budget suggestions from simple rules. From milestone 6, an AI job sends the facts to the model for a short review: a headline, 2 to 4 causes each linked to transaction IDs, and budget suggestions as structured data.
+1. In milestone 5 the phone computes the review from its own ledger and schedules a local notification for 9 am on the 1st. Nothing is stored on the server; which suggestions the user accepted or ignored is kept on the phone.
+2. The facts: spend per category against budget and the 3-month average, the top payees and largest entries in each overspent category, spending outside budgets, money in, and uncategorised entries.
+3. The review shows these facts directly: the headline, the categories and entries behind each overspend, and budget suggestions from the milestone 3 rules. From milestone 6, a month-review function computes the same facts in SQL and an AI job sends the facts to the model for a short review: a headline, 2 to 4 causes each linked to transaction IDs, and budget suggestions as structured data.
 4. The function checks that every number in the AI review appears in the facts it sent. It drops any suggestion that references a missing transaction, so the review can't invent figures. If the check fails, the numbers review stays.
 5. The result is stored in month_reviews and a push notification is sent.
 

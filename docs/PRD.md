@@ -1,6 +1,6 @@
 # Money Plant PRD
 
-21 Oct 2026, updated 24 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
+21 Oct 2026, updated 25 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
 
 Money Plant is an Android app (iOS later) for Deva and friends. It keeps one accurate, cloud-synced ledger of all their money and fills it mostly without typing. This PRD defines the MVP. `docs/architecture.md` describes how it is built.
 
@@ -97,15 +97,15 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 | BUD-1 | Monthly budgets on the categories the user picks: a default that applies to every month, and an override for one month only that can be reset. A branch has either one budget on the parent, covering the parent and its sub-categories, or budgets on its sub-categories, never both. The month's total budget is the sum of the category budgets; there is no separate overall budget. Only spending in budgeted categories counts against the total; the rest is shown as spending outside budgets. Investments, cash withdrawals and transfers between the user's own accounts are not spending, and are listed apart | Must |
 | BUD-2 | Mid-month pace alerts when a budgeted category, or the month's total budget, is on track to overspend | Must |
 | BUD-3 | Overspend breakdown by category, merchant and largest transactions, versus budget and the last 3 months | Must |
-| BUD-4 | Month review on the 1st: what went over, why, and suggested budget changes the user can accept in one tap. It starts as a numbers review; the AI-written explanation comes in milestone 6 | Must |
+| BUD-4 | Month review on the 1st at 9 am, also open any time for past months under Budgets: spent against the total budget, what went over and why (top payees and largest entries against the 3-month average), uncategorised entries to review, and suggested budget changes the user can accept, edit or ignore in one tap. Every number opens the entries behind it. It starts as a numbers review worked out on the phone; the AI-written explanation comes in milestone 6 | Must |
 
 ### Net worth and investments
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| NW-1 | Net worth across bank accounts, cash, cards, FDs/RDs, mutual funds, stocks and money owed | Must |
-| NW-2 | Manual entry for FDs and RDs, with interest and maturity computed | Must |
-| NW-3 | Daily mutual fund and stock values from public NAV and closing prices | Must |
+| NW-1 | Net worth across bank accounts, cash, cards, FDs/RDs, mutual funds, stocks and money owed. FDs and RDs count at their value today: what was paid in plus interest earned so far, an estimate until the bank pays it | Must |
+| NW-2 | Manual entry for FDs and RDs, with interest and maturity computed (quarterly compounding) and a reminder 7 days before maturity. Paying into a deposit is a transfer from the paying account, so RD instalments matched from SMS are not spending | Must |
+| NW-3 | Daily mutual fund values from AMFI's public NAV file, with holdings from a CAS import. SIP debits to a fund's payee become transfers into that fund. Stocks (an NSDL or CDSL statement and exchange closing prices) follow later | Must |
 | NW-4 | Net worth history chart by month | Should |
 
 ### Recurring payments
@@ -242,6 +242,7 @@ These items are deliberately left out of the MVP.
 | Shared split groups between app users, Splitwise import | Personal splits cover the core need without friends installing the app | After the friends release |
 | Finding friends on the app by phone number | Sign-in is email only, and hashed phone numbers are easy to reverse; friends are invited by email | With phone sign-in |
 | Ask-anything AI chat | The month review delivers the main AI value first | Phase 2 |
+| Stocks and demat holdings | Deva holds none yet; mutual funds come first (decision 0010) | When a tester needs it |
 | EPF, NPS, gold, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime | Phase 2 |
 | Broker APIs, live prices | Daily prices are enough for net worth | Phase 3 |
 | Web app, family accounts | Phones come first | Phase 3 |
@@ -259,9 +260,9 @@ There are seven milestones, in order. Each one ends with something Deva can use 
 Before milestone 3, a one-day test build checks how Google Pay, PhonePe, a bank app and slice handle a payment handed off from another app, for a shop QR and a friend's QR. It decides whether PAY-1 and IOU-3 open the UPI app directly or fall back to its own scanner.
 Between milestones 3 and 4, a short design step (about a week) sets the look and navigation before the screen count grows. It adds a design system (colours, type, spacing and core components, light and dark), bottom tabs (Home, Activity, Budgets, Money, with a badge for items to review) and a redesign of the four daily screens: home, review inbox, transaction list and detail, and quick add. Clickable mockups come first, and Deva signs them off before any code. Later milestones build on the design system, and milestone 7, the friends release, adds a polish pass (onboarding, empty states, app icon, accessibility). *Exit:* the UX goals below hold on Deva's phone for the four daily screens.
 After milestone 4, a second design step (decision 0008) follows Deva's end-to-end review: five tabs, settings behind a profile avatar, livelier Home and Activity, Budgets that hold categories, a grouped Accounts tab, one expense flow for people and groups, pay first in scan and pay, and shared pickers. Mockups were signed off on 24 Oct 2026, and the build ships in small PRs before milestone 5.
-5. **Net worth, imports and month review.** CAS import, FDs, daily prices, statement import, month review with numbers (no AI yet). *Exit:* net worth matches the user's own sum within 1%.
+5. **Net worth, imports and month review.** Four builds in order (decision 0010): month review with numbers (no AI yet), FDs and RDs, mutual funds from a CAS import with daily NAV, then statement import. *Exit:* net worth matches the user's own sum within 1%.
 6. **AI.** A self-hosted open model on Deva's PC (decision 0006): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
-7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
+7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, a speed pass (measured on Deva's phone first), APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
 ## Free-tier plan
 
@@ -272,7 +273,7 @@ Every MVP service fits in a free tier except phone OTP, so phone sign-in moves t
 | Backend | Supabase Free, Mumbai region | 500 MB database; the project pauses after a week with no activity |
 | Email OTP | Supabase Auth with a free SMTP sender (for example Resend or Brevo) | A few hundred emails a day |
 | Phone OTP | None: every Indian OTP SMS costs money and needs DLT registration | Moved out of the MVP |
-| CAS parsing | Python service on a free tier (for example Google Cloud Run) | Some free tiers need a card on file |
+| CAS and statement PDFs | Python service on Render's free tier, Singapore region (decision 0010) | Sleeps after 15 minutes idle, so the first import after a break waits about a minute; 750 free hours a month |
 | Prices | AMFI NAV file and exchange closing prices | Free public files |
 | Push | Expo push service | Free |
 | Builds | EAS Build free tier; GitHub Actions | Limited builds a month |
