@@ -283,6 +283,48 @@ export const deposits = sqliteTable(
 );
 
 /**
+ * Mutual fund holdings from a CAS (NW-3): one per scheme and folio, each on
+ * its own mutual_fund account. Units and cost are as of `asOf`.
+ */
+export const holdings = sqliteTable(
+  'holdings',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    scheme: text('scheme').notNull(),
+    isin: text('isin'),
+    amfiCode: text('amfi_code'),
+    folio: text('folio'),
+    amc: text('amc'),
+    /** 123.4560 units is 1234560. */
+    unitsE4: integer('units_e4').notNull(),
+    costPaise: integer('cost_paise').notNull(),
+    /** The NAV on the statement, 45.6789 is 456789. */
+    navE4: integer('nav_e4'),
+    navDate: text('nav_date'),
+    /** "2026-09-30", the day the statement ends. */
+    asOf: text('as_of').notNull(),
+    sipPaise: integer('sip_paise'),
+    sipDay: integer('sip_day'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('holdings_account_idx').on(table.accountId), index('holdings_dirty_idx').on(table.dirty)],
+);
+
+/** Local only, never synced: the latest AMFI NAV per scheme code, fetched once a day. */
+export const navs = sqliteTable('navs', {
+  amfiCode: text('amfi_code').primaryKey(),
+  isin: text('isin'),
+  navE4: integer('nav_e4').notNull(),
+  /** "2026-10-24", the NAV's own date. */
+  date: text('date').notNull(),
+});
+
+/**
  * IOUs (IOU-1 to IOU-5). The same row as public.ious, so a shared IOU has
  * the owner's view of `person_account_id` and `direction`; lib/ious.ts turns
  * it round for the other person. `response` is local only: a confirm or
@@ -363,6 +405,7 @@ export type LocalIouPayment = typeof iouPayments.$inferSelect;
 export type LocalSplitGroup = typeof splitGroups.$inferSelect;
 export type LocalRecurring = typeof recurring.$inferSelect;
 export type LocalDeposit = typeof deposits.$inferSelect;
+export type LocalHolding = typeof holdings.$inferSelect;
 export type LocalAccountType = typeof accountTypes.$inferSelect;
 export type LocalRule = typeof rules.$inferSelect;
 export type LocalBudget = typeof budgets.$inferSelect;
@@ -656,4 +699,34 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX deposits_account_idx ON deposits (account_id);
   CREATE INDEX deposits_dirty_idx ON deposits (dirty);`,
+  // Milestone 5: mutual fund holdings and daily NAVs (NW-3).
+  `CREATE TABLE holdings (
+    id TEXT PRIMARY KEY NOT NULL,
+    account_id TEXT NOT NULL,
+    scheme TEXT NOT NULL,
+    isin TEXT,
+    amfi_code TEXT,
+    folio TEXT,
+    amc TEXT,
+    units_e4 INTEGER NOT NULL,
+    cost_paise INTEGER NOT NULL,
+    nav_e4 INTEGER,
+    nav_date TEXT,
+    as_of TEXT NOT NULL,
+    sip_paise INTEGER,
+    sip_day INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX holdings_account_idx ON holdings (account_id);
+  CREATE INDEX holdings_dirty_idx ON holdings (dirty);
+  CREATE TABLE navs (
+    amfi_code TEXT PRIMARY KEY NOT NULL,
+    isin TEXT,
+    nav_e4 INTEGER NOT NULL,
+    date TEXT NOT NULL
+  );`,
 ];

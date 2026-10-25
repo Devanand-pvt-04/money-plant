@@ -9,6 +9,7 @@ import type {
   LocalPosting,
   LocalRecurring,
   LocalDeposit,
+  LocalHolding,
   LocalRule,
   LocalSplitGroup,
   LocalSource,
@@ -698,6 +699,73 @@ export function fromRemoteDeposit(row: RemoteDeposit): LocalDeposit {
     paidFromAccountId: row.paid_from_account_id,
     payee: row.payee,
     closedAt: row.closed_at === null ? null : iso(row.closed_at),
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteHolding {
+  id: string;
+  user_id: string;
+  account_id: string;
+  scheme: string;
+  isin: string | null;
+  amfi_code: string | null;
+  folio: string | null;
+  amc: string | null;
+  units_e4: number;
+  cost_paise: number;
+  nav_e4: number | null;
+  nav_date: string | null;
+  as_of: string;
+  sip_paise: number | null;
+  sip_day: number | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteHolding(row: LocalHolding): Omit<RemoteHolding, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    account_id: row.accountId,
+    scheme: row.scheme,
+    isin: row.isin,
+    amfi_code: row.amfiCode,
+    folio: row.folio,
+    amc: row.amc,
+    units_e4: row.unitsE4,
+    cost_paise: row.costPaise,
+    nav_e4: row.navE4,
+    nav_date: row.navDate,
+    as_of: row.asOf,
+    sip_paise: row.sipPaise,
+    sip_day: row.sipDay,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteHolding(row: RemoteHolding): LocalHolding {
+  const maybe = (value: number | null) => (value === null ? null : Number(value));
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    scheme: row.scheme,
+    isin: row.isin,
+    amfiCode: row.amfi_code,
+    folio: row.folio,
+    amc: row.amc,
+    unitsE4: Number(row.units_e4),
+    costPaise: Number(row.cost_paise),
+    navE4: maybe(row.nav_e4),
+    navDate: row.nav_date,
+    asOf: row.as_of,
+    sipPaise: maybe(row.sip_paise),
+    sipDay: maybe(row.sip_day),
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

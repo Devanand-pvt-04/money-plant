@@ -7,6 +7,7 @@ import { accountIcon, accountLabel } from '@/components/account-picker';
 import { formatAmount, formatWholeRupees } from '@/components/format';
 import { Card, colors, radius } from '@/components/ui';
 import { listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
+import { netWorthHistory, type NetWorthPoint } from '@/lib/networth';
 import { recurringOverview, type UpcomingPayment } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -32,12 +33,12 @@ const inSegment = (b: AccountBalance): Segment =>
 
 async function load() {
   const [balances, recurring] = await Promise.all([listAccountBalances(), recurringOverview()]);
-  return { balances, upcoming: recurring.upcoming };
+  return { balances, upcoming: recurring.upcoming, history: await netWorthHistory(balances) };
 }
 
 /** NAV-1, NW-1: net worth explained by its groups, and the recurring payments the accounts carry. */
 export default function Accounts() {
-  const { data } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[] });
+  const { data } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[] });
   const [segment, setSegment] = useState<Segment>('cash');
   const counted = data.balances.filter((b) => b.inNetWorth);
   const assets = counted.filter((b) => b.value > 0).reduce((s, b) => s + b.value, 0);
@@ -60,6 +61,7 @@ export default function Accounts() {
             <Text style={[styles.splitAmount, liabilities > 0 && { color: colors.danger }]}>{formatWholeRupees(liabilities)}</Text>
           </View>
         </View>
+        {data.history.length >= 2 && <History points={data.history} />}
       </View>
 
       <View style={styles.segment}>
@@ -80,7 +82,7 @@ export default function Accounts() {
         <Text style={styles.empty}>
           {segment === 'cash'
             ? 'No accounts yet. Read your bank SMS, or add accounts, cards and cash by hand.'
-            : 'Add FDs, funds or your own types like PF and gold. CAS import and daily prices come in a later update.'}
+            : 'Add FDs, your own types like PF and gold, or import your mutual funds from a CAS.'}
         </Text>
       ) : (
         GROUPS[segment].map((group) => {
@@ -103,6 +105,17 @@ export default function Accounts() {
         })
       )}
 
+      {segment === 'investments' && (
+        <Pressable accessibilityRole="button" onPress={() => router.push('/cas-import')} style={({ pressed }) => [styles.recurring, pressed && styles.pressed]}>
+          <Feather name="trending-up" size={18} color={colors.muted} />
+          <View style={styles.grow}>
+            <Text style={styles.name}>Import mutual funds</Text>
+            <Text style={styles.meta}>From a CAS PDF, valued daily at the latest NAV</Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.muted} />
+        </Pressable>
+      )}
+
       <Pressable accessibilityRole="button" onPress={() => router.push('/add-account')} style={({ pressed }) => [styles.add, pressed && styles.pressed]}>
         <Feather name="plus" size={18} color={colors.primary} />
         <Text style={styles.addText}>Add account</Text>
@@ -119,6 +132,37 @@ export default function Accounts() {
         <Feather name="chevron-right" size={18} color={colors.muted} />
       </Pressable>
     </ScrollView>
+  );
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** NW-4: net worth at the end of each recent month, as bars scaled between the lowest and highest month. */
+function History({ points }: { points: NetWorthPoint[] }) {
+  const values = points.map((p) => p.value);
+  const low = Math.min(0, ...values);
+  const high = Math.max(...values);
+  const span = high - low || 1;
+  return (
+    <View style={styles.history} accessible accessibilityLabel={`Net worth by month: ${points.map((p) => `${MONTH_NAMES[Number(p.month.slice(5)) - 1]} ${formatWholeRupees(p.value)}`).join(', ')}`}>
+      {points.map((p, i) => {
+        const last = i === points.length - 1;
+        return (
+          <View key={p.month} style={styles.historyColumn}>
+            <View style={styles.historyTrack}>
+              <View
+                style={[
+                  styles.historyBar,
+                  { height: `${Math.max(4, ((p.value - low) / span) * 100)}%` },
+                  { backgroundColor: p.value < 0 ? colors.danger : last ? colors.primary : colors.border },
+                ]}
+              />
+            </View>
+            <Text style={[styles.historyLabel, last && styles.historyLabelOn]}>{MONTH_NAMES[Number(p.month.slice(5)) - 1]}</Text>
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
@@ -152,6 +196,12 @@ const styles = StyleSheet.create({
   heroAmount: { fontSize: 30, fontWeight: '700', color: colors.text, letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
   split: { flexDirection: 'row', gap: 10, marginTop: 6 },
   splitAmount: { fontSize: 16, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'], marginTop: 2 },
+  history: { flexDirection: 'row', gap: 8, height: 72, marginTop: 10 },
+  historyColumn: { flex: 1, alignItems: 'center', gap: 4 },
+  historyTrack: { flex: 1, width: '100%', justifyContent: 'flex-end' },
+  historyBar: { width: '100%', borderRadius: 4 },
+  historyLabel: { fontSize: 11, color: colors.muted },
+  historyLabelOn: { color: colors.text, fontWeight: '600' },
   segment: { flexDirection: 'row', backgroundColor: colors.subtle, borderRadius: radius.sm, padding: 3 },
   segmentItem: { flex: 1, minHeight: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   segmentOn: { backgroundColor: colors.ink },

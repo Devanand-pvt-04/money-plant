@@ -15,6 +15,7 @@ import { countPending, listAccountBalances, listTransactions, type AccountBalanc
 import { displayName } from '@/lib/me';
 import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
 import { refreshDeposits } from '@/lib/deposits';
+import { refreshFunds } from '@/lib/funds';
 import { refreshRecurring } from '@/lib/recurring';
 import { scheduleMonthReview } from '@/lib/review';
 import { syncNow } from '@/lib/sync';
@@ -78,6 +79,8 @@ export default function Home() {
       refreshRecurring().catch(() => {});
       // NW-2: RD instalments and FD payments become transfers into their deposits.
       refreshDeposits().catch(() => {});
+      // NW-3: SIP debits become transfers into their funds; today's NAVs once a day.
+      refreshFunds().catch(() => {});
       // BUD-4: the review notification for the 1st of next month.
       scheduleMonthReview().catch(() => {});
       // IOU-4: payments from people who owe the user settle their IOUs.

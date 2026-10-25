@@ -15,6 +15,7 @@ import {
 import { normaliseMerchant } from '@money-plant/categoriser';
 import { rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
 import { depositValue, listDeposits } from './deposits';
+import { fundValues } from './funds';
 import { getDb } from './db';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
 import { notifyLedgerChange } from './events';
@@ -27,7 +28,7 @@ export interface AccountBalance {
   /** Opening balance plus every posting, never a stored total. */
   balance: Paise;
   reconciliation: Reconciliation | null;
-  /** What it is worth today: the balance, plus interest earned so far on an FD or RD (NW-1). */
+  /** What it is worth today: the balance, plus interest earned so far on an FD or RD, or a fund at today's NAV (NW-1). */
   value: Paise;
   /** "Credit card", or the custom type's name (ACC-6). */
   typeLabel: string;
@@ -59,7 +60,7 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
   const customTypes = new Map(db.select().from(accountTypes).all().map((t) => [t.id, t]));
   const depositTerms = new Map((await listDeposits()).map((d) => [d.accountId, d]));
 
-  return rows.map((account) => {
+  const result = rows.map((account) => {
     const own = dated.filter((p) => p.accountId === account.id).map((p) => ({ occurredAt: p.occurredAt, amount: paise(p.amount) }));
     const balance = own.reduce((sum, p) => sum + p.amount, account.openingBalancePaise);
     const ownAnchors = anchors
@@ -77,9 +78,11 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
       inNetWorth: custom ? custom.inNetWorth === 1 : true,
     };
   });
+  const funds = await fundValues(new Map(result.map((r) => [r.account.id, r.balance])));
+  return result.map((r) => (funds.has(r.account.id) ? { ...r, value: funds.get(r.account.id)!.value } : r));
 }
 
-/** NW-1: balances are signed, so liabilities already count as negative; deposits count at their value today. */
+/** NW-1: balances are signed, so liabilities already count as negative; deposits and funds count at their value today. */
 export function netWorth(balances: readonly AccountBalance[]): Paise {
   return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + b.value, 0));
 }
