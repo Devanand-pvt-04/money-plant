@@ -124,6 +124,7 @@ export default function Budgets() {
         {segment === 'spending' ? (
           <>
             <Overall line={overview.overall} outside={overview.outside} month={month} elapsed={overview.elapsed} />
+            <ReviewLink month={month < currentMonth() ? month : addMonths(month, -1)} />
             <View style={styles.sectionHead}>
               <Text style={styles.sectionTitle}>Categories</Text>
               <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/categories')}>
@@ -199,6 +200,17 @@ function Overall({ line, outside, month, elapsed }: { line: BudgetLine; outside:
       ) : (
         outside > 0 && <Text style={styles.meta}>{rupees(outside)} spent outside your budgets</Text>
       )}
+    </Pressable>
+  );
+}
+
+/** BUD-4: the month review for a past month, or last month's while viewing this one. */
+function ReviewLink({ month }: { month: MonthKey }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={() => router.push(`/month-review?month=${month}`)} style={({ pressed }) => [styles.card, styles.row, pressed && styles.pressed]}>
+      <Feather name="file-text" size={18} color={colors.primary} />
+      <Text style={[styles.name, styles.grow]}>{formatMonth(month).split(' ')[0]} review</Text>
+      <Feather name="chevron-right" size={18} color={colors.muted} />
     </Pressable>
   );
 }

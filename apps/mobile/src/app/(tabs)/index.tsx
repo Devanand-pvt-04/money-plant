@@ -15,6 +15,7 @@ import { countPending, listAccountBalances, listTransactions, type AccountBalanc
 import { displayName } from '@/lib/me';
 import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
 import { refreshRecurring } from '@/lib/recurring';
+import { scheduleMonthReview } from '@/lib/review';
 import { syncNow } from '@/lib/sync';
 import { useLedger } from '@/lib/use-ledger';
 import { weekAhead, type DueItem } from '@/lib/week';
@@ -74,6 +75,8 @@ export default function Home() {
       setError(null);
       // REC-1, REC-4: new debits mark payments paid, steady ones become suggestions, reminders follow.
       refreshRecurring().catch(() => {});
+      // BUD-4: the review notification for the 1st of next month.
+      scheduleMonthReview().catch(() => {});
       // IOU-4: payments from people who owe the user settle their IOUs.
       refreshIous().catch(() => {});
       // CAT-2: only merchants that rules, patterns and the dictionary couldn't place; capped on the server.
