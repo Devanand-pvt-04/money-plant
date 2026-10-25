@@ -30,7 +30,7 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 
 ## Commands
 
-- `pnpm install`: install the workspace (pnpm 10, Node 22)
+- `pnpm install`: install the workspace (pnpm 12, Node 22)
 - `pnpm typecheck` and `pnpm test`: run both before every PR; CI runs the same commands
 - `cd apps/mobile && npx expo install <pkg>`: add Expo or React Native packages so versions match the SDK. Use `pnpm --filter <pkg> add` for everything else
 - `cd apps/mobile && npx expo run:android`: local development build (needs Android Studio), or `npx eas-cli@latest build --profile development --platform android` for a cloud build
