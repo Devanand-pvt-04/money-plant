@@ -14,6 +14,7 @@ import {
 } from '@money-plant/db-schema';
 import { normaliseMerchant } from '@money-plant/categoriser';
 import { rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
+import { depositValue, listDeposits } from './deposits';
 import { getDb } from './db';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
 import { notifyLedgerChange } from './events';
@@ -26,6 +27,8 @@ export interface AccountBalance {
   /** Opening balance plus every posting, never a stored total. */
   balance: Paise;
   reconciliation: Reconciliation | null;
+  /** What it is worth today: the balance, plus interest earned so far on an FD or RD (NW-1). */
+  value: Paise;
   /** "Credit card", or the custom type's name (ACC-6). */
   typeLabel: string;
   liability: boolean;
@@ -54,6 +57,7 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     .where(and(inArray(balanceAnchors.accountId, ids), isNull(balanceAnchors.deletedAt)))
     .all();
   const customTypes = new Map(db.select().from(accountTypes).all().map((t) => [t.id, t]));
+  const depositTerms = new Map((await listDeposits()).map((d) => [d.accountId, d]));
 
   return rows.map((account) => {
     const own = dated.filter((p) => p.accountId === account.id).map((p) => ({ occurredAt: p.occurredAt, amount: paise(p.amount) }));
@@ -62,9 +66,11 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
       .filter((a) => a.accountId === account.id)
       .map((a) => ({ observedAt: a.observedAt, balance: paise(a.balancePaise) }));
     const custom = account.accountTypeId ? customTypes.get(account.accountTypeId) : undefined;
+    const deposit = depositTerms.get(account.id);
     return {
       account,
       balance: paise(balance),
+      value: deposit && !deposit.closedAt ? paise(balance + depositValue(deposit).interest) : paise(balance),
       reconciliation: reconcile(paise(account.openingBalancePaise), own, ownAnchors),
       typeLabel: custom?.name ?? ACCOUNT_TYPE_LABELS[account.type],
       liability: custom ? custom.class === 'liability' : LIABILITY_TYPES.has(account.type),
@@ -73,9 +79,9 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
   });
 }
 
-/** Net worth so far: balances are signed, so liabilities already count as negative (NW-1 comes in milestone 5). */
+/** NW-1: balances are signed, so liabilities already count as negative; deposits count at their value today. */
 export function netWorth(balances: readonly AccountBalance[]): Paise {
-  return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + b.balance, 0));
+  return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + b.value, 0));
 }
 
 export interface TransactionRow {

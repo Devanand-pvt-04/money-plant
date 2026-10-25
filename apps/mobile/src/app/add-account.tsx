@@ -23,6 +23,8 @@ export default function AddAccount() {
   const [saving, setSaving] = useState(false);
 
   const liability = choice.custom ? choice.custom.class === 'liability' : LIABILITY_TYPES.has(choice.type);
+  // An FD or RD's balance comes from its terms (NW-2), asked for next.
+  const deposit = !choice.custom && (choice.type === 'fd' || choice.type === 'rd');
 
   async function save() {
     const amount = parseRupees(balance.trim() === '' ? '0' : balance);
@@ -30,18 +32,19 @@ export default function AddAccount() {
     if (last4 !== '' && !/^\d{4}$/.test(last4)) return setError('Last 4 digits must be exactly 4 numbers');
 
     setSaving(true);
-    await createAccount({
+    const id = await createAccount({
       type: choice.type,
       accountTypeId: choice.custom?.id ?? null,
       name: name.trim(),
       institution: institution.trim() || null,
       last4: last4 || null,
       // Balances are signed: money owed on a card, loan or liability type is stored as negative.
-      openingBalance: liability ? paise(-Math.abs(amount)) : amount,
+      openingBalance: deposit ? paise(0) : liability ? paise(-Math.abs(amount)) : amount,
     });
     // Saved locally; sync in the background and go back right away.
     syncNow().catch(() => {});
-    router.back();
+    if (deposit) router.replace(`/deposit?account=${id}`);
+    else router.back();
   }
 
   return (
@@ -77,17 +80,21 @@ export default function AddAccount() {
         maxLength={4}
         placeholder="1234"
       />
-      <Field
-        label={liability ? 'Amount you owe now (₹)' : 'Current balance (₹)'}
-        value={balance}
-        onChangeText={setBalance}
-        keyboardType="decimal-pad"
-        placeholder="0"
-      />
+      {deposit ? (
+        <Text style={styles.hint}>Next, add the amount, rate and dates. The balance and interest are worked out from them.</Text>
+      ) : (
+        <Field
+          label={liability ? 'Amount you owe now (₹)' : 'Current balance (₹)'}
+          value={balance}
+          onChangeText={setBalance}
+          keyboardType="decimal-pad"
+          placeholder="0"
+        />
+      )}
 
       {error && <ErrorText>{error}</ErrorText>}
       <View style={styles.actions}>
-        <Button title="Save" onPress={save} loading={saving} disabled={name.trim() === ''} />
+        <Button title={deposit ? 'Next' : 'Save'} onPress={save} loading={saving} disabled={name.trim() === ''} />
       </View>
     </ScrollView>
   );
@@ -96,5 +103,6 @@ export default function AddAccount() {
 const styles = StyleSheet.create({
   container: { padding: 16, paddingBottom: 48 },
   label: { fontSize: 14, color: colors.muted, marginBottom: 6 },
+  hint: { fontSize: 14, color: colors.muted, lineHeight: 20, marginTop: 16 },
   actions: { marginTop: 24 },
 });

@@ -7,3 +7,4 @@ export * from './schedule';
 export * from './split';
 export * from './csv';
 export * from './review';
+export * from './deposit';

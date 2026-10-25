@@ -14,6 +14,7 @@ import { fillMissingPayees, hasImportedInbox, importInbox } from '@/lib/capture'
 import { countPending, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { displayName } from '@/lib/me';
 import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
+import { refreshDeposits } from '@/lib/deposits';
 import { refreshRecurring } from '@/lib/recurring';
 import { scheduleMonthReview } from '@/lib/review';
 import { syncNow } from '@/lib/sync';
@@ -75,6 +76,8 @@ export default function Home() {
       setError(null);
       // REC-1, REC-4: new debits mark payments paid, steady ones become suggestions, reminders follow.
       refreshRecurring().catch(() => {});
+      // NW-2: RD instalments and FD payments become transfers into their deposits.
+      refreshDeposits().catch(() => {});
       // BUD-4: the review notification for the 1st of next month.
       scheduleMonthReview().catch(() => {});
       // IOU-4: payments from people who owe the user settle their IOUs.

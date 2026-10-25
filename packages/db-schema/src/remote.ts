@@ -8,6 +8,7 @@ import type {
   LocalIouPayment,
   LocalPosting,
   LocalRecurring,
+  LocalDeposit,
   LocalRule,
   LocalSplitGroup,
   LocalSource,
@@ -646,4 +647,61 @@ export function nextCursor(rows: readonly { updated_at: string }[], previous: st
     if (cursor === null || Date.parse(row.updated_at) > Date.parse(cursor)) cursor = row.updated_at;
   }
   return cursor;
+}
+
+export interface RemoteDeposit {
+  id: string;
+  user_id: string;
+  account_id: string;
+  kind: LocalDeposit['kind'];
+  amount_paise: number;
+  rate_bp: number;
+  start_date: string;
+  maturity_date: string;
+  payout: LocalDeposit['payout'];
+  paid_from_account_id: string | null;
+  payee: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteDeposit(row: LocalDeposit): Omit<RemoteDeposit, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    account_id: row.accountId,
+    kind: row.kind,
+    amount_paise: row.amountPaise,
+    rate_bp: row.rateBp,
+    start_date: row.startDate,
+    maturity_date: row.maturityDate,
+    payout: row.payout,
+    paid_from_account_id: row.paidFromAccountId,
+    payee: row.payee,
+    closed_at: row.closedAt,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteDeposit(row: RemoteDeposit): LocalDeposit {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    kind: row.kind,
+    amountPaise: Number(row.amount_paise),
+    rateBp: Number(row.rate_bp),
+    startDate: row.start_date,
+    maturityDate: row.maturity_date,
+    payout: row.payout,
+    paidFromAccountId: row.paid_from_account_id,
+    payee: row.payee,
+    closedAt: row.closed_at === null ? null : iso(row.closed_at),
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
 }

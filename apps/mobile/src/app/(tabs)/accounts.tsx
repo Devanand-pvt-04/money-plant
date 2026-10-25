@@ -40,8 +40,8 @@ export default function Accounts() {
   const { data } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[] });
   const [segment, setSegment] = useState<Segment>('cash');
   const counted = data.balances.filter((b) => b.inNetWorth);
-  const assets = counted.filter((b) => b.balance > 0).reduce((s, b) => s + b.balance, 0);
-  const liabilities = counted.filter((b) => b.balance < 0).reduce((s, b) => s - b.balance, 0);
+  const assets = counted.filter((b) => b.value > 0).reduce((s, b) => s + b.value, 0);
+  const liabilities = counted.filter((b) => b.value < 0).reduce((s, b) => s - b.value, 0);
   const shown = data.balances.filter((b) => inSegment(b) === segment);
   const next = data.upcoming[0];
 
@@ -86,7 +86,7 @@ export default function Accounts() {
         GROUPS[segment].map((group) => {
           const rows = shown.filter(group.has);
           if (rows.length === 0) return null;
-          const total = rows.reduce((s, b) => s + b.balance, 0);
+          const total = rows.reduce((s, b) => s + b.value, 0);
           return (
             <View key={group.title} style={styles.group}>
               <View style={styles.groupHead}>
@@ -123,7 +123,7 @@ export default function Accounts() {
 }
 
 function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
-  const { account, balance, reconciliation, typeLabel } = item;
+  const { account, value, reconciliation, typeLabel } = item;
   return (
     <Pressable
       accessibilityRole="button"
@@ -141,7 +141,7 @@ function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
         </Text>
         {reconciliation?.flagged && <Text style={styles.warn}>Off from the bank by {formatAmount(Math.abs(reconciliation.latest.gap))}</Text>}
       </View>
-      <Text style={[styles.amount, balance < 0 && { color: colors.danger }]}>{formatAmount(balance)}</Text>
+      <Text style={[styles.amount, value < 0 && { color: colors.danger }]}>{formatAmount(value)}</Text>
     </Pressable>
   );
 }
