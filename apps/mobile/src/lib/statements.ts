@@ -6,7 +6,7 @@ import { pipelineCategoriser } from './categories';
 import { notifyLedgerChange } from './events';
 import { listAccountBalances, type AccountBalance } from './ledger';
 import { SqliteLedgerStore } from './ledger-store';
-import { PdfError, sendPdf } from './pdf-service';
+import { PdfError, sendPdf, type PdfFile } from './pdf-service';
 
 /** What the statement reader returns: rows only, never the holder's name, address or full account number. */
 export interface StatementData {
@@ -17,7 +17,7 @@ export interface StatementData {
 }
 
 /** CAP-5: reads a bank statement PDF through the parse-statement edge function. */
-export async function readStatement(file: { uri: string; name: string }, password: string): Promise<StatementData> {
+export async function readStatement(file: PdfFile, password: string): Promise<StatementData> {
   const data = await sendPdf<StatementData>('parse-statement', file, password);
   if (!Array.isArray(data.rows)) throw new PdfError('not_a_statement');
   return data;

@@ -25,19 +25,25 @@ Deno.serve(async (request) => {
   const serviceToken = Deno.env.get('CAS_SERVICE_TOKEN');
   if (!serviceUrl || !serviceToken) return json({ error: 'not_configured' }, 503);
 
-  let form: FormData;
+  // The phone sends { pdf: base64, password } as JSON; React Native's multipart upload of picked files is unreliable.
+  let body: { pdf?: unknown; password?: unknown };
   try {
-    form = await request.formData();
+    body = await request.json();
   } catch {
     return json({ error: 'bad_request' }, 400);
   }
-  const file = form.get('file');
-  const password = form.get('password');
-  if (!(file instanceof File) || (password !== null && typeof password !== 'string')) return json({ error: 'bad_request' }, 400);
-  if (file.size > 10 * 1024 * 1024) return json({ error: 'too_large' }, 413);
+  const { pdf, password } = body;
+  if (typeof pdf !== 'string' || (password !== undefined && typeof password !== 'string')) return json({ error: 'bad_request' }, 400);
+  if (pdf.length * 0.75 > 10 * 1024 * 1024) return json({ error: 'too_large' }, 413);
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(pdf), (c) => c.charCodeAt(0));
+  } catch {
+    return json({ error: 'bad_request' }, 400);
+  }
 
   const upstream = new FormData();
-  upstream.append('file', file, 'statement.pdf');
+  upstream.append('file', new Blob([bytes], { type: 'application/pdf' }), 'statement.pdf');
   upstream.append('password', typeof password === 'string' ? password : '');
   try {
     const response = await fetch(`${serviceUrl.replace(/\/$/, '')}/statement`, {

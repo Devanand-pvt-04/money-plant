@@ -24,7 +24,7 @@ const ERRORS: Record<PdfErrorCode, string> = {
 
 /** NW-3: import mutual fund holdings from a CAS PDF, matching past SIPs to bank debits already in the ledger. */
 export default function CasImport() {
-  const [file, setFile] = useState<{ uri: string; name: string } | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState('');
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,7 +37,7 @@ export default function CasImport() {
     try {
       const picked = await File.pickFileAsync({ mimeTypes: ['application/pdf'] });
       if (picked.canceled) return;
-      setFile({ uri: picked.result.uri, name: picked.result.name });
+      setFile(picked.result);
       setStatement(null);
     } catch {
       setError("Couldn't open the file picker.");
@@ -51,7 +51,7 @@ export default function CasImport() {
     try {
       setStatement(await readCas(file, password));
     } catch (e) {
-      setError(ERRORS[e instanceof PdfError ? e.code : 'unknown']);
+      setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${e instanceof Error ? e.message : String(e)})`);
     } finally {
       setReading(false);
     }
