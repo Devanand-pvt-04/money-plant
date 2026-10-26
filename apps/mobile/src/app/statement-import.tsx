@@ -29,7 +29,7 @@ interface Target {
 /** CAP-5: import a bank statement PDF, filling in payments the SMS missed without doubling the ones it caught. */
 export default function StatementImport() {
   const params = useLocalSearchParams<{ account?: string }>();
-  const [file, setFile] = useState<{ uri: string; name: string } | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState('');
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -52,7 +52,7 @@ export default function StatementImport() {
     try {
       const picked = await File.pickFileAsync({ mimeTypes: ['application/pdf'] });
       if (picked.canceled) return;
-      setFile({ uri: picked.result.uri, name: picked.result.name });
+      setFile(picked.result);
       setPreview(null);
     } catch {
       setError("Couldn't open the file picker.");
@@ -69,7 +69,7 @@ export default function StatementImport() {
       setPreview(next);
       if (!target && next.suggested) setTarget({ id: next.suggested.account.id, label: accountLabel(next.suggested.account) });
     } catch (e) {
-      setError(ERRORS[e instanceof PdfError ? e.code : 'unknown']);
+      setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${e instanceof Error ? e.message : String(e)})`);
     } finally {
       setReading(false);
     }

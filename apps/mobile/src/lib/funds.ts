@@ -30,7 +30,7 @@ import { notifyLedgerChange } from './events';
 import { derivedId } from './ids';
 import { kvGet, kvSet } from './kv';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
-import { PdfError, sendPdf } from './pdf-service';
+import { PdfError, sendPdf, type PdfFile } from './pdf-service';
 import { supabase } from './supabase';
 
 const now = () => new Date().toISOString();
@@ -38,7 +38,7 @@ const today = () => dateKey(new Date());
 const NAV_FETCHED_KEY = 'funds.nav.fetched';
 
 /** NW-3: reads a CAS PDF through the parse-cas edge function. */
-export async function readCas(file: { uri: string; name: string }, password: string): Promise<CasStatement> {
+export async function readCas(file: PdfFile, password: string): Promise<CasStatement> {
   const data = await sendPdf<CasStatement>('parse-cas', file, password);
   if (!Array.isArray(data.folios)) throw new PdfError('not_a_cas');
   return data;
