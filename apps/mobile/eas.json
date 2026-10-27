@@ -10,7 +10,10 @@
       "android": {
         "buildType": "apk"
       },
-      "channel": "development"
+      "channel": "development",
+      "env": {
+        "APP_VARIANT": "development"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -21,6 +24,13 @@
       "env": {
         "APP_VARIANT": "preview"
       }
+    },
+    "production": {
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "production",
+      "autoIncrement": true
     }
   }
 }

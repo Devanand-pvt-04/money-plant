@@ -1,13 +1,18 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
-// Preview builds (eas.json sets APP_VARIANT) get their own package, so they
-// install next to the development build instead of replacing it.
-const preview = process.env.APP_VARIANT === 'preview';
+// Each build profile (eas.json sets APP_VARIANT) gets its own package, so the
+// production app, the preview app and the development build install side by
+// side and never replace one another.
+const VARIANTS: Record<string, { suffix: string; label: string }> = {
+  development: { suffix: '.dev', label: ' (dev)' },
+  preview: { suffix: '.preview', label: ' (preview)' },
+};
+const variant = VARIANTS[process.env.APP_VARIANT ?? ''];
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: preview ? 'Money Plant (preview)' : config.name!,
+  name: `${config.name!}${variant?.label ?? ''}`,
   slug: config.slug!,
-  android: { ...config.android, package: preview ? 'in.moneyplant.app.preview' : config.android?.package },
-  ios: { ...config.ios, bundleIdentifier: preview ? 'in.moneyplant.app.preview' : config.ios?.bundleIdentifier },
+  android: { ...config.android, package: `${config.android!.package!}${variant?.suffix ?? ''}` },
+  ios: { ...config.ios, bundleIdentifier: `${config.ios!.bundleIdentifier!}${variant?.suffix ?? ''}` },
 });

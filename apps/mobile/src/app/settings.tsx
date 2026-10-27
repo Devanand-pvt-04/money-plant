@@ -1,9 +1,10 @@
-import { type ComponentProps } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { type ComponentProps, useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { Avatar, useMe } from '@/components/avatar';
 import { Card, SectionTitle, colors, radius } from '@/components/ui';
+import { lockAvailable, lockEnabled, setLockEnabled, unlock } from '@/lib/lock';
 import { displayName } from '@/lib/me';
 import { signOut } from '@/lib/session';
 import { setThemePreference, themePreference, type ThemePreference } from '@/lib/theme';
@@ -18,6 +19,7 @@ const THEMES: { key: ThemePreference; label: string }[] = [
 export default function Settings() {
   const me = useMe();
   const theme = themePreference();
+  const lock = useLockSetting();
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -53,6 +55,16 @@ export default function Settings() {
             ))}
           </View>
         </View>
+        <View style={[styles.row, styles.divided]}>
+          <Feather name="lock" size={18} color={colors.muted} />
+          <View style={styles.grow}>
+            <Text style={styles.name}>App lock</Text>
+            <Text style={styles.meta}>
+              {lock.available === false ? 'Set a screen lock on your phone to use this.' : 'Fingerprint or screen lock when the app opens'}
+            </Text>
+          </View>
+          <Switch value={lock.on === true && lock.available === true} disabled={lock.on === null || !lock.available} onValueChange={lock.toggle} />
+        </View>
       </Card>
 
       <SectionTitle>How entries are filled</SectionTitle>
@@ -72,6 +84,25 @@ export default function Settings() {
       </Pressable>
     </ScrollView>
   );
+}
+
+/** ACC-2: changing the lock either way asks to unlock first, so someone holding the phone can't turn it off. */
+function useLockSetting() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [available, setAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    lockEnabled().then(setOn).catch(() => setOn(true));
+    lockAvailable().then(setAvailable);
+  }, []);
+
+  async function toggle(next: boolean) {
+    if ((await unlock(next ? 'Turn on app lock' : 'Turn off app lock')) !== 'unlocked') return;
+    await setLockEnabled(next);
+    setOn(next);
+  }
+
+  return { on, available, toggle };
 }
 
 function Link(props: { icon: ComponentProps<typeof Feather>['name']; title: string; href: Href; first?: boolean }) {

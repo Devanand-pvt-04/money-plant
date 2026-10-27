@@ -42,7 +42,7 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 | ID | Requirement | Priority |
 | --- | --- | --- |
 | ACC-1 | Sign up and sign in with an email OTP (phone OTP after the MVP, since SMS OTPs cost money) | Must |
-| ACC-2 | App lock with a PIN and fingerprint or Face ID | Must |
+| ACC-2 | App lock with a fingerprint or face, falling back to the phone's own PIN, pattern or password. It locks on start and after a minute in the background, and can be turned off in Settings after unlocking | Must |
 | ACC-3 | Data syncs across a user's devices and works offline | Must |
 | ACC-4 | Export all data as CSV, and delete the account along with all its data. Deleting asks for a typed confirmation and offers the export first | Must |
 | ACC-7 | Clear all my data but keep the account: every entry, account, category, rule and IOU is removed on the phone and the server, and the app starts again from first run. Typed confirmation, export offered first | Must |

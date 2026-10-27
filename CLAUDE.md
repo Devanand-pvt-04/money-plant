@@ -34,6 +34,7 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 - `pnpm typecheck` and `pnpm test`: run both before every PR; CI runs the same commands
 - `cd apps/mobile && npx expo install <pkg>`: add Expo or React Native packages so versions match the SDK. Use `pnpm --filter <pkg> add` for everything else
 - `cd apps/mobile && npx expo run:android`: local development build (needs Android Studio), or `npx eas-cli@latest build --profile development --platform android` for a cloud build
+- `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`: the production APK Deva uses daily. JS fixes ship with `npx eas-cli@latest update --channel preview`, then `--channel production` once tried (decision 0011)
 - `npx supabase db push`: apply `supabase/migrations` to the hosted project (after `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`)
 - `npx supabase functions deploy <name>`: deploy one edge function from `supabase/functions/` (for example `delete-account`)
 
