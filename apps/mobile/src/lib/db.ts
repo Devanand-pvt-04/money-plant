@@ -48,10 +48,17 @@ async function open(): Promise<Database> {
     console.warn('SQLCipher is not available: the local database is NOT encrypted.');
   }
   migrate(sqlite);
-  return createDrizzle(sqlite);
+  opened = createDrizzle(sqlite);
+  return opened;
 }
 
 let opening: Promise<Database> | null = null;
+let opened: Database | null = null;
+
+/** The database if it is already open, for code that can't wait, such as a crash handler. */
+export function openedDb(): Database | null {
+  return opened;
+}
 
 /** The app's single encrypted database, opened on first use. */
 export function getDb(): Promise<Database> {

@@ -144,7 +144,19 @@ A preview build carries the app's code inside the APK, so it runs for days witho
 
 Updates only reach builds with the same `version` in `app.json`. A PR that changes native code (a new native package or config plugin) bumps that version, and then you need a new preview build.
 
-## 11. Day to day
+## 11. Production build (the app you use every day)
+
+The production app, **Money Plant**, is the one to rely on (decision 0011). The preview app stays for trying changes first, signed into a separate test account.
+
+1. Once, and again whenever a PR bumps `version` in app.json: `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`. Install the APK and sign in; your ledger syncs down.
+2. Give SMS and notification access to the production app only.
+3. Ship a JavaScript fix to preview first (`--channel preview`, as above). Once it works there, send the same fix to the daily app: `npx eas-cli@latest update --channel production --message "<what changed>"`.
+4. Errors from the phones land in the `app_errors` table (Table Editor in the Supabase dashboard).
+5. Set up the weekly backup to your PC once: see [scripts/backup/README.md](../scripts/backup/README.md).
+
+The development build installs as **Money Plant (dev)** (`in.moneyplant.app.dev`). A local `npx expo run:android` uses the production package name unless you set `APP_VARIANT=development` first.
+
+## 12. Day to day
 
 ```
 git fetch

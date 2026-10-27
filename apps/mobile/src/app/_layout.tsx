@@ -6,10 +6,19 @@ import * as SystemUI from 'expo-system-ui';
 import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppLock } from '@/components/app-lock';
+import { ErrorScreen } from '@/components/error-screen';
 import { colors } from '@/components/ui';
+import { useConsent } from '@/lib/consent';
+import { flushErrors, watchErrors } from '@/lib/errors';
 import { watchSharedIous } from '@/lib/realtime';
 import { useSession } from '@/lib/session';
 import { followSystemScheme, scheme } from '@/lib/theme';
+
+watchErrors();
+
+/** A crash anywhere below shows a way back instead of a blank screen. */
+export const ErrorBoundary = ErrorScreen;
 
 const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
 const navigationTheme = {
@@ -38,20 +47,25 @@ export default function RootLayout() {
   }, []);
 
   const userId = session?.user.id;
+  const consented = useConsent(userId);
   useEffect(() => (userId ? watchSharedIous(userId) : undefined), [userId]);
+  // Errors saved while offline or signed out go up once there is a session.
+  useEffect(() => {
+    if (userId) void flushErrors();
+  }, [userId]);
 
   // A tapped reminder or budget alert opens the screen it is about.
   useEffect(() => {
-    if (loading || !session || !lastResponse) return;
+    if (loading || !session || !consented || !lastResponse) return;
     if (lastResponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
     const { identifier, content } = lastResponse.notification.request;
     const url = content.data?.url;
     if (typeof url !== 'string' || handledResponse.current === identifier) return;
     handledResponse.current = identifier;
     router.push(url as never);
-  }, [lastResponse, loading, session]);
+  }, [lastResponse, loading, session, consented]);
 
-  if (loading) {
+  if (loading || (session && consented === null)) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
         <ActivityIndicator color={colors.primary} />
@@ -60,6 +74,7 @@ export default function RootLayout() {
   }
 
   const signedIn = session !== null;
+  const ready = signedIn && consented === true;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={navigationTheme}>
@@ -74,7 +89,7 @@ export default function RootLayout() {
             headerTitleStyle: { fontWeight: '600' },
           }}
         >
-          <Stack.Protected guard={signedIn}>
+          <Stack.Protected guard={ready}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Home', contentStyle: { backgroundColor: colors.background } }} />
             <Stack.Screen name="quick-add" options={{ headerShown: false, presentation: 'modal', contentStyle: { backgroundColor: colors.background } }} />
             <Stack.Screen name="add-account" options={{ title: 'Add account', presentation: 'modal' }} />
@@ -107,10 +122,14 @@ export default function RootLayout() {
             <Stack.Screen name="settings" options={{ title: 'Profile and settings' }} />
             <Stack.Screen name="data" options={{ title: 'Your data' }} />
           </Stack.Protected>
+          <Stack.Protected guard={signedIn && !ready}>
+            <Stack.Screen name="consent" options={{ headerShown: false }} />
+          </Stack.Protected>
           <Stack.Protected guard={!signedIn}>
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
           </Stack.Protected>
         </Stack>
+        <AppLock active={ready} />
       </ThemeProvider>
     </GestureHandlerRootView>
   );
