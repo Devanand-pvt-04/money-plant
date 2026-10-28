@@ -126,6 +126,7 @@ export default function RootLayout() {
             <Stack.Screen name="profile" options={{ title: 'Your name and UPI ID', presentation: 'modal' }} />
             <Stack.Screen name="settings" options={{ title: 'Profile and settings' }} />
             <Stack.Screen name="data" options={{ title: 'Your data' }} />
+            <Stack.Screen name="speed" options={{ title: 'Speed log' }} />
           </Stack.Protected>
           <Stack.Protected guard={signedIn && !ready}>
             <Stack.Screen name="consent" options={{ headerShown: false }} />

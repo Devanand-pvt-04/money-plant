@@ -14,7 +14,8 @@ import { useLedger } from '@/lib/use-ledger';
 
 async function load() {
   const [people, ious, groups] = await Promise.all([listPeople(), listIous(), listGroups()]);
-  const overviews = (await Promise.all(groups.map((g) => groupOverview(g.id)))).filter((g): g is GroupOverview => g !== null);
+  const context = { groups, people, ious };
+  const overviews = (await Promise.all(groups.map((g) => groupOverview(g.id, context)))).filter((g): g is GroupOverview => g !== null);
   return { people, ious, toConfirm: ious.filter((v) => v.state === 'awaiting_me'), groups: overviews };
 }
 
@@ -33,7 +34,7 @@ function personNote(person: Person, ious: readonly IouView[], day: string): stri
 export default function People() {
   const navigation = useNavigation();
   const [adding, setAdding] = useState(false);
-  const { data } = useLedger(load, { people: [] as Person[], ious: [] as IouView[], toConfirm: [] as IouView[], groups: [] as GroupOverview[] });
+  const { data } = useLedger(load, { people: [] as Person[], ious: [] as IouView[], toConfirm: [] as IouView[], groups: [] as GroupOverview[] }, 'people');
 
   useEffect(() => {
     navigation.setOptions({

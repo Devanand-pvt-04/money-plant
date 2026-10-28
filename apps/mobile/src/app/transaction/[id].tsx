@@ -30,7 +30,7 @@ const FIELD_LABELS: Record<UserSetField, string> = {
 /** LED-2: an entry with its postings, sources and confidence. CAT-6: why it has its category. */
 export default function TransactionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { data: row } = useLedger(() => getTransaction(id), null as TransactionRow | null);
+  const { data: row } = useLedger(() => getTransaction(id), null as TransactionRow | null, 'entry');
   const [rule, setRule] = useState<Rule | null>(null);
   const { picker, change } = useCategoryChange();
   const ruleId = row?.tx.categoryRuleId ?? null;

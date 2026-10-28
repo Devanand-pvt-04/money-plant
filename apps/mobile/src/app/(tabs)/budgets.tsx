@@ -40,7 +40,7 @@ export default function Budgets() {
   const [showAll, setShowAll] = useState(false);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<{ id: string; name: string; start: Paise | null } | null>(null);
-  const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[] } | null);
+  const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[] } | null, 'budgets');
   // useLedger reloads on focus and on ledger changes; a different month needs a reload too.
   useEffect(() => {
     reload();

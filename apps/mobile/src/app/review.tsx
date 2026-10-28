@@ -56,12 +56,16 @@ async function load() {
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
 export default function Review() {
-  const { data } = useLedger(load, {
-    pending: [] as TransactionRow[],
-    gaps: [] as AccountBalance[],
-    proposals: [] as Proposal[],
-    suggested: [] as RecurringPayment[],
-  });
+  const { data } = useLedger(
+    load,
+    {
+      pending: [] as TransactionRow[],
+      gaps: [] as AccountBalance[],
+      proposals: [] as Proposal[],
+      suggested: [] as RecurringPayment[],
+    },
+    'review',
+  );
   const { picker, change } = useCategoryChange();
   const nothing = data.gaps.length === 0 && data.proposals.length === 0 && data.suggested.length === 0;
 

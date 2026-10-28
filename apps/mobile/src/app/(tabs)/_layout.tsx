@@ -12,7 +12,7 @@ function icon(name: ComponentProps<typeof Feather>['name']) {
 
 /** NAV-1: the five places a user goes every day. Everything else opens on top of them. */
 export default function TabsLayout() {
-  const { data: pending } = useLedger(countPending, 0);
+  const { data: pending } = useLedger(countPending, 0, 'tab badge');
   return (
     <Tabs
       screenOptions={{

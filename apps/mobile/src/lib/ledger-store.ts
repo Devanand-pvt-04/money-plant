@@ -39,12 +39,26 @@ function toLedgerAccount(row: typeof accounts.$inferSelect): LedgerAccount {
   return { id: row.id, type: row.type, name: row.name, institution: row.institution, last4: row.last4 };
 }
 
+function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = out.get(k);
+    if (list) list.push(item);
+    else out.set(k, [item]);
+  }
+  return out;
+}
+
 /** Reads full transactions (postings and sources) for a set of rows. */
 export function loadTransactions(db: Database, rows: (typeof transactions.$inferSelect)[]): LedgerTransaction[] {
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
   const postingRows = db.select().from(postings).where(inArray(postings.transactionId, ids)).all();
   const sourceRows = db.select().from(sources).where(inArray(sources.transactionId, ids)).all();
+  // Grouped once, so loading n entries stays linear instead of scanning every posting per entry.
+  const postingsOf = groupBy(postingRows, (p) => p.transactionId);
+  const sourcesOf = groupBy(sourceRows, (s) => s.transactionId);
   return rows.map((row) => ({
     id: row.id,
     occurredAt: row.occurredAt,
@@ -58,24 +72,20 @@ export function loadTransactions(db: Database, rows: (typeof transactions.$infer
     userSetFields: JSON.parse(row.userSetFields) as UserSetField[],
     note: row.note,
     splitGroupId: row.splitGroupId,
-    postings: postingRows
-      .filter((p) => p.transactionId === row.id)
-      .map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise) })),
-    sources: sourceRows
-      .filter((s) => s.transactionId === row.id)
-      .map(
-        (s): LedgerSource => ({
-          id: s.id,
-          kind: s.kind as SourceKind,
-          sender: s.sender,
-          externalRef: s.externalRef,
-          fingerprint: s.fingerprint,
-          parsedFields: JSON.parse(s.parsedFields) as Record<string, unknown>,
-          receivedAt: s.receivedAt,
-          confidence: s.confidence,
-          rawText: s.rawText,
-        }),
-      ),
+    postings: (postingsOf.get(row.id) ?? []).map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise) })),
+    sources: (sourcesOf.get(row.id) ?? []).map(
+      (s): LedgerSource => ({
+        id: s.id,
+        kind: s.kind as SourceKind,
+        sender: s.sender,
+        externalRef: s.externalRef,
+        fingerprint: s.fingerprint,
+        parsedFields: JSON.parse(s.parsedFields) as Record<string, unknown>,
+        receivedAt: s.receivedAt,
+        confidence: s.confidence,
+        rawText: s.rawText,
+      }),
+    ),
   }));
 }
 

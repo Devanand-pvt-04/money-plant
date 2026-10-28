@@ -341,8 +341,15 @@ export interface GroupOverview {
  * member's balance is what is still open on the IOUs of the group's
  * expenses, so paying one back (IOU-4) settles it here too.
  */
-export async function groupOverview(groupId: string): Promise<GroupOverview | null> {
-  const group = (await listGroups()).find((g) => g.id === groupId);
+/** What a group's overview reads besides its own entries; the People tab loads it once for every group. */
+export interface GroupContext {
+  groups: Awaited<ReturnType<typeof listGroups>>;
+  people: Awaited<ReturnType<typeof listPeople>>;
+  ious: Awaited<ReturnType<typeof listIous>>;
+}
+
+export async function groupOverview(groupId: string, context?: GroupContext): Promise<GroupOverview | null> {
+  const group = (context?.groups ?? (await listGroups())).find((g) => g.id === groupId);
   if (!group) return null;
   const db = await getDb();
   const rows = db
@@ -352,7 +359,7 @@ export async function groupOverview(groupId: string): Promise<GroupOverview | nu
     .all();
   const txs = loadTransactions(db, rows).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
   const owned = ownedAccountIds(db);
-  const people = await listPeople();
+  const people = context?.people ?? (await listPeople());
   const byId = new Map(people.map((p) => [p.account.id, p]));
   const expenses = txs.map((tx): GroupExpense => {
     const own = tx.postings.find((p) => owned.has(p.accountId));
@@ -373,7 +380,7 @@ export async function groupOverview(groupId: string): Promise<GroupOverview | nu
   });
   const ids = new Set(txs.map((tx) => tx.id));
   const open = new Map<string, number>();
-  for (const iou of await listIous()) {
+  for (const iou of context?.ious ?? (await listIous())) {
     if (!iou.personId || !iou.transactionId || !ids.has(iou.transactionId) || iou.state === 'declined') continue;
     open.set(iou.personId, (open.get(iou.personId) ?? 0) + (iou.direction === 'lent' ? iou.outstanding : -iou.outstanding));
   }
