@@ -23,7 +23,7 @@ type Fund = { holding: LocalHolding; value: FundValue } | null;
 
 export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[], deposit: null as LocalDeposit | null, fund: null as Fund });
+  const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[], deposit: null as LocalDeposit | null, fund: null as Fund }, 'account');
   if (!data.balance) return null;
   const { account, balance, value, reconciliation, typeLabel } = data.balance;
   const isDeposit = account.type === 'fd' || account.type === 'rd';

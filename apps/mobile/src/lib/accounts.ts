@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { AccountType, Paise } from '@money-plant/core';
 import { accounts, balanceRefs } from '@money-plant/db-schema';
 import { getDb } from './db';
+import { notifyLedgerChange } from './events';
 
 export interface AccountInput {
   type: AccountType;
@@ -33,6 +34,7 @@ export async function createAccount(input: AccountInput): Promise<string> {
     createdAt,
     dirty: 1,
   });
+  notifyLedgerChange();
   return id;
 }
 
@@ -43,4 +45,5 @@ export async function deleteAccount(id: string): Promise<void> {
     .update(accounts)
     .set({ deletedAt: new Date().toISOString(), dirty: 1, rev: sql`${accounts.rev} + 1` })
     .where(eq(accounts.id, id));
+  notifyLedgerChange();
 }

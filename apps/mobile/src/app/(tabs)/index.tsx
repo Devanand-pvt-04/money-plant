@@ -26,8 +26,16 @@ import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-rea
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+/** Catching up (SMS, sync, the background passes) on focus at most this often; pulling down always does it. */
+const CATCH_UP_MS = 2 * 60_000;
+let lastCatchUp = 0;
+let categoriesReady = false;
+
 async function loadHome() {
-  await ensureDefaultCategories();
+  if (!categoriesReady) {
+    await ensureDefaultCategories();
+    categoriesReady = true;
+  }
   const month = currentMonth();
   const [balances, pending, imported, overview, income, week, recent, owed] = await Promise.all([
     listAccountBalances(),
@@ -50,23 +58,28 @@ function greeting(now: Date): string {
 /** HOME-1: is this month on track, what needs a look, and where the money is. */
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { data, reload } = useLedger(loadHome, {
-    balances: [] as AccountBalance[],
-    pending: 0,
-    imported: true,
-    month: null as BudgetLine | null,
-    outside: 0,
-    elapsed: 0,
-    income: 0,
-    week: { days: [] as string[], items: [] as DueItem[] },
-    recent: [] as TransactionRow[],
-    owed: null as OwedSummary | null,
-  });
+  const { data, reload } = useLedger(
+    loadHome,
+    {
+      balances: [] as AccountBalance[],
+      pending: 0,
+      imported: true,
+      month: null as BudgetLine | null,
+      outside: 0,
+      elapsed: 0,
+      income: 0,
+      week: { days: [] as string[], items: [] as DueItem[] },
+      recent: [] as TransactionRow[],
+      owed: null as OwedSummary | null,
+    },
+    'home',
+  );
   const me = useMe();
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    lastCatchUp = Date.now();
     setSyncing(true);
     try {
       // Catch up on SMS that arrived while the receiver couldn't run, then sync.
@@ -97,9 +110,12 @@ export default function Home() {
 
   useFocusEffect(
     useCallback(() => {
-      refresh();
+      const catchUp = () => {
+        if (Date.now() - lastCatchUp > CATCH_UP_MS) void refresh();
+      };
+      catchUp();
       const subscription = AppState.addEventListener('change', (state) => {
-        if (state === 'active') refresh();
+        if (state === 'active') catchUp();
       });
       return () => subscription.remove();
     }, [refresh]),

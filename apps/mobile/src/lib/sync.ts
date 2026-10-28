@@ -53,6 +53,7 @@ import {
   type RemoteTransaction,
 } from '@money-plant/db-schema';
 import { ensureDefaultCategories } from './categories';
+import { notifyLedgerChange } from './events';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
 import { supabase } from './supabase';
@@ -540,6 +541,8 @@ export function syncNow(): Promise<SyncResult> {
         (await pullSplitGroups()) +
         (await pullIous(me)) +
         (await pullIouPayments());
+      // Screens out of view reload on their next focus only after a change, so say when one came in.
+      if (pulled > 0) notifyLedgerChange();
       return { pushed, pulled };
     } finally {
       running = null;

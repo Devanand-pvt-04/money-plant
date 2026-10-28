@@ -7,8 +7,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.provider.Telephony
+import android.view.WindowManager
 import androidx.core.content.ContextCompat
 import expo.modules.kotlin.exception.Exceptions
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -72,6 +74,15 @@ class SmsReaderModule : Module() {
       val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(intent)
     }
+
+    // Hides the app in the recent apps view (Android has no way to do that
+    // without also blocking screenshots). Lives here so the app needs no extra
+    // package, and no screenshot permissions that a capture library declares.
+    AsyncFunction("setSecureWindow") { on: Boolean ->
+      val window = appContext.currentActivity?.window ?: return@AsyncFunction
+      if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+      else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }.runOnQueue(Queues.MAIN)
   }
 }
 

@@ -38,7 +38,7 @@ async function load() {
 
 /** NAV-1, NW-1: net worth explained by its groups, and the recurring payments the accounts carry. */
 export default function Accounts() {
-  const { data } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[] });
+  const { data } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[] }, 'accounts');
   const [segment, setSegment] = useState<Segment>('cash');
   const counted = data.balances.filter((b) => b.inNetWorth);
   const assets = counted.filter((b) => b.value > 0).reduce((s, b) => s + b.value, 0);

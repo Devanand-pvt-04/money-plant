@@ -38,7 +38,7 @@ function flows(rows: readonly TransactionRow[]) {
 
 /** HOME-2: a month of entries, grouped by day, with search and filters. */
 export default function Activity() {
-  const { data } = useLedger(load, { rows: [] as TransactionRow[], parents: new Map<string, string | null>() });
+  const { data } = useLedger(load, { rows: [] as TransactionRow[], parents: new Map<string, string | null>() }, 'activity');
   const [month, setMonth] = useState<MonthKey>(() => monthOf(new Date()));
   const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
   const [filtering, setFiltering] = useState(false);
