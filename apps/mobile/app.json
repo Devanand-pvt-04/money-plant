@@ -20,7 +20,7 @@
     "android": {
       "package": "in.moneyplant.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1D1F1E",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -42,6 +42,19 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1D1F1E",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#1D1F1E"
+          }
+        }
+      ],
       [
         "expo-local-authentication",
         {

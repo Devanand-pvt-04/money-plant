@@ -12,3 +12,13 @@ Decided by Deva on 2026-10-27, from the third app review (https://claude.ai/arti
 | Crashes | A crash shows "Something went wrong" with Try again (Expo Router's ErrorBoundary at the root), and uncaught errors elsewhere are caught too. Each error goes to an `app_errors` table: message and stack with numbers taken out, where it happened, app version, update id and channel. It's queued on the phone first, so a crash that ends the app is sent at the next start | Crashes were invisible. A table in our own Supabase project costs nothing and needs no new service, so it replaces the Sentry plan in the architecture |
 | Backup | A weekly PowerShell script on Deva's PC, run by Task Scheduler, dumps the `public` schema and `auth.users` with pg_dump and keeps 12 weeks. The database password stays in a file on the PC | The free plan keeps no restorable backups. Secrets stay out of the repo and GitHub |
 | Investment gap noted | A SIP after the CAS date adds money but no units until the next CAS. Estimating units from that day's NAV is a pointer to discuss later, with XIRR, lump sums and stocks | Deva asked to note it |
+
+## Added on 2026-10-28, while the build quota resets
+
+Deva's free EAS builds for October were used up, so these go into the same first production build (app 0.8.0).
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Hide in recent apps | On by default: the app's window is marked secure, so the recent-apps screen shows a blank card and screenshots are blocked. A Settings switch turns it off for taking a screenshot. Done in the sms-reader module rather than expo-screen-capture, which adds media permissions | Balances show to anyone glancing at the phone's app switcher |
+| Speed pass | Screens reload only when in view and the ledger changed, or after 30 seconds; bursts of changes cause one reload; Home's catch-up runs at most every 2 minutes except on pull to refresh. Each load is timed, and Settings → Your data → Speed log shows the medians and slowest loads, with Share | Deva asked for very fast and smooth; the log tells us what to fix next from Deva's own phone |
+| Icon and splash | A single two-tone money plant leaf with the ₹ cut out of it, sage on charcoal (#1D1F1E), as the launcher, adaptive (with a monochrome layer) and splash icon | Replaces the Expo placeholder before the app is used daily |
