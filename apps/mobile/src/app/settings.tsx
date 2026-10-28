@@ -6,6 +6,7 @@ import { Avatar, useMe } from '@/components/avatar';
 import { Card, SectionTitle, colors, radius } from '@/components/ui';
 import { lockAvailable, lockEnabled, setLockEnabled, unlock } from '@/lib/lock';
 import { displayName } from '@/lib/me';
+import { hideInRecents, setHideInRecents } from '@/lib/privacy';
 import { signOut } from '@/lib/session';
 import { setThemePreference, themePreference, type ThemePreference } from '@/lib/theme';
 
@@ -20,6 +21,10 @@ export default function Settings() {
   const me = useMe();
   const theme = themePreference();
   const lock = useLockSetting();
+  const [hidden, setHidden] = useState<boolean | null>(null);
+  useEffect(() => {
+    hideInRecents().then(setHidden).catch(() => setHidden(true));
+  }, []);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -64,6 +69,21 @@ export default function Settings() {
             </Text>
           </View>
           <Switch value={lock.on === true && lock.available === true} disabled={lock.on === null || !lock.available} onValueChange={lock.toggle} />
+        </View>
+        <View style={[styles.row, styles.divided]}>
+          <Feather name="eye-off" size={18} color={colors.muted} />
+          <View style={styles.grow}>
+            <Text style={styles.name}>Hide in recent apps</Text>
+            <Text style={styles.meta}>Also blocks screenshots. Turn off to take one.</Text>
+          </View>
+          <Switch
+            value={hidden === true}
+            disabled={hidden === null}
+            onValueChange={(next) => {
+              setHidden(next);
+              void setHideInRecents(next);
+            }}
+          />
         </View>
       </Card>
 

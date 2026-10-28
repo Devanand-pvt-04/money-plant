@@ -11,6 +11,7 @@ import { ErrorScreen } from '@/components/error-screen';
 import { colors } from '@/components/ui';
 import { useConsent } from '@/lib/consent';
 import { flushErrors, watchErrors } from '@/lib/errors';
+import { applyHideInRecents } from '@/lib/privacy';
 import { watchSharedIous } from '@/lib/realtime';
 import { useSession } from '@/lib/session';
 import { followSystemScheme, scheme } from '@/lib/theme';
@@ -49,6 +50,10 @@ export default function RootLayout() {
   const userId = session?.user.id;
   const consented = useConsent(userId);
   useEffect(() => (userId ? watchSharedIous(userId) : undefined), [userId]);
+  // Balances stay out of the recent apps view once there is a ledger to hide.
+  useEffect(() => {
+    void (userId ? applyHideInRecents() : applyHideInRecents(false));
+  }, [userId]);
   // Errors saved while offline or signed out go up once there is a session.
   useEffect(() => {
     if (userId) void flushErrors();

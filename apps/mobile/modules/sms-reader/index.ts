@@ -22,6 +22,7 @@ interface SmsReaderNative {
   readInbox(sinceMillis: number, senderTokens: string[], limit: number): Promise<InboxMessage[]>;
   isNotificationAccessGranted(): boolean;
   openNotificationAccessSettings(): void;
+  setSecureWindow?(on: boolean): Promise<void>;
 }
 
 // Android only. The module is missing on iOS, in Expo Go and on the web.
@@ -45,6 +46,11 @@ export function isNotificationAccessGranted(): boolean {
 
 export function openNotificationAccessSettings(): void {
   native?.openNotificationAccessSettings();
+}
+
+/** Hides the app's screens in the recent apps view, which also blocks screenshots. */
+export function setSecureWindow(on: boolean): Promise<void> {
+  return native?.setSecureWindow?.(on) ?? Promise.resolve();
 }
 
 export const CAPTURE_TASK_KEY = 'MoneyPlantCapture';
