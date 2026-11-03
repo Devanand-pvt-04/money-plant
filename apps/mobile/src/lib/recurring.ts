@@ -173,18 +173,26 @@ export async function closeOccurrence(id: string, how: 'paid' | 'skipped'): Prom
   await refreshRecurring();
 }
 
-/** Spending entries from the last HISTORY_DAYS, as debits. */
+/** Spending entries from the last HISTORY_DAYS, as debits, plus transfers into funds, deposits and loans (SIPs, RD instalments, EMIs). */
 async function recentDebits(): Promise<Debit[]> {
   const db = await getDb();
   const from = new Date(Date.now() - HISTORY_DAYS * 86_400_000).toISOString();
   const rows = db
     .select()
     .from(transactions)
-    .where(and(isNull(transactions.deletedAt), eq(transactions.kind, 'expense'), gte(transactions.occurredAt, from)))
+    .where(and(isNull(transactions.deletedAt), inArray(transactions.kind, ['expense', 'transfer']), gte(transactions.occurredAt, from)))
     .all();
   const owned = ownedAccountIds(db);
+  const holdings = new Set(
+    db
+      .select({ id: accounts.id })
+      .from(accounts)
+      .where(inArray(accounts.type, ['mutual_fund', 'fd', 'rd', 'stock', 'loan']))
+      .all()
+      .map((a) => a.id),
+  );
   return loadTransactions(db, rows)
-    .map((tx) => debitOf(tx, (accountId) => owned.has(accountId)))
+    .map((tx) => debitOf(tx, (accountId) => owned.has(accountId), (accountId) => holdings.has(accountId)))
     .filter((d): d is Debit => d !== null);
 }
 

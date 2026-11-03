@@ -181,3 +181,30 @@ describe('shortfall (REC-3)', () => {
     expect(shortfall({ ...sip, accountId: null }, [rent, sip], { balance: paise(0), liability: false })).toBeNull();
   });
 });
+
+describe('debitOf for payments into holdings', () => {
+  const sip = {
+    id: 't-sip',
+    occurredAt: '2026-10-15T04:00:00.000Z',
+    counterparty: 'MUTUAL FUNDS NC',
+    kind: 'transfer' as const,
+    status: 'confirmed' as const,
+    confidence: 0.95,
+    reviewReason: null,
+    categoryReason: null,
+    categoryRuleId: null,
+    userSetFields: [],
+    note: null,
+    postings: [
+      { id: 'p1', accountId: 'icici', amount: paise(-250_000) },
+      { id: 'p2', accountId: 'fund', amount: paise(250_000) },
+    ],
+    sources: [],
+  };
+  it('counts a SIP turned into a transfer into a fund', () => {
+    expect(debitOf(sip, (id) => id === 'icici' || id === 'fund', (id) => id === 'fund')).toMatchObject({ amount: 250_000, accountId: 'icici', categoryId: 'fund', merchant: 'mutual funds nc' });
+  });
+  it('ignores transfers between the user\'s own accounts', () => {
+    expect(debitOf(sip, (id) => id === 'icici' || id === 'fund')).toBeNull();
+  });
+});

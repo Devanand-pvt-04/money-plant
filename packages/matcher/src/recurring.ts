@@ -9,7 +9,7 @@ import {
 } from '@money-plant/core';
 import { normaliseMerchant } from '@money-plant/categoriser';
 import type { ParsedPreDebit, ParsedTransaction } from '@money-plant/parser';
-import type { LedgerTransaction } from './types';
+import type { LedgerPosting, LedgerTransaction } from './types';
 
 /** A recurring payment the user tracks: an autopay, EMI, rent or subscription (REC-1 to REC-4). */
 export interface RecurringPayment {
@@ -60,10 +60,23 @@ export interface Debit {
  * Reads a spending entry as a debit: two postings, money leaving one of the
  * user's accounts. Transfers, splits and income are not recurring payments.
  */
-export function debitOf(tx: LedgerTransaction, isOwned: (accountId: string) => boolean): Debit | null {
-  if (tx.kind !== 'expense' || tx.postings.length !== 2) return null;
-  const own = tx.postings.find((p) => isOwned(p.accountId));
-  const other = tx.postings.find((p) => !isOwned(p.accountId));
+export function debitOf(
+  tx: LedgerTransaction,
+  isOwned: (accountId: string) => boolean,
+  /** Holdings a recurring payment pays into (a fund, deposit or loan): a transfer to one counts as its payment. */
+  isHolding: (accountId: string) => boolean = () => false,
+): Debit | null {
+  if (tx.postings.length !== 2) return null;
+  let own: LedgerPosting | undefined;
+  let other: LedgerPosting | undefined;
+  if (tx.kind === 'expense') {
+    own = tx.postings.find((p) => isOwned(p.accountId));
+    other = tx.postings.find((p) => !isOwned(p.accountId));
+  } else if (tx.kind === 'transfer') {
+    // A SIP, RD instalment or EMI turned into a transfer still pays its recurring payment.
+    other = tx.postings.find((p) => p.amount > 0 && isHolding(p.accountId));
+    own = tx.postings.find((p) => p.amount < 0 && p !== other);
+  } else return null;
   if (!own || !other || own.amount >= 0) return null;
   const sms = tx.sources.find((s) => s.kind === 'sms')?.parsedFields as Partial<ParsedTransaction> | undefined;
   const vpa = sms?.vpa ?? null;
