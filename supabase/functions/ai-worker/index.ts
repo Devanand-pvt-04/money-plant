@@ -19,6 +19,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 
 const MAX_RESULT_BYTES = 60_000;
+/** Categorise answers at or above this are shared with everyone through the merchants table. */
+const SHARE_CONFIDENCE = 0.8;
+const KEY_PATTERN = /^[a-z_]+(\.[a-z_]+)?$/;
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false },
@@ -35,6 +38,29 @@ async function sameToken(given: string, expected: string): Promise<boolean> {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
   return diff === 0;
+}
+
+/**
+ * A confident categorise answer joins the shared merchants table, so every
+ * user's phone gets it from the dictionary (decision 0012). A merchant the
+ * table already has (a user confirmed it, say) is left as it is.
+ */
+async function shareConfident(id: string): Promise<void> {
+  const { data: job } = await admin.from('ai_jobs').select('kind, result').eq('id', id).single();
+  if (job?.kind !== 'categorise') return;
+  const answers = (job.result as { results?: { merchant: string; key: string | null; name: string | null; confidence: number }[] }).results ?? [];
+  const rows = answers
+    .filter((a) => a.key && KEY_PATTERN.test(a.key) && a.confidence >= SHARE_CONFIDENCE && a.merchant.length <= 80 && !/\d{6,}/.test(a.merchant))
+    .map((a) => ({
+      normalised_name: a.merchant,
+      display_name: a.name?.slice(0, 80) ?? null,
+      category_key: a.key!,
+      confidence: Math.round(a.confidence * 100) / 100,
+      created_by: 'ai',
+    }));
+  if (rows.length === 0) return;
+  const { error } = await admin.from('merchants').upsert(rows, { onConflict: 'normalised_name', ignoreDuplicates: true });
+  if (error) console.error('ai-worker: sharing an answer failed', error.code);
 }
 
 Deno.serve(async (request) => {
@@ -72,6 +98,7 @@ Deno.serve(async (request) => {
       if (JSON.stringify(body.result).length > MAX_RESULT_BYTES) return json({ error: 'too_large' }, 413);
       const { data, error } = await admin.rpc('complete_ai_job', { p_id: body.id, p_result: body.result });
       if (error) return json({ error: 'database' }, 500);
+      if (data === true) await shareConfident(body.id);
       return json({ ok: data === true });
     }
     case 'fail': {

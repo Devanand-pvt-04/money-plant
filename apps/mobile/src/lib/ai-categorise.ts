@@ -9,6 +9,8 @@ import {
   type AiCategoriseResult,
 } from '@money-plant/categoriser';
 import { merchantCache, transactions } from '@money-plant/db-schema';
+import { refreshIconJobs } from './ai-icons';
+import { aiEnabled, setAiWaiting } from './ai-settings';
 import { MERCHANT_RECHECK_DAYS, entryFeatures, flatten, listCategories, ownedAccountIds, recategoriseHistory } from './categories';
 import { getDb } from './db';
 import { loadTransactions } from './ledger-store';
@@ -24,6 +26,8 @@ export interface AiRunResult {
   asked: number;
   categorised: number;
   capped: boolean;
+  /** Merchants queued for the AI on Deva's PC and not answered yet. */
+  waiting: number;
 }
 
 let running: Promise<AiRunResult> | null = null;
@@ -31,9 +35,11 @@ let running: Promise<AiRunResult> | null = null;
 /**
  * The last layer of CAT-2. Collects merchants on uncategorised business
  * entries that the phone hasn't asked about recently, asks the categorise
- * edge function (the shared dictionary; AI joins in the AI milestone), caches the answers on
- * the phone and re-runs the categoriser over those entries. Payments to
- * people are never sent (CAT-4). Safe to call often; concurrent calls share one run.
+ * edge function (the shared dictionary, then the AI on Deva's PC, decision 0012),
+ * caches the answers on the phone and re-runs the categoriser over those
+ * entries. Merchants the AI hasn't answered yet aren't cached, so they are
+ * asked about again on the next run. Payments to people are never sent
+ * (CAT-4). Safe to call often; concurrent calls share one run.
  */
 export function categoriseWithAi(): Promise<AiRunResult> {
   running ??= run().finally(() => {
@@ -44,7 +50,9 @@ export function categoriseWithAi(): Promise<AiRunResult> {
 
 async function run(): Promise<AiRunResult> {
   const { data } = await supabase.auth.getSession();
-  if (!data.session) return { asked: 0, categorised: 0, capped: false };
+  if (!data.session) return { asked: 0, categorised: 0, capped: false, waiting: 0 };
+  const ai = await aiEnabled();
+  if (ai) await refreshIconJobs().catch(() => {});
   const db = await getDb();
   const owned = ownedAccountIds(db);
   const cached = new Map(db.select().from(merchantCache).all().map((row) => [row.merchant, row]));
@@ -77,27 +85,33 @@ async function run(): Promise<AiRunResult> {
 
   // Cached answers from an earlier run may not have been applied yet.
   let categorised = await recategoriseHistory({ uncategorisedOnly: true });
-  if (items.size === 0) return { asked: 0, categorised, capped: false };
+  if (items.size === 0) {
+    await setAiWaiting(0);
+    return { asked: 0, categorised, capped: false, waiting: 0 };
+  }
 
   const categories = flatten(await listCategories())
     .filter((c) => !c.system && c.key && !c.key.endsWith('custom'))
     .map((c) => ({ key: c.key!, name: c.name }));
   const pending = [...items.values()];
   let capped = false;
+  let waiting = 0;
   for (let i = 0; i < pending.length; i += BATCH) {
     const batch = pending.slice(i, i + BATCH);
-    const { data: response, error } = await supabase.functions.invoke<{ results: AiCategoriseResult[]; capped?: boolean; retryLater?: boolean }>(
+    const { data: response, error } = await supabase.functions.invoke<{ results: AiCategoriseResult[]; pending?: string[]; capped?: boolean; retryLater?: boolean }>(
       'categorise',
-      { body: { items: batch, categories } },
+      { body: { items: batch, categories, ai } },
     );
     if (error || !response) throw error ?? new Error('No answer from the categorise function');
     const checkedAt = new Date().toISOString();
     const answered = new Map(response.results.map((r) => [r.merchant, r]));
+    const queued = new Set(response.pending ?? []);
+    waiting += queued.size;
     db.transaction((t) => {
       for (const item of batch) {
         const result = answered.get(item.merchant);
-        // When the function was capped or busy, unanswered merchants are asked again next time.
-        if (!result && (response.capped || response.retryLater)) continue;
+        // Waiting for the AI, or the function was busy: asked again next time.
+        if (!result && (queued.has(item.merchant) || response.capped || response.retryLater)) continue;
         const values = {
           categoryKey: result?.key ?? null,
           displayName: result?.name ?? null,
@@ -117,5 +131,6 @@ async function run(): Promise<AiRunResult> {
     }
   }
   categorised += await recategoriseHistory({ uncategorisedOnly: true });
-  return { asked: items.size, categorised, capped };
+  await setAiWaiting(waiting);
+  return { asked: items.size, categorised, capped, waiting };
 }

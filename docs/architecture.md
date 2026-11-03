@@ -231,7 +231,7 @@ AI runs on a self-hosted open model on Deva's PC, not a paid API (decision 0006)
 - AI work is a queue in Postgres (`ai_jobs`: user_id, kind (categorise, month_review, icon), payload, status (queued, running, done, failed), result, attempts, claimed_at and the usual timestamps). Users read only their own jobs. Edge functions and the phone add jobs; nothing calls a model except the worker.
 - A Node worker on the PC (`services/ai-worker`, started by Task Scheduler at login) calls the `ai-worker` edge function every 30 seconds, claims up to 5 jobs (`for update skip locked`, so a job is never taken twice), runs them on Ollama at `localhost:11434` with a JSON schema, checks the answers and posts them back. It authenticates with `AI_WORKER_TOKEN`, kept in edge function secrets and in a git-ignored `.env` on the PC. It only makes outgoing connections, so nothing on the PC is exposed to the internet.
 - A bad answer is retried once, then marked failed. A job left running for 10 minutes goes back to the queue. Categorise jobs queued for 30 days are dropped, finished jobs' payloads are cleared after 30 days, and the worker logs only job IDs and timings.
-- Each user has an AI switch (Money tab), on after the consent screen. With it off, nothing of theirs is queued.
+- Each user has an AI switch (Settings), on after the consent screen. With it off, nothing of theirs is queued.
 - When the PC is off, jobs wait. Entries stay in the review inbox, and the month review's write-up arrives when the PC is next on.
 - Jobs carry only what the task needs, the same fields the PRD's privacy rule allows. The consent screen (ACC-5) says that AI runs on Deva's PC.
 
@@ -240,14 +240,14 @@ AI runs on a self-hosted open model on Deva's PC, not a paid API (decision 0006)
 On the phone, `packages/categoriser` tries the user's rules, then learned patterns, then the built-in merchant dictionary and the local merchant cache. Only what's left goes to this function, in batches of up to 25.
 
 1. The phone asks for a category for a merchant label it couldn't resolve locally.
-2. The function checks the global merchants table. On a hit, it returns immediately.
+2. The function checks the global merchants table. On a hit, it returns immediately. Otherwise it checks for a finished AI answer for that merchant from the last 30 days (anyone's job, since keys are standard).
 3. Until milestone 6, a miss comes back as unknown, the entry waits in the review inbox, and the phone asks again after 30 days. From milestone 6, a miss becomes an AI job with the merchant label, the VPA handle if any, an amount band (for example ₹100 to ₹500), the time of day and the list of category names. The worker asks the model for structured output (category, normalised merchant name and confidence) using Ollama's JSON schema format.
 4. Results with a confidence of 0.8 or more are applied with category_reason `ai` and the confidence, and cached in the merchants table for everyone. Lower-confidence results become one-tap suggestions in the review inbox and are not shared. The phone collects finished jobs when it syncs, and Activity shows how many merchants are still waiting for AI. A category the user confirms is shared through the merchants table, which already works before milestone 6.
 5. Payments to people (a personal VPA, or a name with no business keywords) skip AI and go straight to the review inbox (CAT-4).
 
 ### Icon suggestions
 
-When a new category's name matches no Material Design Icons name (CAT-1), the phone queues an `icon` job with the category name and a shortlist of icon names. The worker accepts only a name from the shortlist, and the user can change it in Edit as before.
+When a new category's name matches no Material Design Icons name (CAT-1), the phone queues an `icon` job with the category name. The model answers with up to 5 plain English words ("shuttlecock", "racket" for Badminton), and the phone matches them against the icon font's names and aliases as it does for category names. The first match is applied if the category still has its name and no icon the user picked; the user can change it in Edit as before.
 
 ### Month review
 

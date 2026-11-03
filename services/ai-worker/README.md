@@ -78,10 +78,10 @@ sees in the app. The second covers everything you tagged.
 
 | Kind | From | Answer | Build |
 | --- | --- | --- | --- |
-| categorise | The categorise function, for merchants the dictionary doesn't know | A category key from the user's list (or unknown), a display name and a confidence | 1 (worker side); queued from build 3 |
-| icon | The phone, for a new category whose name matches no icon | An icon name from a shortlist | 3 |
+| categorise | The categorise function, one job per merchant the dictionary doesn't know (shared across users) | A category key from the user's list (or unknown), a display name and a confidence. Answers at 0.8 or more join the shared merchants table | 3 |
+| icon | The phone, for a new category whose name matches no icon | Up to 5 English words, which the phone matches against icon names | 3 |
 | month_review | The phone, on the 1st | A headline and 2 to 4 causes, each linked to transaction IDs | 4 |
 
-The worker claims only the kinds it has a handler for, so an older worker never takes a newer kind.
+The worker claims up to 20 jobs at a time and sends categorise jobs that share a category list to the model in one call. It claims only the kinds it has a handler for, so an older worker never takes a newer kind.
 A bad answer is retried once and then marked failed; a job left running for 10 minutes (the PC
 slept) goes back to the queue. Tests run against a fake Ollama, so CI needs no GPU.

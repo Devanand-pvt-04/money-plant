@@ -47,7 +47,7 @@ describe('runOnce', () => {
     const lines: string[] = [];
     const claimed = await runOnce(queue, model(() => ({ results: [{ merchant: 'swiggy', key: 'food', name: 'Swiggy', confidence: 0.9 }] })), (l) => lines.push(l));
     expect(claimed).toBe(1);
-    expect(calls[0]).toEqual({ action: 'claim', kinds: ['categorise'] });
+    expect(calls[0]).toEqual({ action: 'claim', kinds: ['categorise', 'icon'] });
     expect(calls[1]).toEqual({
       action: 'complete',
       id: categoriseJob.id,
@@ -67,6 +67,34 @@ describe('runOnce', () => {
     const { queue, calls } = fakeQueue([categoriseJob]);
     await expect(runOnce(queue, model(() => ({}), false), () => {})).rejects.toThrow('Ollama is not answering');
     expect(calls).toEqual([]);
+  });
+  it('asks the model once for categorise jobs that share a category list', async () => {
+    const job = (id: string, merchant: string): Job => ({
+      ...categoriseJob,
+      id,
+      payload: { items: [{ merchant, label: merchant, vpa: null, amountBand: 'under ₹100', timeOfDay: 'evening', direction: 'debit' }], categories: [{ key: 'food', name: 'Food' }] },
+    });
+    const { queue, calls } = fakeQueue([job('00000000-0000-4000-8000-000000000002', 'swiggy'), job('00000000-0000-4000-8000-000000000003', 'zomato')]);
+    let asked = 0;
+    const answer = () => {
+      asked++;
+      return { results: [
+        { merchant: 'zomato', key: 'food', name: 'Zomato', confidence: 0.9 },
+        { merchant: 'swiggy', key: 'food', name: 'Swiggy', confidence: 0.85 },
+      ] };
+    };
+    expect(await runOnce(queue, model(answer), () => {})).toBe(2);
+    expect(asked).toBe(1);
+    expect(calls.slice(1)).toEqual([
+      { action: 'complete', id: '00000000-0000-4000-8000-000000000002', result: { results: [{ merchant: 'swiggy', key: 'food', name: 'Swiggy', confidence: 0.85 }] } },
+      { action: 'complete', id: '00000000-0000-4000-8000-000000000003', result: { results: [{ merchant: 'zomato', key: 'food', name: 'Zomato', confidence: 0.9 }] } },
+    ]);
+  });
+
+  it('runs an icon job', async () => {
+    const { queue, calls } = fakeQueue([{ id: '00000000-0000-4000-8000-000000000004', kind: 'icon', attempts: 1, payload: { name: 'Badminton' } }]);
+    await runOnce(queue, model(() => ({ words: ['Badminton', 'shuttlecock', 'racket 2', 'badminton'] })), () => {});
+    expect(calls[1]).toEqual({ action: 'complete', id: '00000000-0000-4000-8000-000000000004', result: { words: ['badminton', 'shuttlecock'] } });
   });
 });
 

@@ -4,6 +4,7 @@ import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { Avatar, useMe } from '@/components/avatar';
 import { Card, SectionTitle, colors, radius } from '@/components/ui';
+import { aiEnabled, setAiEnabled } from '@/lib/ai-settings';
 import { lockAvailable, lockEnabled, setLockEnabled, unlock } from '@/lib/lock';
 import { displayName } from '@/lib/me';
 import { hideInRecents, setHideInRecents } from '@/lib/privacy';
@@ -23,8 +24,10 @@ export default function Settings() {
   const theme = themePreference();
   const lock = useLockSetting();
   const [hidden, setHidden] = useState<boolean | null>(null);
+  const [ai, setAi] = useState<boolean | null>(null);
   useEffect(() => {
     hideInRecents().then(setHidden).catch(() => setHidden(true));
+    aiEnabled().then(setAi).catch(() => setAi(true));
   }, []);
 
   return (
@@ -90,7 +93,22 @@ export default function Settings() {
 
       <SectionTitle>How entries are filled</SectionTitle>
       <Card>
-        <Link icon="message-square" title="Bank SMS" href="/capture" first />
+        <View style={styles.row}>
+          <Feather name="cpu" size={18} color={colors.muted} />
+          <View style={styles.grow}>
+            <Text style={styles.name}>AI suggestions</Text>
+            <Text style={styles.meta}>Categories for unknown shops, from a model on Deva's PC</Text>
+          </View>
+          <Switch
+            value={ai === true}
+            disabled={ai === null}
+            onValueChange={(next) => {
+              setAi(next);
+              void setAiEnabled(next);
+            }}
+          />
+        </View>
+        <Link icon="message-square" title="Bank SMS" href="/capture" />
         <Link icon="sliders" title="Rules and patterns" href="/rules" />
         <Link icon="layers" title="Account types" href="/account-types" />
       </Card>

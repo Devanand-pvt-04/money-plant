@@ -46,7 +46,7 @@ The MVP has 62 requirements across 11 areas. "Must" items block the first releas
 | ACC-3 | Data syncs across a user's devices and works offline | Must |
 | ACC-4 | Export all data as CSV, and delete the account along with all its data. Deleting asks for a typed confirmation and offers the export first | Must |
 | ACC-7 | Clear all my data but keep the account: every entry, account, category, rule and IOU is removed on the phone and the server, and the app starts again from first run. Typed confirmation, export offered first | Must |
-| ACC-5 | Onboarding consent screen that explains SMS reading, cloud sync, contacts and AI use. It says AI runs on Deva's PC, not with an AI company, and that AI can be switched off in the Money tab (decision 0012) | Must |
+| ACC-5 | Onboarding consent screen that explains SMS reading, cloud sync, contacts and AI use. It says AI runs on Deva's PC, not with an AI company, and that AI can be switched off in Settings (decision 0012) | Must |
 | ACC-6 | Custom account types: the user names a type (for example Chit fund, PF, Gold) and picks its class (asset or liability) and whether it counts toward net worth. Custom types behave as plain manual accounts | Must |
 
 ### Capture
