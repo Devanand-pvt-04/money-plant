@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
 import {
+  balanceSchemeValue,
   instalmentDates,
   interestOn,
   isDepositPayment,
@@ -11,6 +12,7 @@ import {
   valueOn,
   type DepositTerms,
 } from './deposit';
+import { daysBetween } from './schedule';
 
 const r = (rupees: number) => paise(Math.round(rupees * 100));
 const fd: DepositTerms = { kind: 'fd', amount: r(100_000), rateBp: 700, startDate: '2026-01-01', maturityDate: '2027-01-01', payout: 'reinvest' };
@@ -85,5 +87,40 @@ describe('matching', () => {
     expect(isMaturityCredit(fd, debit(value - 500, '2027-01-05', null))).toBe(true);
     expect(isMaturityCredit(fd, debit(value, '2026-12-20', null))).toBe(false);
     expect(isMaturityCredit(fd, debit(50_000, '2027-01-01', null))).toBe(false);
+  });
+});
+
+describe('long-term savings schemes (NW-6)', () => {
+  it('credits PPF interest on each month’s balance after the 5th every 31 March', () => {
+    const flows = [{ on: '2025-04-01', amount: paise(15_000_000) }];
+    // 12 months at 7.1% / 12 on ₹1,50,000 is ₹10,650, credited on 31 March.
+    expect(balanceSchemeValue(flows, 710, '2026-04-15')).toEqual({ value: 16_065_000, interest: 1_065_000 });
+    // Mid-year: 6 months earned, not yet credited.
+    expect(balanceSchemeValue(flows, 710, '2025-10-20').interest).toBe(532_500);
+  });
+
+  it('skips the month for money paid in after the 5th', () => {
+    const flows = [{ on: '2025-04-10', amount: paise(12_000_000) }];
+    // May to March: 11 months at 7.1% on ₹1,20,000.
+    expect(balanceSchemeValue(flows, 710, '2026-04-01').interest).toBe(781_000);
+  });
+
+  it('compounds credited interest the next year', () => {
+    const flows = [{ on: '2024-04-01', amount: paise(10_000_000) }];
+    const first = 10_000_000 * 0.071;
+    const second = Math.round((10_000_000 + first) * 0.071);
+    expect(balanceSchemeValue(flows, 710, '2026-04-01').interest).toBe(Math.round(first) + second);
+  });
+
+  it('values NSC like an FD compounding yearly', () => {
+    const terms = { kind: 'nsc' as const, amount: paise(10_000_000), rateBp: 770, startDate: '2026-01-01', maturityDate: '2031-01-01', payout: 'reinvest' as const };
+    expect(maturityValue(terms)).toBe(Math.round(10_000_000 * 1.077 ** ((daysBetween('2026-01-01', '2031-01-01') / 365))));
+  });
+
+  it('matches PPF payments by payee at any amount, never EPF', () => {
+    const ppf = { kind: 'ppf' as const, amount: paise(100), rateBp: 710, startDate: '2020-04-01', maturityDate: '2035-04-01', payout: 'reinvest' as const };
+    expect(isDepositPayment(ppf, 'PPF', { amount: paise(500_000), on: '2026-04-03', counterparty: 'SBI PPF A/C' })).toBe(true);
+    expect(isDepositPayment(ppf, null, { amount: paise(500_000), on: '2026-04-03', counterparty: 'SBI PPF A/C' })).toBe(false);
+    expect(isDepositPayment({ ...ppf, kind: 'epf' }, 'EPF', { amount: paise(500_000), on: '2026-04-03', counterparty: 'EPF' })).toBe(false);
   });
 });

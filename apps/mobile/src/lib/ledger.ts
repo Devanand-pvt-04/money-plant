@@ -14,7 +14,7 @@ import {
 } from '@money-plant/db-schema';
 import { normaliseMerchant, type CategoryLook } from '@money-plant/categoriser';
 import { rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
-import { depositValue, listDeposits } from './deposits';
+import { depositValue, listDeposits, schemeValues } from './deposits';
 import { fundValues } from './funds';
 import { marketValues } from './demat';
 import { getDb } from './db';
@@ -82,8 +82,9 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
   const balanceMap = new Map(result.map((r) => [r.account.id, r.balance]));
   const funds = await fundValues(balanceMap);
   const markets = await marketValues(balanceMap);
+  const schemes = await schemeValues();
   return result.map((r) => {
-    const valued = funds.get(r.account.id) ?? markets.get(r.account.id);
+    const valued = funds.get(r.account.id) ?? markets.get(r.account.id) ?? schemes.get(r.account.id);
     return valued ? { ...r, value: valued.value } : r;
   });
 }

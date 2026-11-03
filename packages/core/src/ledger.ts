@@ -41,7 +41,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
  * other flows; `custom` accounts are created from a user-defined account type (ACC-6).
  */
 export const USER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(
-  (type) => type !== 'person' && type !== 'category' && type !== 'custom' && type !== 'nps' && type !== 'savings_scheme',
+  (type) => type !== 'person' && type !== 'category' && type !== 'custom',
 );
 
 /** Built-in types whose balance is money owed rather than money held. */

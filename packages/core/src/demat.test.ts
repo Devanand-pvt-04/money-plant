@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { brokerHolds, brokerOf, costFromAverage, dematGroups, marketValue, npsKey, npsMatch, securityKind, shortBrokerName } from './demat';
+import { brokerHolds, brokerOf, isNpsPayee, costFromAverage, dematGroups, marketValue, npsKey, npsMatch, securityKind, shortBrokerName } from './demat';
 import { paise } from './money';
 
 describe('securityKind', () => {
@@ -20,6 +20,12 @@ describe('brokers', () => {
     expect(brokerOf('Swiggy')).toBeNull();
     expect(brokerHolds('zerodha', 'ZERODHA BROKING LIMITED')).toBe(true);
     expect(brokerHolds('groww', 'ZERODHA BROKING LIMITED')).toBe(false);
+  });
+
+  it('knows NPS contributions', () => {
+    expect(isNpsPayee('NPS TRUST A/C')).toBe(true);
+    expect(isNpsPayee('PROTEAN EGOV TECH')).toBe(true);
+    expect(isNpsPayee('SNAPSHOT STUDIO')).toBe(false);
   });
 
   it('shortens a depository participant name', () => {

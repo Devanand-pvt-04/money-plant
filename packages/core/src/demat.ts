@@ -44,6 +44,11 @@ export function brokerOf(counterparty: string | null): string | null {
   return BROKERS.find((b) => b.pattern.test(upper))?.key ?? null;
 }
 
+/** A payment into NPS: to NPS Trust or a central record keeper (Protean, KFin, CAMS) for NPS. */
+export function isNpsPayee(counterparty: string | null): boolean {
+  return !!counterparty && /\bNPS\b|NPS\s*TRUST|PROTEAN|NSDL\s*E[-\s]?GOV|\bCRA\b/i.test(counterparty);
+}
+
 /** Whether a demat account's depository participant (its name on the statement) is that broker. */
 export function brokerHolds(broker: string, dp: string | null): boolean {
   return !!dp && BROKERS.some((b) => b.key === broker && b.pattern.test(dp.toUpperCase()));

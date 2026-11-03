@@ -7,6 +7,7 @@ import {
   dematGroups,
   dateKey,
   marketValue,
+  isNpsPayee,
   npsKey,
   npsMatch,
   paise,
@@ -209,6 +210,16 @@ export async function refreshDemat(): Promise<number> {
       const demat = dematFor(tx.counterparty, demats);
       if (!demat) continue;
       toTransfer(db, tx, leg, [{ accountId: demat.id, amount: paise(Math.abs(leg.amount)) }]);
+      changed++;
+    }
+  }
+  // NPS contributions (NW-6): payments to NPS or its record keepers go into the only NPS account.
+  const npsAccounts = db.select().from(accounts).where(and(isNull(accounts.deletedAt), eq(accounts.type, 'nps'))).all();
+  if (npsAccounts.length === 1) {
+    const from = addDays(dateKey(new Date()), -BROKER_LOOKBACK_DAYS);
+    for (const { tx, leg } of bankEntries(db, from, dateKey(new Date()))) {
+      if (leg.amount >= 0 || !isNpsPayee(tx.counterparty)) continue;
+      toTransfer(db, tx, leg, [{ accountId: npsAccounts[0]!.id, amount: paise(-leg.amount) }]);
       changed++;
     }
   }

@@ -1,6 +1,6 @@
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { formatRupees, paise, type Paise } from '@money-plant/core';
+import { formatRupees, isBalanceScheme, paise, SCHEMES, type Paise, type SchemeKind } from '@money-plant/core';
 import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { Button, colors } from '@/components/ui';
 import { formatDate, formatDateTime } from '@/components/format';
@@ -28,7 +28,8 @@ export default function AccountDetail() {
   const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[], deposit: null as LocalDeposit | null, fund: null as Fund, market: null as MarketAccountValue | null }, 'account');
   if (!data.balance) return null;
   const { account, balance, value, reconciliation, typeLabel } = data.balance;
-  const isDeposit = account.type === 'fd' || account.type === 'rd';
+  const isDeposit = account.type === 'fd' || account.type === 'rd' || account.type === 'savings_scheme';
+  const passbook = !!data.deposit && isBalanceScheme(data.deposit.kind);
 
   function confirmDelete() {
     Alert.alert('Delete account?', `${account.name} will be removed from all your devices.`, [
@@ -51,7 +52,7 @@ export default function AccountDetail() {
             {account.last4 ? ` · ••${account.last4}` : ''}
           </Text>
           <Text style={styles.balance}>{formatRupees(value)}</Text>
-          {isDeposit && <DepositCard accountId={account.id} deposit={data.deposit} balance={balance} />}
+          {isDeposit && <DepositCard accountId={account.id} deposit={data.deposit} balance={balance} value={value} />}
           {data.fund && <FundCard fund={data.fund} balance={balance} />}
           {data.market && <HoldingsCard market={data.market} />}
           {reconciliation && (
@@ -63,9 +64,9 @@ export default function AccountDetail() {
             </Text>
           )}
           <View style={styles.actions}>
-            {!data.deposit && !data.fund && !data.market && (
+            {((!data.deposit && !data.fund && !data.market) || passbook) && (
               <View style={styles.action}>
-                <Button title="Set balance" variant="secondary" onPress={() => router.push(`/account/balance?id=${account.id}`)} />
+                <Button title={passbook ? 'Update from passbook' : 'Set balance'} variant="secondary" onPress={() => router.push(`/account/balance?id=${account.id}`)} />
               </View>
             )}
             {account.type === 'bank' && (
@@ -93,8 +94,22 @@ export default function AccountDetail() {
   );
 }
 
-/** NW-2: what went in, interest so far and maturity; or a prompt to add the terms. */
-function DepositCard({ accountId, deposit, balance }: { accountId: string; deposit: LocalDeposit | null; balance: Paise }) {
+/** NW-2, NW-6: what went in, interest so far and maturity; or a prompt to add the terms. */
+function DepositCard({ accountId, deposit, balance, value }: { accountId: string; deposit: LocalDeposit | null; balance: Paise; value: Paise }) {
+  if (deposit && isBalanceScheme(deposit.kind)) {
+    const info = SCHEMES[deposit.kind as SchemeKind];
+    const rate = `${(deposit.rateBp / 100).toFixed(2).replace(/\.?0+$/, '')}%`;
+    return (
+      <Pressable accessibilityRole="button" onPress={() => router.push(`/deposit?account=${accountId}`)} style={({ pressed }) => [styles.card, pressed && styles.pressedCard]}>
+        <Line label="Balance" amount={balance} />
+        <Line label={`Interest not yet in the balance, at ${rate}`} amount={paise(value - balance)} />
+        <Text style={styles.note}>
+          {info.label}: interest on each month's balance after the 5th, added every 31 March. An estimate until your passbook shows it
+          {deposit.kind === 'epf' ? '' : `; matures on ${formatDate(`${deposit.maturityDate}T12:00:00`)}`}. Tap to change the terms.
+        </Text>
+      </Pressable>
+    );
+  }
   if (!deposit) {
     return (
       <View style={styles.card}>
