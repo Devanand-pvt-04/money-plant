@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { casDate, casFlows, detectSip, fundValue, isFundPayee, matchesFlow, navOn, pairFlows, rupeesToPaise, scaleDecimal, unitsBought, type CasTransaction } from './fund';
+import { casDate, casFlows, costFromTransactions, detectSip, fundValue, isFundPayee, matchesFlow, navOn, pairFlows, rupeesToPaise, scaleDecimal, unitsBought, type CasTransaction } from './fund';
 import { paise } from './money';
 
 const tx = (date: string, type: string, amount: string | null, units: string | null = null): CasTransaction => ({ date, type, amount, units, nav: null });
@@ -122,5 +122,28 @@ describe('units bought after the statement (NW-3)', () => {
     expect(navOn('2026-09-20', statement, latest)).toBe(800_000);
     expect(navOn('2026-10-16', null, latest)).toBe(830_000);
     expect(navOn('2026-10-16', statement, null)).toBe(800_000);
+  });
+});
+
+describe('costFromTransactions', () => {
+  const t = (date: string, type: string, amount: string | null, units: string | null) => tx(date, type, amount, units);
+  it('adds purchases and their stamp duty when the statement prints no cost', () => {
+    const history = [
+      t('2026-08-15', 'PURCHASE_SIP', '2499.88', '50.000'),
+      t('2026-08-15', 'STAMP_DUTY_TAX', '0.12', null),
+      t('2026-09-15', 'PURCHASE_SIP', '2499.88', '52.500'),
+      t('2026-09-15', 'STAMP_DUTY_TAX', '0.12', null),
+      t('2026-10-15', 'PURCHASE_SIP', '2499.88', '49.000'),
+      t('2026-10-15', 'STAMP_DUTY_TAX', '0.12', null),
+    ];
+    expect(costFromTransactions(history, 1_515_000)).toBe(750_000);
+  });
+  it('uses the oldest units up first on a redemption', () => {
+    const history = [t('2026-01-01', 'PURCHASE', '1000', '100'), t('2026-02-01', 'PURCHASE', '1200', '100'), t('2026-03-01', 'REDEMPTION', '-1500', '-150')];
+    // 50 units left from the second lot: half of ₹1,200.
+    expect(costFromTransactions(history, 500_000)).toBe(60_000);
+  });
+  it('gives up when the statement starts after the first purchase', () => {
+    expect(costFromTransactions([t('2026-10-15', 'PURCHASE_SIP', '2500', '49')], 1_515_000)).toBeNull();
   });
 });

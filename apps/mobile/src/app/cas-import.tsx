@@ -9,7 +9,7 @@ import { Button, Card, ErrorText, Field, colors, radius } from '@/components/ui'
 import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
 import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
 
-const CAMS_CAS_URL = 'https://www.camsonline.com/Investors/Statements/Consolidated-Account-Statement';
+const KFINTECH_CAS_URL = 'https://mfs.kfintech.com/investor/General/ConsolidatedAccountStatement';
 
 const ERRORS: Record<PdfErrorCode, string> = {
   wrong_password: "That password didn't open the PDF. It's the one you chose when you asked for the statement.",
@@ -120,11 +120,11 @@ export default function CasImport() {
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.intro}>
-        A Consolidated Account Statement (CAS) lists every mutual fund you hold, across all apps and fund houses. Ask CAMS for the detailed statement for all folios; it arrives by email as a PDF with the password you choose.
+        A Consolidated Account Statement (CAS) lists every mutual fund you hold, across all apps and fund houses. Ask KFinTech for the detailed statement for all folios (CAMS sends the same one); it arrives by email as a PDF with the password you choose.
       </Text>
-      <Pressable accessibilityRole="link" onPress={() => Linking.openURL(CAMS_CAS_URL)} style={styles.link}>
+      <Pressable accessibilityRole="link" onPress={() => Linking.openURL(KFINTECH_CAS_URL)} style={styles.link}>
         <Feather name="external-link" size={14} color={colors.primary} />
-        <Text style={styles.linkText}>Ask CAMS for a CAS</Text>
+        <Text style={styles.linkText}>Ask KFinTech for a CAS</Text>
       </Pressable>
 
       <Text style={styles.label}>Statement</Text>

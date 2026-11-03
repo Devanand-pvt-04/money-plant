@@ -19,6 +19,7 @@ import {
   FLOW_DAYS_AFTER,
   FLOW_DAYS_BEFORE,
   FLOW_TOLERANCE,
+  costFromTransactions,
   type CasStatement,
   type DateKey,
   type FlowCandidate,
@@ -38,6 +39,7 @@ import { supabase } from './supabase';
 const now = () => new Date().toISOString();
 const today = () => dateKey(new Date());
 const NAV_FETCHED_KEY = 'funds.nav.fetched';
+const NAV_EVERY_MS = 6 * 60 * 60_000;
 
 /** NW-3: reads a CAS PDF through the parse-cas edge function. */
 export async function readCas(file: PdfFile, password: string): Promise<CasStatement> {
@@ -85,8 +87,9 @@ export function casHoldings(statement: CasStatement): CasHolding[] {
         folio: folio.folio?.slice(0, 40) ?? null,
         amc: folio.amc?.slice(0, 120) ?? null,
         unitsE4,
-        // The cost of the units still held; a statement without it falls back to the value.
-        cost: rupeesToPaise(scheme.valuation.cost) ?? value,
+        // The cost of the units still held. KFinTech statements often leave it out: then it is worked out
+        // from the transactions, and only when those don't cover every unit does it fall back to the value.
+        cost: rupeesToPaise(scheme.valuation.cost) ?? costFromTransactions(scheme.transactions, unitsE4) ?? value,
         navE4,
         navDate: navE4 !== null ? asOf : null,
         value,
@@ -358,10 +361,14 @@ export async function fundValues(balances: ReadonlyMap<string, Paise>): Promise<
   return out;
 }
 
-/** Fetches today's NAVs for the funds held, once a day. AMFI publishes them late in the evening. */
+/**
+ * Fetches the latest NAVs for the funds held, at most every 6 hours. AMFI publishes
+ * each day's NAVs late in the evening, so a fetch that same night or the next
+ * morning picks them up instead of waiting for the next calendar day.
+ */
 async function fetchNavs(list: LocalHolding[]): Promise<void> {
   const fetched = await kvGet(NAV_FETCHED_KEY);
-  if (fetched === today() || list.length === 0) return;
+  if ((fetched && Date.now() - Date.parse(fetched) < NAV_EVERY_MS) || list.length === 0) return;
   const codes = [...new Set(list.map((h) => h.amfiCode).filter((c): c is string => !!c))];
   const isins = [...new Set(list.map((h) => h.isin).filter((c): c is string => !!c))];
   const { data, error } = await supabase.functions.invoke<{ navs: { code: string; isins: string[]; nav: string; date: string }[] }>('nav-prices', {
@@ -380,7 +387,7 @@ async function fetchNavs(list: LocalHolding[]): Promise<void> {
         .run();
     }
   });
-  await kvSet(NAV_FETCHED_KEY, today());
+  await kvSet(NAV_FETCHED_KEY, new Date().toISOString());
 }
 
 /**

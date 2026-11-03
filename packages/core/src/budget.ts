@@ -215,3 +215,50 @@ export function breakdown(items: readonly SpendItem[], options: { top?: number }
     largest: [...items].sort((a, b) => b.amount - a.amount).slice(0, top),
   };
 }
+
+/** How the Budgets tab orders categories (BUD-2, decision 0013). */
+export type BudgetSort = 'attention' | 'used' | 'budget' | 'spent' | 'name';
+
+export const BUDGET_SORTS: readonly { key: BudgetSort; label: string }[] = [
+  { key: 'attention', label: 'Needs attention' },
+  { key: 'used', label: 'Most of budget used' },
+  { key: 'budget', label: 'Biggest budget' },
+  { key: 'spent', label: 'Most spent' },
+  { key: 'name', label: 'Name' },
+];
+
+/** A category's numbers for sorting; a category budgeted through its sub-categories passes their totals and worst status. */
+export interface SortableBudget {
+  name: string;
+  spent: Paise;
+  limit: Paise | null;
+  status: PaceStatus | null;
+}
+
+const ATTENTION: Record<PaceStatus, number> = { over: 0, pace: 1, ok: 2 };
+const used = (b: SortableBudget) => (b.limit !== null && b.limit > 0 ? b.spent / b.limit : b.limit === 0 && b.spent > 0 ? Infinity : -1);
+/** Over budget, then on pace to go over, then other budgets, then spending with no budget, then the rest. */
+const attentionRank = (b: SortableBudget) => (b.status !== null && b.limit !== null ? ATTENTION[b.status] : b.spent > 0 ? 3 : 4);
+
+/** Orders budget lines; ties fall back to the most spent, then the name. */
+export function sortBudgets<T>(items: readonly T[], sort: BudgetSort, numbers: (item: T) => SortableBudget): T[] {
+  const keyed = items.map((item) => ({ item, b: numbers(item) }));
+  const byName = (a: SortableBudget, b: SortableBudget) => a.name.localeCompare(b.name);
+  const bySpent = (a: SortableBudget, b: SortableBudget) => b.spent - a.spent || byName(a, b);
+  const compare: Record<BudgetSort, (a: SortableBudget, b: SortableBudget) => number> = {
+    attention: (a, b) => attentionRank(a) - attentionRank(b) || used(b) - used(a) || bySpent(a, b),
+    used: (a, b) => used(b) - used(a) || bySpent(a, b),
+    budget: (a, b) => (b.limit ?? -1) - (a.limit ?? -1) || bySpent(a, b),
+    spent: bySpent,
+    name: byName,
+  };
+  return keyed.sort((x, y) => compare[sort](x.b, y.b)).map((x) => x.item);
+}
+
+/** The numbers for a category budgeted through its sub-categories: their budgets added up and the worst status among them. */
+export function combineBudgets(name: string, spent: Paise, children: readonly SortableBudget[]): SortableBudget {
+  const budgeted = children.filter((c) => c.limit !== null);
+  if (budgeted.length === 0) return { name, spent, limit: null, status: null };
+  const status = budgeted.map((c) => c.status ?? 'ok').sort((a, b) => ATTENTION[a] - ATTENTION[b])[0]!;
+  return { name, spent, limit: paise(budgeted.reduce((sum, c) => sum + c.limit!, 0)), status };
+}
