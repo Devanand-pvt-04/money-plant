@@ -80,7 +80,6 @@ export function CategoryPicker(props: Props) {
           .filter((c): c is CategoryNode => !!c && pickable(c))
           .slice(0, RECENT_SHOWN);
 
-  const keyOf = (node: CategoryNode) => node.key ?? roots.find((r) => r.id === node.parentId)?.key ?? null;
 
   function pick(node: CategoryNode) {
     const next = [node.id, ...recentIds.filter((id) => id !== node.id)].slice(0, 12);
@@ -136,7 +135,7 @@ export function CategoryPicker(props: Props) {
                           onPress={() => pick(c)}
                           style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
                         >
-                          <CategoryIcon categoryKey={keyOf(c)} size={36} />
+                          <CategoryIcon category={c} size={36} />
                           <Text style={styles.tileText} numberOfLines={1}>
                             {c.name}
                           </Text>
@@ -159,7 +158,7 @@ export function CategoryPicker(props: Props) {
                     onPress={() => pick(item.node)}
                     style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}
                   >
-                    <CategoryIcon categoryKey={keyOf(item.node)} size={item.depth === 0 ? 32 : 26} />
+                    <CategoryIcon category={item.node} size={item.depth === 0 ? 32 : 26} />
                     <View style={styles.rowText}>
                       <Text style={[styles.name, item.depth === 0 && styles.parent]}>{item.node.name}</Text>
                       {item.parentName && <Text style={styles.meta}>in {item.parentName}</Text>}
@@ -250,7 +249,7 @@ export function NewCategory(props: {
               onPress={() => setParentId(p?.id ?? null)}
               style={[styles.parentOption, selected && styles.parentOptionOn]}
             >
-              {p && <CategoryIcon categoryKey={p.key} size={22} />}
+              {p && <CategoryIcon category={p} size={22} />}
               <Text style={[styles.parentText, selected && styles.parentTextOn]}>{p ? p.name : 'Nothing, its own category'}</Text>
             </Pressable>
           );

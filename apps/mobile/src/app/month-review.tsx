@@ -95,7 +95,7 @@ function Body({ review, onEdit, onIgnored }: { review: MonthReview; onEdit: (s: 
               onPress={() => router.push(budgetHref(category.id, month))}
               style={({ pressed }) => [styles.card, styles.row, pressed && styles.pressed]}
             >
-              <CategoryIcon categoryKey={category.key} />
+              <CategoryIcon category={category} />
               <Text style={[styles.name, styles.grow]} numberOfLines={1}>
                 {category.name}
               </Text>
@@ -189,7 +189,7 @@ function OverspendCard({ overspend: o, month }: { overspend: ReviewOverspend; mo
   return (
     <View style={styles.card}>
       <Pressable accessibilityRole="button" onPress={() => router.push(budgetHref(o.categoryId, month))} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-        <CategoryIcon categoryKey={o.category.key} />
+        <CategoryIcon category={o.category} />
         <View style={styles.grow}>
           <Text style={styles.name} numberOfLines={1}>
             {o.category.name}
@@ -238,7 +238,7 @@ function SuggestionCard({ suggestion: s, onEdit, onIgnored }: { suggestion: Revi
   return (
     <View style={styles.card}>
       <View style={styles.row}>
-        <CategoryIcon categoryKey={s.category.key} />
+        <CategoryIcon category={s.category} />
         <View style={styles.grow}>
           <Text style={styles.name} numberOfLines={1}>
             {s.category.name}

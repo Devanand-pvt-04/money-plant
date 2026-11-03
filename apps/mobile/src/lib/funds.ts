@@ -9,11 +9,13 @@ import {
   detectSip,
   fundValue,
   isFundPayee,
+  navOn,
   pairFlows,
   paise,
   rupeesToPaise,
   scaleDecimal,
   startOfDate,
+  unitsBought,
   FLOW_DAYS_AFTER,
   FLOW_DAYS_BEFORE,
   FLOW_TOLERANCE,
@@ -276,12 +278,14 @@ export async function listHoldings(): Promise<LocalHolding[]> {
 }
 
 export interface FundValue {
-  /** Units at the latest NAV, plus money in or out since the statement. */
+  /** Units at the latest NAV, including estimated units for money paid in since the statement. */
   value: Paise;
-  /** What the units held on the statement date are worth now, less what they cost. */
+  /** What the units are worth now, less what they cost (the statement's cost plus money paid in since). */
   gain: Paise;
   navE4: number | null;
   navDate: DateKey | null;
+  /** Units bought since the statement, estimated until the next CAS (4 decimals). */
+  estimatedUnitsE4: number;
 }
 
 /** The freshest NAV for a holding: AMFI's if it's newer than the statement's. */
@@ -295,21 +299,60 @@ async function latestNavs(): Promise<Map<string, { navE4: number; date: DateKey 
   return out;
 }
 
-/** NW-1, NW-3: what each fund account is worth today, keyed by account id. `balances` are the accounts' ledger balances. */
+/** Money in and out of each fund account after a date, per account: [date, amount] pairs. */
+async function flowsSince(list: readonly LocalHolding[]): Promise<Map<string, { on: DateKey; amount: Paise }[]>> {
+  const out = new Map<string, { on: DateKey; amount: Paise }[]>();
+  if (list.length === 0) return out;
+  const db = await getDb();
+  const from = list.map((h) => h.asOf).sort()[0]!;
+  const rows = db
+    .select({ accountId: postings.accountId, occurredAt: transactions.occurredAt, amount: postings.amountPaise })
+    .from(postings)
+    .innerJoin(transactions, eq(transactions.id, postings.transactionId))
+    .where(and(isNull(transactions.deletedAt), inArray(postings.accountId, list.map((h) => h.accountId)), gte(transactions.occurredAt, startOfDate(addDays(from, 1)).toISOString())))
+    .all();
+  for (const row of rows) {
+    const list = out.get(row.accountId) ?? [];
+    list.push({ on: dateOf(row.occurredAt), amount: paise(row.amount) });
+    out.set(row.accountId, list);
+  }
+  return out;
+}
+
+/**
+ * NW-1, NW-3: what each fund account is worth today, keyed by account id.
+ * `balances` are the accounts' ledger balances. Money paid in after the
+ * statement buys units at the NAV estimated for its day (navOn), so a SIP
+ * grows with the fund; money taken out counts at what it was.
+ */
 export async function fundValues(balances: ReadonlyMap<string, Paise>): Promise<Map<string, FundValue>> {
   const latest = await latestNavs();
+  const list = await listHoldings();
+  const flows = await flowsSince(list);
   const out = new Map<string, FundValue>();
-  for (const holding of await listHoldings()) {
+  for (const holding of list) {
     const amfi = (holding.amfiCode && latest.get(holding.amfiCode)) || (holding.isin && latest.get(holding.isin)) || null;
-    const nav = amfi && (!holding.navDate || amfi.date >= holding.navDate) ? amfi : holding.navE4 !== null ? { navE4: holding.navE4, date: holding.navDate! } : null;
-    const market = nav ? fundValue(holding.unitsE4, nav.navE4) : paise(holding.costPaise);
+    const statementNav = holding.navE4 !== null && holding.navDate ? { navE4: holding.navE4, date: holding.navDate } : null;
+    const nav = amfi && (!holding.navDate || amfi.date >= holding.navDate) ? amfi : statementNav;
     const balance = balances.get(holding.accountId) ?? paise(holding.costPaise);
-    // Money in or out after the statement counts at what was paid, until the next CAS has its units.
+    let estimatedUnitsE4 = 0;
+    let paidIn = 0;
+    for (const flow of flows.get(holding.accountId) ?? []) {
+      if (flow.on <= holding.asOf || flow.amount <= 0) continue;
+      const navE4 = navOn(flow.on, statementNav, nav);
+      if (navE4 === null) continue;
+      estimatedUnitsE4 += unitsBought(flow.amount, navE4);
+      paidIn += flow.amount;
+    }
+    const market = nav ? fundValue(holding.unitsE4 + estimatedUnitsE4, nav.navE4) : paise(holding.costPaise + paidIn);
+    // Whatever the ledger holds beyond the statement's cost and the money that bought units (money taken out) counts as it is.
+    const rest = balance - holding.costPaise - paidIn;
     out.set(holding.accountId, {
-      value: paise(market + balance - holding.costPaise),
-      gain: paise(market - holding.costPaise),
+      value: paise(market + rest),
+      gain: paise(market - holding.costPaise - paidIn),
       navE4: nav?.navE4 ?? null,
       navDate: nav?.date ?? null,
+      estimatedUnitsE4,
     });
   }
   return out;

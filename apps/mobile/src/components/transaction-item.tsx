@@ -55,7 +55,10 @@ export function displayAmount({ tx, legs }: TransactionRow): { text: string; col
  */
 export function TransactionItem({ row, showTime }: { row: TransactionRow; showTime?: boolean }) {
   const { tx, legs } = row;
-  const title = transactionTitle(row);
+  const payee = transactionTitle(row);
+  // HOME-2: the user's note is what they recall an entry by, so it leads when there is one.
+  const note = tx.note?.trim() || null;
+  const title = note ?? payee;
   const { text, color } = displayAmount(row);
   const detail = tx.kind === 'transfer' ? 'Transfer' : (row.category?.name ?? 'No category');
   const where = showTime ? formatTime(tx.occurredAt) : tx.kind !== 'transfer' ? legs[0]?.accountName : undefined;
@@ -70,15 +73,16 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
           <Feather name="repeat" size={16} color={colors.muted} />
         </View>
       ) : row.category ? (
-        <CategoryIcon categoryKey={row.category.key} size={40} />
+        <CategoryIcon category={row.category.look} size={40} />
       ) : (
-        <Initial name={title} />
+        <Initial name={payee} />
       )}
       <View style={styles.text}>
         <Text style={styles.title} numberOfLines={1}>
           {title}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
+          {note ? `${payee} · ` : ''}
           {detail}
           {where ? ` · ${where}` : ''}
           {tx.status === 'pending' ? ' · to review' : ''}

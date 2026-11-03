@@ -33,7 +33,9 @@ export default function TransactionDetail() {
   const { data: row } = useLedger(() => getTransaction(id), null as TransactionRow | null, 'entry');
   const [rule, setRule] = useState<Rule | null>(null);
   const { picker, change } = useCategoryChange();
-  const ruleId = row?.tx.categoryRuleId ?? null;
+  // A refund keeps the entry it gives money back for in categoryRuleId (LED-5).
+  const refundOf = row?.tx.categoryReason === 'refund' ? row.tx.categoryRuleId : null;
+  const ruleId = refundOf ? null : (row?.tx.categoryRuleId ?? null);
 
   useEffect(() => {
     if (ruleId) getRule(ruleId).then(setRule);
@@ -42,7 +44,8 @@ export default function TransactionDetail() {
 
   if (!row) return null;
   const { tx } = row;
-  const flow = tx.kind === 'income' ? 'income' : 'expense';
+  // A refund is money in that sits on a spending category.
+  const flow = tx.kind === 'income' && !refundOf ? 'income' : 'expense';
   const userSet = USER_SET_FIELDS.filter((f) => tx.userSetFields.includes(f)).map((f) => FIELD_LABELS[f]);
   const ruleText =
     rule?.match.kind === 'pattern'
@@ -87,6 +90,7 @@ export default function TransactionDetail() {
             first
           />
         )}
+        {refundOf && <Row label="Refund of" value="The earlier payment" onPress={() => router.push(`/transaction/${refundOf}`)} />}
         <Row label={isTransfer ? 'Accounts' : 'Account'} value={accounts} first={!row.category} onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
         <Row label="Note" value={tx.note ?? 'Add a note'} muted={!tx.note} onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
       </Card>

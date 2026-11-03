@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatWholeRupees } from '@/components/format';
 import { Net, dueText } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
-import { Card, Initial, SectionTitle, colors, radius } from '@/components/ui';
+import { ErrorText, Card, Initial, SectionTitle, colors, radius } from '@/components/ui';
 import { isOpen, listIous, type IouView } from '@/lib/ious';
 import { listPeople, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
 import { groupOverview, listGroups, type GroupOverview } from '@/lib/splits';
+import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
 async function load() {
@@ -34,7 +35,8 @@ function personNote(person: Person, ious: readonly IouView[], day: string): stri
 export default function People() {
   const navigation = useNavigation();
   const [adding, setAdding] = useState(false);
-  const { data } = useLedger(load, { people: [] as Person[], ious: [] as IouView[], toConfirm: [] as IouView[], groups: [] as GroupOverview[] }, 'people');
+  const { data, reload } = useLedger(load, { people: [] as Person[], ious: [] as IouView[], toConfirm: [] as IouView[], groups: [] as GroupOverview[] }, 'people');
+  const { refreshing, onRefresh, error } = usePullToRefresh(reload);
 
   useEffect(() => {
     navigation.setOptions({
@@ -56,7 +58,8 @@ export default function People() {
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+        {error && <ErrorText>{error}</ErrorText>}
         <View style={styles.totals}>
           <View style={styles.total}>
             <Text style={styles.meta}>You'll get back</Text>

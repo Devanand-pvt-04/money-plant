@@ -12,7 +12,7 @@ import {
   transactions,
   type LocalAccount,
 } from '@money-plant/db-schema';
-import { normaliseMerchant } from '@money-plant/categoriser';
+import { normaliseMerchant, type CategoryLook } from '@money-plant/categoriser';
 import { rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
 import { depositValue, listDeposits } from './deposits';
 import { fundValues } from './funds';
@@ -90,7 +90,7 @@ export function netWorth(balances: readonly AccountBalance[]): Paise {
 export interface TransactionRow {
   tx: LedgerTransaction;
   /** The category the entry counts toward, as "Food › Lunch" (CAT-5, CAT-6), with its standard key for the icon. */
-  category: { id: string; name: string; key: string | null } | null;
+  category: { id: string; name: string; key: string | null; look: CategoryLook } | null;
   /** For AI-categorised entries: how sure the AI was (CAT-6). */
   aiConfidence: number | null;
   /** The posting on the user's own account(s), for display. */
@@ -110,6 +110,16 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
     const account = byId.get(id);
     return account?.categoryKey ?? (account?.parentId ? (byId.get(account.parentId)?.categoryKey ?? null) : null);
   };
+  const lookOf = (id: string): CategoryLook => {
+    const account = byId.get(id);
+    const parent = account?.parentId ? byId.get(account.parentId) : undefined;
+    return {
+      key: account?.categoryKey ?? null,
+      name: account?.name ?? '',
+      icon: account?.icon ?? null,
+      parent: parent ? { key: parent.categoryKey, name: parent.name, icon: parent.icon } : null,
+    };
+  };
   const path = (id: string) => {
     const account = byId.get(id);
     const parent = account?.parentId ? byId.get(account.parentId) : undefined;
@@ -119,7 +129,7 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
     const categoryLeg = tx.kind === 'transfer' ? undefined : tx.postings.find((p) => byId.get(p.accountId)?.type === 'category');
     return {
       tx,
-      category: categoryLeg ? { id: categoryLeg.accountId, name: path(categoryLeg.accountId), key: keyOf(categoryLeg.accountId) } : null,
+      category: categoryLeg ? { id: categoryLeg.accountId, name: path(categoryLeg.accountId), key: keyOf(categoryLeg.accountId), look: lookOf(categoryLeg.accountId) } : null,
       aiConfidence: tx.categoryReason === 'ai' && tx.counterparty ? (merchants.get(normaliseMerchant(tx.counterparty)) ?? null) : null,
       legs: tx.postings
         .filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'))

@@ -4,3 +4,4 @@ export * from './rules';
 export * from './categorise';
 export * from './patterns';
 export * from './ai';
+export * from './icons';

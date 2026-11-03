@@ -21,6 +21,8 @@ interface Data {
   names: Map<string, string>;
   /** Spent outside budgets this month, for the total. */
   outside: Paise;
+  /** How much of the month has passed, for the pace marker. */
+  elapsed: number;
   parentName: string | null;
 }
 
@@ -30,7 +32,7 @@ async function load(id: string, month: MonthKey): Promise<Data> {
   const category = categoryId === null ? null : (flatten(tree).find((c) => c.id === categoryId) ?? null);
   const line = categoryId === null ? overview.overall : (overview.lines.find((l) => l.category?.id === categoryId) ?? null);
   const parentName = category?.parentId ? (names.get(category.parentId) ?? null) : null;
-  return { category, line, detail, names, outside: overview.outside, parentName };
+  return { category, line, detail, names, outside: overview.outside, elapsed: overview.elapsed, parentName };
 }
 
 /** Payees and entries shown before "Show all". */
@@ -58,7 +60,7 @@ export default function CategoryMonth() {
   const categoryId = overall ? null : params.id;
   const income = category?.flow === 'income';
   const title = overall ? 'All spending' : (category?.name ?? 'Category');
-  const style = categoryStyle(category?.key);
+  const style = categoryStyle(category);
   const setting = line?.setting ?? { default: null, override: null, limit: null };
   const left = daysLeft(month);
   const subCount = category?.children.length ?? 0;
@@ -100,7 +102,7 @@ export default function CategoryMonth() {
             <Feather name="pie-chart" size={24} color={colors.primary} />
           </View>
         ) : (
-          <CategoryIcon categoryKey={category?.key} size={48} />
+          <CategoryIcon category={category} size={48} />
         )}
         <View style={styles.grow}>
           <Text style={styles.title}>{title}</Text>
@@ -116,7 +118,7 @@ export default function CategoryMonth() {
           <Text style={styles.big}>{rupees(shown)}</Text>
           {line?.limit != null ? <Text style={styles.meta}> of {rupees(line.limit)} this month</Text> : <Text style={styles.meta}>{income ? ' came in' : ' this month'}</Text>}
         </Text>
-        {line?.limit != null && <ProgressBar value={line.spent / line.limit} status={line.pace?.status} color={overall ? undefined : style.color} />}
+        {line?.limit != null && <ProgressBar value={line.spent / line.limit} status={line.pace?.status} color={overall ? undefined : style.color} marker={data.elapsed} />}
         {line?.limit != null && <Text style={styles.meta}>{paceText(line, left)}</Text>}
       </View>
 

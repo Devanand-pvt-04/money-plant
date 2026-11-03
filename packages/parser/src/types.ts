@@ -43,6 +43,8 @@ export interface ParsedTransaction {
   template: string;
   /** 0 to 1. Template matches score higher than generic ones. */
   confidence: number;
+  /** A credit the message calls a refund or reversal (LED-5). Missing means no. */
+  refund?: boolean;
 }
 
 export type SmsParseResult =

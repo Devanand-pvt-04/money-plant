@@ -29,6 +29,7 @@ export interface RemoteAccount {
   account_type_id: string | null;
   parent_id: string | null;
   category_key: string | null;
+  icon: string | null;
   vpa: string | null;
   email: string | null;
   created_at: string;
@@ -51,6 +52,7 @@ export function toRemoteAccount(row: LocalAccount): RemoteAccountWrite {
     account_type_id: row.accountTypeId,
     parent_id: row.parentId,
     category_key: row.categoryKey,
+    icon: row.icon,
     vpa: row.vpa,
     email: row.email,
     created_at: row.createdAt,
@@ -70,6 +72,7 @@ export function fromRemoteAccount(row: RemoteAccount): LocalAccount {
     accountTypeId: row.account_type_id ?? null,
     parentId: row.parent_id ?? null,
     categoryKey: row.category_key ?? null,
+    icon: row.icon ?? null,
     vpa: row.vpa ?? null,
     email: row.email ?? null,
     createdAt: row.created_at,

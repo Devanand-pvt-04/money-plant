@@ -62,6 +62,32 @@ export function fundValue(unitsE4: number, navE4: number): Paise {
   return paise(Number((raw + 500_000n) / 1_000_000n));
 }
 
+/** Units `amount` buys at `navE4`, with 4 decimals, as a fund house rounds them. */
+export function unitsBought(amount: Paise, navE4: number): number {
+  if (navE4 <= 0 || amount <= 0) return 0;
+  // paise × 10^6 / NAV(×10^4) gives units × 10^4.
+  return Number((BigInt(amount) * 1_000_000n + BigInt(navE4) / 2n) / BigInt(navE4));
+}
+
+export interface NavPoint {
+  navE4: number;
+  date: DateKey;
+}
+
+/**
+ * NW-3: an estimate of a fund's NAV on `date`, for a SIP after the statement:
+ * a straight line between the statement's NAV and the latest one. The next
+ * CAS replaces the units bought with the real ones.
+ */
+export function navOn(date: DateKey, statement: NavPoint | null, latest: NavPoint | null): number | null {
+  if (!latest) return statement?.navE4 ?? null;
+  if (!statement || date >= latest.date || statement.date >= latest.date) return latest.navE4;
+  if (date <= statement.date) return statement.navE4;
+  const span = daysBetween(statement.date, latest.date);
+  const into = daysBetween(statement.date, date);
+  return Math.round(statement.navE4 + ((latest.navE4 - statement.navE4) * into) / span);
+}
+
 const MONTHS: Record<string, string> = {
   jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
   jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',

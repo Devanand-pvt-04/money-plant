@@ -122,7 +122,8 @@ function DepositCard({ accountId, deposit, balance }: { accountId: string; depos
 /** NW-3: units, today's NAV and the gain on a fund imported from a CAS. */
 function FundCard({ fund, balance }: { fund: NonNullable<Fund>; balance: Paise }) {
   const { holding, value } = fund;
-  const units = (holding.unitsE4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+  const fmtUnits = (e4: number) => (e4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+  const units = fmtUnits(holding.unitsE4);
   const nav = value.navE4 !== null ? `₹${(value.navE4 / 10_000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : null;
   const since = balance - holding.costPaise;
   return (
@@ -135,6 +136,9 @@ function FundCard({ fund, balance }: { fund: NonNullable<Fund>; balance: Paise }
         {nav && value.navDate ? ` · NAV ${nav} on ${formatDate(`${value.navDate}T12:00:00`)}` : ''}
         {holding.sipPaise ? ` · SIP ${formatRupees(paise(holding.sipPaise))} around the ${ordinal(holding.sipDay ?? 1)}` : ''}
       </Text>
+      {value.estimatedUnitsE4 > 0 && (
+        <Text style={styles.note}>About {fmtUnits(value.estimatedUnitsE4)} more units bought since, estimated from the NAV around each payment.</Text>
+      )}
       <Text style={styles.note}>{holding.folio ? `Folio ${holding.folio}. ` : ''}Import a newer CAS to update the units.</Text>
     </View>
   );

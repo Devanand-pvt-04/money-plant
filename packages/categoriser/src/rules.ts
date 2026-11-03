@@ -4,8 +4,11 @@ import { normaliseMerchant } from './dictionary';
 export type Direction = 'debit' | 'credit';
 export type PayeeKind = 'person' | 'business';
 
-/** Why an entry has its category (CAT-6). `user` means the user picked it. */
-export const CATEGORY_REASONS = ['rule', 'pattern', 'dictionary', 'ai', 'user'] as const;
+/**
+ * Why an entry has its category (CAT-6). `user` means the user picked it;
+ * `refund` means it took the category of the payment it refunds (LED-5).
+ */
+export const CATEGORY_REASONS = ['rule', 'pattern', 'dictionary', 'ai', 'user', 'refund'] as const;
 export type CategoryReason = (typeof CATEGORY_REASONS)[number];
 
 /**

@@ -70,18 +70,17 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 | LED-2 | Every entry stores its sources and a confidence score, and the user can see them | Must |
 | LED-3 | Merge duplicates of the same payment from different sources | Must |
 | LED-4 | Detect transfers between the user's own accounts and card bill payments | Must |
-| LED-5 | Match refunds and reversals to the original debit | Should |
+| LED-5 | Match refunds and reversals to the original debit: a credit whose SMS says refund, refunded, reversed or chargeback links to an expense from the same account in the 60 days before, of at least that amount and to the same payee or for the exact amount, and takes its category (decision 0013) | Should |
 | LED-6 | Review inbox for low-confidence entries, new merchants and payments to people. Entries can be reviewed a payee at a time ("category for all", "all look right"), entries older than 30 days confirmed together, and a single entry accepted with a swipe | Must |
 | LED-7 | Compare the ledger balance with balances in SMS and statements, and flag gaps | Must |
 | LED-8 | The user can edit every field of an entry. A field the user changed is never overwritten by re-parsing, dedupe, sync or AI; the parsed values stay visible in the source | Must |
 | LED-9 | Mark an entry as not a real transaction, or ignore a sender; ignored entries stay ignored on re-import | Must |
-| LED-10 | Per account, choose whether confident entries are confirmed automatically or always go to review | Should |
 
 ### Categories
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| CAT-1 | A small editable default set with an icon and colour each: Food, Groceries, Transport, Shopping, Bills, Rent, Health, Entertainment, Travel, Family and gifts, and Other, plus Salary and Other income. No preset sub-categories; the user adds their own (Food > Breakfast). A dictionary or rule match for a sub-category the user doesn't have lands on its parent | Must |
+| CAT-1 | A small editable default set with an icon and colour each (a category the user makes gets an icon from a word in its name, such as Car or Gym, and any icon can be changed in Edit; decision 0013): Food, Groceries, Transport, Shopping, Bills, Rent, Health, Entertainment, Travel, Family and gifts, and Other, plus Salary and Other income. No preset sub-categories; the user adds their own (Food > Breakfast). A dictionary or rule match for a sub-category the user doesn't have lands on its parent | Must |
 | CAT-2 | Categorise in this order: user rules, learned patterns, merchant dictionary, AI model | Must |
 | CAT-3 | Let a correction become a rule ("always do this for this merchant") | Must |
 | CAT-4 | For payments to people, ask once and remember per person; offer to create an IOU. Learned patterns run first, so a matched payment to a person (a bus conductor's UPI ID) is not asked about | Must |
@@ -95,7 +94,7 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 | ID | Requirement | Priority |
 | --- | --- | --- |
 | BUD-1 | Monthly budgets on the categories the user picks: a default that applies to every month, and an override for one month only that can be reset. A branch has either one budget on the parent, covering the parent and its sub-categories, or budgets on its sub-categories, never both. The month's total budget is the sum of the category budgets; there is no separate overall budget. Only spending in budgeted categories counts against the total; the rest is shown as spending outside budgets. Investments, cash withdrawals and transfers between the user's own accounts are not spending, and are listed apart | Must |
-| BUD-2 | Mid-month pace alerts when a budgeted category, or the month's total budget, is on track to overspend | Must |
+| BUD-2 | Mid-month pace alerts when a budgeted category, or the month's total budget, is on track to overspend. Every budget bar, the total's and each category's and sub-category's, shows a pace marker for how far through the month it is | Must |
 | BUD-3 | Overspend breakdown by category, merchant and largest transactions, versus budget and the last 3 months | Must |
 | BUD-4 | Month review on the 1st at 9 am, also open any time for past months under Budgets: spent against the total budget, what went over and why (top payees and largest entries against the 3-month average), uncategorised entries to review, and suggested budget changes the user can accept, edit or ignore in one tap. Every number opens the entries behind it. It starts as a numbers review worked out on the phone; the AI-written explanation comes in milestone 6 | Must |
 
@@ -105,7 +104,7 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 | --- | --- | --- |
 | NW-1 | Net worth across bank accounts, cash, cards, FDs/RDs, mutual funds, stocks and money owed. FDs and RDs count at their value today: what was paid in plus interest earned so far, an estimate until the bank pays it | Must |
 | NW-2 | Manual entry for FDs and RDs, with interest and maturity computed (quarterly compounding) and a reminder 7 days before maturity. Paying into a deposit is a transfer from the paying account, so RD instalments matched from SMS are not spending | Must |
-| NW-3 | Daily mutual fund values from AMFI's public NAV file, with holdings from a CAS import. SIP debits to a fund's payee become transfers into that fund. Stocks (an NSDL or CDSL statement and exchange closing prices) follow later | Must |
+| NW-3 | Daily mutual fund values from AMFI's public NAV file, with holdings from a CAS import. SIP debits to a fund's payee become transfers into that fund. A SIP after the CAS date adds units estimated from the NAV around its date until the next CAS replaces them (decision 0013). Stocks (an NSDL or CDSL statement and exchange closing prices) follow later | Must |
 | NW-4 | Net worth history chart by month | Should |
 
 ### Recurring payments
@@ -146,14 +145,13 @@ The app never moves money. It hands the payment to the user's own UPI app and lo
 | --- | --- | --- |
 | PAY-1 | Pay first, details after: scan a UPI QR in a square viewfinder (with torch and scan from gallery) or type a UPI ID, enter the amount and an optional note on one screen, then open the UPI app through Android's own app chooser. After the payment, a sheet suggests the category and offers a split; skipping leaves the entry in Review | Should |
 | PAY-2 | Log the hand-off as an entry with an app payment source. Confirm it from the UPI app's response, or ask the user when there is none. A later bank SMS merges into it | Should |
-| PAY-3 | Pay to a typed phone number by trying it as a UPI ID (the UPI app shows the payee's real name before the PIN). Built only if a one-day test on Deva's phone shows UPI apps accept it | Should |
 
 ### Home, navigation and activity
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
 | HOME-1 | Home answers "is this month on track?": a greeting and profile avatar, the month's money in, money out and what's left against budget, a 7-day strip of bills, EMIs and IOUs due, the latest entries, items to review, and owed lines when not zero | Must |
-| HOME-2 | Activity shows a month at a time with In, Out and Net, each day's money in and out, transfers as "From → To", category icons and colours, search, and a filter sheet (dates, accounts, categories, type, amount, source, needs review) | Must |
+| HOME-2 | Activity shows a month at a time with In, Out and Net, each day's money in and out, transfers as "From → To", category icons and colours, search, and a filter sheet (dates, accounts, categories, type, amount, source, needs review). An entry with a note shows the note as its title, with the payee on the second line. Every tab refreshes on pull (sync and SMS catch-up) | Must |
 | NAV-1 | Five bottom tabs: Home, Activity, Budgets (with categories), Accounts (net worth, cash and cards, investments, recurring payments) and People (people, IOUs, groups). Settings sit behind the profile avatar | Must |
 | NAV-2 | One searchable picker for categories, accounts and people everywhere, with recent choices first and "New" at the end to create one without leaving the screen. Every date and time uses the phone's date and time pickers | Must |
 
@@ -246,6 +244,8 @@ These items are deliberately left out of the MVP.
 | EPF, NPS, gold, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime | Phase 2 |
 | Broker APIs, live prices | Daily prices are enough for net worth | Phase 3 |
 | Web app, family accounts | Phones come first | Phase 3 |
+| Paying a typed phone number (was PAY-3) | Guessing a UPI handle from a number can reach the wrong person; UPI apps already pay numbers themselves (decision 0013) | Dropped |
+| Per-account auto-confirm (was LED-10) | Rules and patterns already choose "confirms directly" per payee (decision 0013) | If friends ask for it |
 | Public Play Store and App Store launch | Friends only for now | After the MVP proves retention |
 
 ## Build milestones
