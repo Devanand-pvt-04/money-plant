@@ -128,6 +128,7 @@ export default function RootLayout() {
             <Stack.Screen name="settings" options={{ title: 'Profile and settings' }} />
             <Stack.Screen name="data" options={{ title: 'Your data' }} />
             <Stack.Screen name="speed" options={{ title: 'Speed log' }} />
+            <Stack.Screen name="health" options={{ title: 'Health' }} />
           </Stack.Protected>
           <Stack.Protected guard={signedIn && !ready}>
             <Stack.Screen name="consent" options={{ headerShown: false }} />

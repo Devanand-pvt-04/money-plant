@@ -98,6 +98,7 @@ export default function Settings() {
       <SectionTitle>Your data</SectionTitle>
       <Card>
         <Link icon="download" title="Export, clear or delete" href="/data" first />
+        <Link icon="heart" title="Health" href="/health" />
         <Link icon="activity" title="Speed log" href="/speed" />
       </Card>
 
