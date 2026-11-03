@@ -1,6 +1,6 @@
 # Money Plant architecture notes
 
-21 Oct 2026, updated 25 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
+21 Oct 2026, updated 3 Nov 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/EiHKUZaKrn8w9JaessqF2U. Keep this file in sync with it.
 
 Money Plant is one React Native app (Expo, TypeScript) for Android, with iOS to follow. It has a Supabase backend in Mumbai and a shared TypeScript core for parsing and ledger rules. These notes describe how to build what `docs/PRD.md` specifies.
 
@@ -67,9 +67,10 @@ money-plant/
     db-schema/                  Drizzle schema shared by SQLite and Postgres
   supabase/
     migrations/                 SQL, including row-level security policies
-    functions/                  edge functions: categorise, parse-cas, parse-statement, nav-prices, month-review (milestone 6), delete-account
+    functions/                  edge functions: categorise, parse-cas, parse-statement, nav-prices, stock-prices, ai-worker (milestone 6), delete-account
   services/
     cas-parser/                 Python + casparser, deployed separately
+    ai-worker/                  Node worker and model evals, runs on Deva's PC (milestone 6)
   docs/
     PRD.md, architecture.md, decisions/
 ```
@@ -109,6 +110,7 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | prices (phone only) | key (ISIN, or `nps:` and the scheme name), price_e4, date | The latest closing price for each share, ETF, gold bond and bond held, and the NPS NAV for each NPS scheme. The phone asks the stock-prices edge function at most every 6 hours; it reads the day's NSE closing-price file (BSE as a fallback) and the NPS Trust NAV file and returns only what was asked for. Nothing is stored on the server |
 | balance_anchors | id, account_id, balance_paise, observed_at, source_id | Balances seen in SMS and statements, used for reconciliation |
 | month_reviews | id, user_id, month, summary (JSON), suggestions, created_at | Output of the AI month review (milestone 6). The milestone 5 numbers review is computed on the phone and stores nothing |
+| ai_jobs | id, user_id, kind, payload, status, result, attempts, claimed_at, updated_at, deleted_at | The AI queue (milestone 6). Users read their own jobs; only the ai-worker function claims and completes them |
 
 All money is stored as integer paise. Every table has updated_at and deleted_at columns (soft delete) for sync.
 
@@ -221,13 +223,15 @@ If conflicts become a real problem, a sync library (for example PowerSync or Ele
 
 ## AI services
 
-AI runs on a self-hosted open model on Deva's PC, not a paid API (decision 0006). It is built in milestone 6, just before the friends release. Until then, categorising uses rules, learned patterns and the merchant dictionary, and the month review shows numbers without an AI write-up.
+AI runs on a self-hosted open model on Deva's PC, not a paid API (decision 0006). It is built in milestone 6, just before the friends release, in the four builds of decision 0012. Until then, categorising uses rules, learned patterns and the merchant dictionary, and the month review shows numbers without an AI write-up.
 
 **How it runs.**
 
 - Ollama on Deva's PC (16 GB RAM, RTX 4060 with 8 GB VRAM) serves a 7 to 8B open-weights model at 4-bit quantisation. The model is chosen in milestone 6 by testing two or three candidates on the labelled merchant set (see Testing).
-- AI work is a queue in Postgres (`ai_jobs`: kind, payload, status, result, timestamps). Edge functions add jobs and never call a model themselves.
-- A small worker on the PC polls the queue over HTTPS, claims jobs, runs them on the local model and writes results back through an edge function. It authenticates with a worker token kept in edge function secrets and on the PC. It only makes outgoing connections, so nothing on the PC is exposed to the internet.
+- AI work is a queue in Postgres (`ai_jobs`: user_id, kind (categorise, month_review, icon), payload, status (queued, running, done, failed), result, attempts, claimed_at and the usual timestamps). Users read only their own jobs. Edge functions and the phone add jobs; nothing calls a model except the worker.
+- A Node worker on the PC (`services/ai-worker`, started by Task Scheduler at login) calls the `ai-worker` edge function every 30 seconds, claims up to 5 jobs (`for update skip locked`, so a job is never taken twice), runs them on Ollama at `localhost:11434` with a JSON schema, checks the answers and posts them back. It authenticates with `AI_WORKER_TOKEN`, kept in edge function secrets and in a git-ignored `.env` on the PC. It only makes outgoing connections, so nothing on the PC is exposed to the internet.
+- A bad answer is retried once, then marked failed. A job left running for 10 minutes goes back to the queue. Categorise jobs queued for 30 days are dropped, finished jobs' payloads are cleared after 30 days, and the worker logs only job IDs and timings.
+- Each user has an AI switch (Money tab), on after the consent screen. With it off, nothing of theirs is queued.
 - When the PC is off, jobs wait. Entries stay in the review inbox, and the month review's write-up arrives when the PC is next on.
 - Jobs carry only what the task needs, the same fields the PRD's privacy rule allows. The consent screen (ACC-5) says that AI runs on Deva's PC.
 
@@ -238,16 +242,20 @@ On the phone, `packages/categoriser` tries the user's rules, then learned patter
 1. The phone asks for a category for a merchant label it couldn't resolve locally.
 2. The function checks the global merchants table. On a hit, it returns immediately.
 3. Until milestone 6, a miss comes back as unknown, the entry waits in the review inbox, and the phone asks again after 30 days. From milestone 6, a miss becomes an AI job with the merchant label, the VPA handle if any, an amount band (for example ₹100 to ₹500), the time of day and the list of category names. The worker asks the model for structured output (category, normalised merchant name and confidence) using Ollama's JSON schema format.
-4. Results with a confidence of 0.8 or more are cached in the merchants table for everyone. Lower-confidence results go to the user's review inbox. A category the user confirms is shared through the merchants table, which already works before milestone 6.
+4. Results with a confidence of 0.8 or more are applied with category_reason `ai` and the confidence, and cached in the merchants table for everyone. Lower-confidence results become one-tap suggestions in the review inbox and are not shared. The phone collects finished jobs when it syncs, and Activity shows how many merchants are still waiting for AI. A category the user confirms is shared through the merchants table, which already works before milestone 6.
 5. Payments to people (a personal VPA, or a name with no business keywords) skip AI and go straight to the review inbox (CAT-4).
+
+### Icon suggestions
+
+When a new category's name matches no Material Design Icons name (CAT-1), the phone queues an `icon` job with the category name and a shortlist of icon names. The worker accepts only a name from the shortlist, and the user can change it in Edit as before.
 
 ### Month review
 
 1. In milestone 5 the phone computes the review from its own ledger and schedules a local notification for 9 am on the 1st. Nothing is stored on the server; which suggestions the user accepted or ignored is kept on the phone.
 2. The facts: spend per category against budget and the 3-month average, the top payees and largest entries in each overspent category, spending outside budgets, money in, and uncategorised entries.
-3. The review shows these facts directly: the headline, the categories and entries behind each overspend, and budget suggestions from the milestone 3 rules. From milestone 6, a month-review function computes the same facts in SQL and an AI job sends the facts to the model for a short review: a headline, 2 to 4 causes each linked to transaction IDs, and budget suggestions as structured data.
-4. The function checks that every number in the AI review appears in the facts it sent. It drops any suggestion that references a missing transaction, so the review can't invent figures. If the check fails, the numbers review stays.
-5. The result is stored in month_reviews and a push notification is sent.
+3. The review shows these facts directly: the headline, the categories and entries behind each overspend, and budget suggestions from the milestone 3 rules. From milestone 6, the phone sends these same facts, with the transaction IDs behind them, as a `month_review` AI job (decision 0012: no SQL copy of the review). The model writes a short review: a headline and 2 to 4 causes, each linked to transaction IDs. Budget suggestions stay with the milestone 3 rules.
+4. The worker checks that every number in the AI review appears in the facts and drops any cause that names a transaction ID not in them, so the review can't invent figures. If the check fails, the numbers review stays.
+5. The result is stored in month_reviews. The phone picks it up when it syncs, shows it above the numbers ("Write-up on its way" until then) and sends a local notification.
 
 **Cost control.** Self-hosting has no per-call cost. The limits are the PC's uptime and speed, so jobs are batched (25 merchants per categorisation job) and merchants are cached for everyone. The `ai_usage` table and spend caps from decision 0004 are no longer used.
 
@@ -276,6 +284,6 @@ The parser and matcher carry the accuracy promise, so they get the most thorough
 - **Parser fixtures.** One folder per bank of anonymised real SMS (names, account digits and references replaced), with the expected parsed fields. Every friend's bank gets fixtures before it is marked as supported. Coverage starts with ICICI, HDFC, HSBC and SBI.
 - **Ledger property tests.** For random sequences of captures, postings always sum to zero and balances always equal the sum of postings.
 - **Matcher scenarios.** Scripted cases for duplicate sources, self-transfers, card bills, refunds and IOU settlement.
-- **AI evals.** A labelled set of 300 Indian merchant labels with expected categories. A model or prompt change must not lower accuracy.
+- **AI evals.** Deva's own tagged merchants (categories set or confirmed by hand), with the same fields a real job sends, scored by an eval script in `services/ai-worker` against each candidate model (decision 0012). A model or prompt change must not lower accuracy. Worker tests run in CI against a fake Ollama, so CI needs no GPU.
 - **End to end.** Maestro flows for first run, daily review and IOU settlement on an Android emulator.
 - **Release.** GitHub Actions runs the tests on every PR. EAS Build produces three Android apps that install side by side (decision 0011): production (`in.moneyplant.app`, update channel `production`), preview (`.preview`, channel `preview`) and the development build (`.dev`). JS fixes ship to preview first and then to production; native changes need new builds. Friends get the production APK; TestFlight builds come with the later iOS milestone. Parser rules ship as versioned config from Supabase Storage, so a change in a bank's SMS format can be fixed without an app update.
