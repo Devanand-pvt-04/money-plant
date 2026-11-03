@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { addMonths, type MonthKey, type Paise } from '@money-plant/core';
+import { BUDGET_SORTS, addMonths, combineBudgets, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
 import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatWholeRupees } from '@/components/format';
-import { CategoryIcon } from '@/components/sheet';
+import { CategoryIcon, Sheet } from '@/components/sheet';
 import { ErrorText, Button, ProgressBar, colors, radius } from '@/components/ui';
 import {
   currentMonth,
@@ -20,6 +20,7 @@ import {
   type MonthOverview,
 } from '@/lib/budgets';
 import type { CategoryNode } from '@/lib/categories';
+import { kvGet, kvSet } from '@/lib/kv';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
@@ -32,6 +33,25 @@ async function load(month: MonthKey) {
   return { overview, income };
 }
 
+const SORT_KEY = 'budgets.sort';
+const isSort = (value: string | null): value is BudgetSort => BUDGET_SORTS.some((s) => s.key === value);
+const sortable = (l: BudgetLine): SortableBudget => ({ name: l.category!.name, spent: l.spent, limit: l.limit, status: l.pace?.status ?? null });
+
+/** The order the user picked, remembered on this phone. */
+function useBudgetSort() {
+  const [sort, setSort] = useState<BudgetSort>('attention');
+  useEffect(() => {
+    kvGet(SORT_KEY)
+      .then((saved) => isSort(saved) && setSort(saved))
+      .catch(() => {});
+  }, []);
+  const choose = (next: BudgetSort) => {
+    setSort(next);
+    kvSet(SORT_KEY, next).catch(() => {});
+  };
+  return [sort, choose] as const;
+}
+
 const budgetHref = (id: string, month: MonthKey) => `/budget/${id}?month=${month}` as const;
 
 /** BUD-1, BUD-2 and CAT-1: the month's spending against budget, and the categories behind it. */
@@ -40,6 +60,8 @@ export default function Budgets() {
   const [segment, setSegment] = useState<Segment>('spending');
   const [showAll, setShowAll] = useState(false);
   // Categories the user opened or closed; one with sub-category budgets starts open.
+  const [sort, setSort] = useBudgetSort();
+  const [sorting, setSorting] = useState(false);
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<{ id: string; name: string; start: Paise | null } | null>(null);
   const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[] } | null, 'budgets');
@@ -52,9 +74,14 @@ export default function Budgets() {
   const { overview, income } = data;
 
   const roots = overview.lines.filter((l) => !l.category!.parentId);
-  const children = (id: string) => overview.lines.filter((l) => l.category!.parentId === id);
+  const children = (id: string) => sortBudgets(overview.lines.filter((l) => l.category!.parentId === id), sort, sortable);
+  // A category budgeted through its sub-categories sorts by their budgets added up and their worst status.
+  const rootNumbers = (l: BudgetLine): SortableBudget => {
+    const subs = children(l.category!.id);
+    return subs.some((c) => c.limit !== null) ? combineBudgets(l.category!.name, l.spent, subs.map(sortable)) : sortable(l);
+  };
   const active = (l: BudgetLine) => l.limit !== null || l.spent !== 0;
-  const shown = roots.filter((l) => active(l) || children(l.category!.id).some(active) || (showAll && !l.category!.system));
+  const shown = sortBudgets(roots, sort, rootNumbers).filter((l) => active(l) || children(l.category!.id).some(active) || (showAll && !l.category!.system));
   const hidden = roots.filter((l) => !l.category!.system).length - shown.filter((l) => !l.category!.system).length;
 
   async function suggest() {
@@ -130,7 +157,11 @@ export default function Budgets() {
             <Overall line={overview.overall} outside={overview.outside} month={month} elapsed={overview.elapsed} />
             <ReviewLink month={month < currentMonth() ? month : addMonths(month, -1)} />
             <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>Categories</Text>
+              <Text style={[styles.sectionTitle, styles.grow]}>Categories</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Change the order" hitSlop={8} onPress={() => setSorting(true)} style={styles.sortButton}>
+                <Text style={styles.sortText}>{BUDGET_SORTS.find((s) => s.key === sort)!.label}</Text>
+                <Feather name="chevron-down" size={14} color={colors.muted} />
+              </Pressable>
               <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/categories')}>
                 <Text style={styles.link}>Edit</Text>
               </Pressable>
@@ -181,6 +212,23 @@ export default function Budgets() {
         }}
         onClose={() => setEditing(null)}
       />
+      <Sheet visible={sorting} onClose={() => setSorting(false)} title="Order categories by">
+        {BUDGET_SORTS.map((option) => (
+          <Pressable
+            key={option.key}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: sort === option.key }}
+            onPress={() => {
+              setSort(option.key);
+              setSorting(false);
+            }}
+            style={({ pressed }) => [styles.sortOption, pressed && styles.pressed]}
+          >
+            <Text style={styles.sortOptionText}>{option.label}</Text>
+            {sort === option.key && <Feather name="check" size={18} color={colors.primary} />}
+          </Pressable>
+        ))}
+      </Sheet>
     </>
   );
 }
@@ -332,7 +380,11 @@ const styles = StyleSheet.create({
   big: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   bigAmount: { fontSize: 28, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
   days: { fontSize: 12, fontWeight: '600', color: colors.primary },
-  sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginTop: 6 },
+  sortButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sortText: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  sortOption: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 4 },
+  sortOptionText: { flex: 1, fontSize: 15, color: colors.text },
   sectionTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   link: { fontSize: 13, fontWeight: '600', color: colors.primary },
   card: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 8 },

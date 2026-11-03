@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget } from './budget';
+import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, sortBudgets, combineBudgets } from './budget';
 
 describe('effectiveBudgets', () => {
   const rows = [
@@ -144,5 +144,33 @@ describe('countedBudgets and budgetTotal', () => {
 
   it('falls back to all spending when no budget is set', () => {
     expect(budgetTotal(new Map(), new Map(), p(22000))).toEqual({ limit: null, spent: 22000, outside: 0 });
+  });
+});
+
+describe('sortBudgets', () => {
+  const b = (name: string, spent: number, limit: number | null, status: 'ok' | 'pace' | 'over' | null = limit === null ? null : 'ok') => ({
+    name,
+    spent: paise(spent),
+    limit: limit === null ? null : paise(limit),
+    status,
+  });
+  const lines = [b('Food', 4_000, 10_000), b('Rent', 12_500, 12_500), b('Car', 6_000, 5_000, 'over'), b('Gifts', 2_000, null), b('Travel', 3_000, 4_000, 'pace'), b('Pets', 0, null)];
+  const names = (sort: Parameters<typeof sortBudgets>[1]) => sortBudgets(lines, sort, (l) => l).map((l) => l.name);
+  it('puts over budget first, then ahead of pace, then the most used', () => {
+    expect(names('attention')).toEqual(['Car', 'Travel', 'Rent', 'Food', 'Gifts', 'Pets']);
+  });
+  it('sorts by share used, budget, spent and name', () => {
+    expect(names('used')).toEqual(['Car', 'Rent', 'Travel', 'Food', 'Gifts', 'Pets']);
+    expect(names('budget')).toEqual(['Rent', 'Food', 'Car', 'Travel', 'Gifts', 'Pets']);
+    expect(names('spent')).toEqual(['Rent', 'Car', 'Food', 'Travel', 'Gifts', 'Pets']);
+    expect(names('name')).toEqual(['Car', 'Food', 'Gifts', 'Pets', 'Rent', 'Travel']);
+  });
+  it('combines sub-category budgets with their worst status', () => {
+    expect(combineBudgets('Car', paise(7_000), [b('Fuel', 5_000, 4_000, 'over'), b('Service', 2_000, 3_000), b('Parking', 0, null)])).toEqual({
+      name: 'Car',
+      spent: 7_000,
+      limit: 7_000,
+      status: 'over',
+    });
   });
 });

@@ -34,3 +34,9 @@ Decided by Deva on 2026-11-03, from the fourth app review (https://claude.ai/art
 | Decision | Choice | Why |
 | --- | --- | --- |
 | Getting an update | The app checks for an update when it opens and when it comes back (at most every 15 minutes), downloads it, and shows "A new version is ready" with Restart and Later above the tabs. Later hides it until the next update, which still applies on the next cold start. Settings → Version shows what is running (version, channel, update date) and checks on tap | By default an update downloads in the background and only runs on the next full start, so a closed-and-reopened app often still showed the old version |
+
+## Added on 2026-11-03: ordering budgets
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Order of categories in Budgets | "Needs attention" by default: over budget, then on pace to go over, then other budgets by share used, then spending with no budget. A menu beside Categories also offers most of budget used, biggest budget, most spent and name; the choice is remembered on the phone. Sub-categories follow the same order, and a category budgeted through its sub-categories counts their budgets added up and their worst status | In daily use the question is where the month is going wrong, so the default answers it without a tap |
