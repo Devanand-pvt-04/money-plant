@@ -1,6 +1,6 @@
 # Money Plant PRD
 
-21 Oct 2026, updated 25 Oct 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
+21 Oct 2026, updated 3 Nov 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
 
 Money Plant is an Android app (iOS later) for Deva and friends. It keeps one accurate, cloud-synced ledger of all their money and fills it mostly without typing. This PRD defines the MVP. `docs/architecture.md` describes how it is built.
 
@@ -35,7 +35,7 @@ These targets are starting guesses to test with the first friends, not benchmark
 
 ## MVP requirements
 
-The MVP has 61 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
+The MVP has 62 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
 
 ### Accounts and sign-in
 
@@ -102,10 +102,12 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| NW-1 | Net worth across bank accounts, cash, cards, FDs/RDs, mutual funds, stocks and money owed. FDs and RDs count at their value today: what was paid in plus interest earned so far, an estimate until the bank pays it | Must |
+| NW-1 | Net worth across bank accounts, cash, cards, FDs/RDs, mutual funds, shares, long-term savings (PPF, EPF, NPS, NSC, KVP, Sukanya Samriddhi) and money owed. FDs and RDs count at their value today: what was paid in plus interest earned so far, an estimate until the bank pays it | Must |
 | NW-2 | Manual entry for FDs and RDs, with interest and maturity computed (quarterly compounding) and a reminder 7 days before maturity. Paying into a deposit is a transfer from the paying account, so RD instalments matched from SMS are not spending | Must |
-| NW-3 | Daily mutual fund values from AMFI's public NAV file, with holdings from a CAS import. SIP debits to a fund's payee become transfers into that fund. A SIP after the CAS date adds units estimated from the NAV around its date until the next CAS replaces them (decision 0013). Stocks (an NSDL or CDSL statement and exchange closing prices) follow later | Must |
+| NW-3 | Daily mutual fund values from AMFI's public NAV file, with holdings from a CAS import. SIP debits to a fund's payee become transfers into that fund. A SIP after the CAS date adds units estimated from the NAV around its date until the next CAS replaces them (decision 0013). | Must |
 | NW-4 | Net worth history chart by month | Should |
+| NW-5 | Import an NSDL or CDSL statement (CAS): each demat account becomes a Stocks account holding its shares, ETFs, gold bonds and bonds, valued daily from the NSE closing-price file (BSE as a fallback). The statement has no purchase cost for shares, so cost is unknown until the user adds what they paid; gain shows only once it is known. Money to or from a known broker is a transfer into or out of the demat account, not spending (decision 0014) | Must |
+| NW-6 | Long-term savings: PPF, EPF, NSC, KVP and Sukanya Samriddhi as deposits with the current government rate pre-filled and editable, interest estimated on each scheme's rules and posted as income when credited, and payments matched by payee becoming transfers in. EPF's balance is set from the passbook. NPS holds units per scheme, from the NSDL statement or typed in, valued with the NPS Trust daily NAV (decision 0014) | Must |
 
 ### Recurring payments
 
@@ -152,6 +154,7 @@ The app never moves money. It hands the payment to the user's own UPI app and lo
 | --- | --- | --- |
 | HOME-1 | Home answers "is this month on track?": a greeting and profile avatar, the month's money in, money out and what's left against budget, a 7-day strip of bills, EMIs and IOUs due, the latest entries, items to review, and owed lines when not zero | Must |
 | HOME-2 | Activity shows a month at a time with In, Out and Net, each day's money in and out, transfers as "From → To", category icons and colours, search, and a filter sheet (dates, accounts, categories, type, amount, source, needs review). An entry with a note shows the note as its title, with the payee on the second line. Every tab refreshes on pull (sync and SMS catch-up) | Must |
+| HOME-3 | Settings → Health measures the success metrics on the phone over the last 30 days: share of entries captured automatically, share of automatic categories left unchanged, average time a day in Review, and the gap between each bank account's ledger balance and the balance in its latest SMS, each beside its target (decision 0014) | Must |
 | NAV-1 | Five bottom tabs: Home, Activity, Budgets (with categories), Accounts (net worth, cash and cards, investments, recurring payments) and People (people, IOUs, groups). Settings sit behind the profile avatar | Must |
 | NAV-2 | One searchable picker for categories, accounts and people everywhere, with recent choices first and "New" at the end to create one without leaving the screen. Every date and time uses the phone's date and time pickers | Must |
 
@@ -240,8 +243,7 @@ These items are deliberately left out of the MVP.
 | Shared split groups between app users, Splitwise import | Personal splits cover the core need without friends installing the app | After the friends release |
 | Finding friends on the app by phone number | Sign-in is email only, and hashed phone numbers are easy to reverse; friends are invited by email | With phone sign-in |
 | Ask-anything AI chat | The month review delivers the main AI value first | Phase 2 |
-| Stocks and demat holdings | Deva holds none yet; mutual funds come first (decision 0010) | When a tester needs it |
-| EPF, NPS, gold, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime | Phase 2 |
+| Crypto, digital gold in apps, P2P lending, foreign shares, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime (decision 0014) | When a tester needs it |
 | Broker APIs, live prices | Daily prices are enough for net worth | Phase 3 |
 | Web app, family accounts | Phones come first | Phase 3 |
 | Paying a typed phone number (was PAY-3) | Guessing a UPI handle from a number can reach the wrong person; UPI apps already pay numbers themselves (decision 0013) | Dropped |
@@ -261,6 +263,7 @@ Before milestone 3, a one-day test build checks how Google Pay, PhonePe, a bank 
 Between milestones 3 and 4, a short design step (about a week) sets the look and navigation before the screen count grows. It adds a design system (colours, type, spacing and core components, light and dark), bottom tabs (Home, Activity, Budgets, Money, with a badge for items to review) and a redesign of the four daily screens: home, review inbox, transaction list and detail, and quick add. Clickable mockups come first, and Deva signs them off before any code. Later milestones build on the design system, and milestone 7, the friends release, adds a polish pass (onboarding, empty states, app icon, accessibility). *Exit:* the UX goals below hold on Deva's phone for the four daily screens.
 After milestone 4, a second design step (decision 0008) follows Deva's end-to-end review: five tabs, settings behind a profile avatar, livelier Home and Activity, Budgets that hold categories, a grouped Accounts tab, one expense flow for people and groups, pay first in scan and pay, and shared pickers. Mockups were signed off on 24 Oct 2026, and the build ships in small PRs before milestone 5.
 5. **Net worth, imports and month review.** Four builds in order (decision 0010): month review with numbers (no AI yet), FDs and RDs, mutual funds from a CAS import with daily NAV, then statement import. *Exit:* net worth matches the user's own sum within 1%.
+After milestone 5, an investments step (decision 0014) adds Settings → Health (HOME-3), the demat statement import (NW-5) and long-term savings (NW-6), in that order, while milestone 6 waits on its open choices. Collecting friends' HDFC, HSBC and SBI samples for milestone 7 starts at the same time.
 6. **AI.** A self-hosted open model on Deva's PC (decision 0006): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, a speed pass (measured on Deva's phone first), APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
@@ -274,7 +277,7 @@ Every MVP service fits in a free tier except phone OTP, so phone sign-in moves t
 | Email OTP | Supabase Auth with a free SMTP sender (for example Resend or Brevo) | A few hundred emails a day |
 | Phone OTP | None: every Indian OTP SMS costs money and needs DLT registration | Moved out of the MVP |
 | CAS and statement PDFs | Python service on Render's free tier, Singapore region (decision 0010) | Sleeps after 15 minutes idle, so the first import after a break waits about a minute; 750 free hours a month |
-| Prices | AMFI NAV file and exchange closing prices | Free public files |
+| Prices | AMFI NAV file, NSE and BSE closing-price files, NPS Trust NAV file | Free public files |
 | Push | Expo push service | Free |
 | Builds | EAS Build free tier; GitHub Actions | Limited builds a month |
 | Monitoring | Sentry free developer plan | Event quota |
