@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { ICON_CHOICES } from '@money-plant/categoriser';
+import { ICON_CHOICES, searchIcons } from '@money-plant/categoriser';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { CategoryPicker } from '@/components/category-picker';
 import { categoryStyle, type IconName } from '@/components/category-style';
 import { CategoryIcon } from '@/components/sheet';
 import { Button, ErrorText, Field, colors, radius } from '@/components/ui';
+import { ICON_NAMES } from '@/lib/icon-set';
 import { deleteCategory, flatten, listCategories, mergeCategory, moveCategory, renameCategory, setCategoryIcon, type CategoryNode } from '@/lib/categories';
 
 /** CAT-1, CAT-5: rename, change the icon, move, merge or delete one category. Entries keep their history. */
@@ -14,6 +15,9 @@ export default function CategoryDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [category, setCategory] = useState<CategoryNode | null>(null);
   const [name, setName] = useState('');
+  const [query, setQuery] = useState('');
+  // CAT-1: every icon in the font is searchable; the grid below the search shows the common ones.
+  const found = useMemo(() => searchIcons(query, ICON_NAMES), [query]);
   const [picking, setPicking] = useState<'move' | 'merge' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,6 +55,15 @@ export default function CategoryDetail() {
       <Button title="Rename" onPress={() => run(() => renameCategory(id, name))} disabled={name.trim() === '' || name === category.name} />
 
       <Text style={styles.section}>Icon</Text>
+      <Field
+        label="Search all icons"
+        value={query}
+        onChangeText={setQuery}
+        placeholder="badminton, guitar, temple…"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      {query.trim() !== '' && found.length === 0 && <Text style={styles.body}>No icons match "{query.trim()}".</Text>}
       <View style={styles.icons}>
         <Pressable
           accessibilityRole="button"
@@ -62,7 +75,7 @@ export default function CategoryDetail() {
           <MaterialCommunityIcons name={automatic.icon} size={20} color={automatic.color} />
           <Text style={styles.autoText}>From the name</Text>
         </Pressable>
-        {ICON_CHOICES.map((icon) => (
+        {(query.trim() ? found : category.icon && !ICON_CHOICES.includes(category.icon) ? [category.icon, ...ICON_CHOICES] : ICON_CHOICES).map((icon) => (
           <Pressable
             key={icon}
             accessibilityRole="button"

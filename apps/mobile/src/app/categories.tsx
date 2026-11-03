@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { CategoryFlow } from '@money-plant/categoriser';
 import { NewCategory } from '@/components/category-picker';
 import { CategoryIcon, Sheet } from '@/components/sheet';
-import { Button, colors, radius } from '@/components/ui';
+import { colors, radius } from '@/components/ui';
 import { listCategories, type CategoryNode } from '@/lib/categories';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -14,7 +14,16 @@ export default function Categories() {
   const { data: tree } = useLedger(listCategories, [] as CategoryNode[]);
   const [flow, setFlow] = useState<CategoryFlow>('expense');
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState('');
   const roots = tree.filter((root) => root.flow === flow);
+  // A parent shows when it or one of its sub-categories matches; matching sub-categories show under it.
+  const q = query.trim().toLowerCase();
+  const matches = (node: CategoryNode) => node.name.toLowerCase().includes(q);
+  const shown = q
+    ? roots
+        .map((root) => ({ root, children: matches(root) ? root.children : root.children.filter(matches) }))
+        .filter(({ root, children }) => matches(root) || children.length > 0)
+    : roots.map((root) => ({ root, children: root.children }));
 
   return (
     <>
@@ -32,26 +41,57 @@ export default function Categories() {
             </Pressable>
           ))}
         </View>
-        <Text style={styles.meta}>
-          Add sub-categories inside any category, for example Breakfast inside Food. Budgets and reports add them up into the category above.
-        </Text>
-        {roots.map((root) => (
+        <View style={styles.searchRow}>
+          <View style={styles.search}>
+            <Feather name="search" size={18} color={colors.muted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search categories"
+              placeholderTextColor={colors.muted}
+              accessibilityLabel="Search categories"
+              style={styles.searchInput}
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="New category" onPress={() => setCreating(true)} style={({ pressed }) => [styles.add, pressed && styles.addPressed]}>
+            <Feather name="plus" size={18} color={colors.onInk} />
+            <Text style={styles.addText}>New</Text>
+          </Pressable>
+        </View>
+        {!q && (
+          <Text style={styles.meta}>
+            Add sub-categories inside any category, for example Breakfast inside Food. Budgets and reports add them up into the category above.
+          </Text>
+        )}
+        {shown.map(({ root, children }) => (
           <View key={root.id} style={styles.group}>
             <Row node={root} />
-            {root.children.map((child) => (
+            {children.map((child) => (
               <Row key={child.id} node={child} child />
             ))}
           </View>
         ))}
-        <Button title="New category" variant="secondary" onPress={() => setCreating(true)} />
+        {q !== '' && shown.length === 0 && (
+          <Pressable accessibilityRole="button" onPress={() => setCreating(true)} style={({ pressed }) => [styles.row, styles.group, pressed && styles.pressed]}>
+            <Feather name="plus" size={18} color={colors.primary} />
+            <Text style={[styles.name, styles.addMatch]} numberOfLines={1}>
+              Add "{query.trim()}" as a category
+            </Text>
+          </Pressable>
+        )}
       </ScrollView>
       <Sheet visible={creating} onClose={() => setCreating(false)} title={flow === 'expense' ? 'New spending category' : 'New income category'}>
         <NewCategory
-          initialName=""
+          initialName={query.trim()}
           parents={roots.filter((r) => !r.system)}
           flow={flow}
           onCancel={() => setCreating(false)}
-          onCreated={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            setQuery('');
+          }}
         />
       </Sheet>
     </>
@@ -89,4 +129,11 @@ const styles = StyleSheet.create({
   pressed: { backgroundColor: colors.pressed },
   name: { flex: 1, fontSize: 15, color: colors.text },
   parent: { fontWeight: '600' },
+  searchRow: { flexDirection: 'row', gap: 8 },
+  search: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 46, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.subtle },
+  searchInput: { flex: 1, fontSize: 15, color: colors.text, paddingVertical: 10 },
+  add: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 46, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.ink },
+  addPressed: { opacity: 0.85 },
+  addText: { fontSize: 15, fontWeight: '600', color: colors.onInk },
+  addMatch: { color: colors.primary, fontWeight: '600' },
 });
