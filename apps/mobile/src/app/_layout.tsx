@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppLock } from '@/components/app-lock';
 import { ErrorScreen } from '@/components/error-screen';
+import { UpdateBanner } from '@/components/update-banner';
 import { colors } from '@/components/ui';
 import { useConsent } from '@/lib/consent';
 import { flushErrors, watchErrors } from '@/lib/errors';
@@ -135,6 +136,7 @@ export default function RootLayout() {
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
           </Stack.Protected>
         </Stack>
+        {ready && <UpdateBanner />}
         <AppLock active={ready} />
       </ThemeProvider>
     </GestureHandlerRootView>
