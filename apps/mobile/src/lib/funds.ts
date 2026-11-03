@@ -19,6 +19,7 @@ import {
   FLOW_DAYS_AFTER,
   FLOW_DAYS_BEFORE,
   FLOW_TOLERANCE,
+  costFromTransactions,
   type CasStatement,
   type DateKey,
   type FlowCandidate,
@@ -85,8 +86,9 @@ export function casHoldings(statement: CasStatement): CasHolding[] {
         folio: folio.folio?.slice(0, 40) ?? null,
         amc: folio.amc?.slice(0, 120) ?? null,
         unitsE4,
-        // The cost of the units still held; a statement without it falls back to the value.
-        cost: rupeesToPaise(scheme.valuation.cost) ?? value,
+        // The cost of the units still held. KFinTech statements often leave it out: then it is worked out
+        // from the transactions, and only when those don't cover every unit does it fall back to the value.
+        cost: rupeesToPaise(scheme.valuation.cost) ?? costFromTransactions(scheme.transactions, unitsE4) ?? value,
         navE4,
         navDate: navE4 !== null ? asOf : null,
         value,

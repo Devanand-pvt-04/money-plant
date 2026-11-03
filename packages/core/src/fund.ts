@@ -253,3 +253,50 @@ export function pairFlows<K>(
   }
   return pairs;
 }
+
+/**
+ * NW-3: the cost of the units a statement says are held, worked out from its
+ * transactions first in, first out, for statements that don't print a cost
+ * (KFinTech's often don't). Purchases (stamp duty included) and reinvested
+ * dividends add lots, redemptions and switches out use the oldest lots up, and
+ * a reversal takes back the latest. Null when the transactions don't add up to
+ * the units held (the statement doesn't start at the first purchase), since the
+ * cost of the older units can't be known then.
+ */
+export function costFromTransactions(transactions: readonly CasTransaction[], unitsHeldE4: number): Paise | null {
+  const lots: { unitsE4: number; cost: bigint }[] = [];
+  let totalE4 = 0;
+  for (const t of transactions) {
+    const unitsE4 = scaleDecimal(t.units, 4);
+    const amount = rupeesToPaise(t.amount);
+    if (t.type === 'STAMP_DUTY_TAX') {
+      const last = lots[lots.length - 1];
+      if (last && amount !== null) last.cost += BigInt(Math.abs(amount));
+      continue;
+    }
+    if (unitsE4 === null || unitsE4 === 0) continue;
+    totalE4 += unitsE4;
+    if (unitsE4 > 0) {
+      lots.push({ unitsE4, cost: BigInt(Math.abs(amount ?? 0)) });
+      continue;
+    }
+    let left = -unitsE4;
+    const fromLatest = t.type === 'REVERSAL';
+    while (left > 0 && lots.length > 0) {
+      const lot = fromLatest ? lots[lots.length - 1]! : lots[0]!;
+      if (lot.unitsE4 <= left) {
+        left -= lot.unitsE4;
+        if (fromLatest) lots.pop();
+        else lots.shift();
+      } else {
+        const keep = lot.unitsE4 - left;
+        lot.cost = (lot.cost * BigInt(keep) + BigInt(lot.unitsE4) / 2n) / BigInt(lot.unitsE4);
+        lot.unitsE4 = keep;
+        left = 0;
+      }
+    }
+  }
+  // Within 0.01 units of what is held: rounding in the statement, not missing history.
+  if (Math.abs(totalE4 - unitsHeldE4) > 100) return null;
+  return paise(Number(lots.reduce((sum, lot) => sum + lot.cost, 0n)));
+}

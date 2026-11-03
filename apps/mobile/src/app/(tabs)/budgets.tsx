@@ -39,7 +39,8 @@ export default function Budgets() {
   const [month, setMonth] = useState(currentMonth());
   const [segment, setSegment] = useState<Segment>('spending');
   const [showAll, setShowAll] = useState(false);
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  // Categories the user opened or closed; one with sub-category budgets starts open.
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<{ id: string; name: string; start: Paise | null } | null>(null);
   const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[] } | null, 'budgets');
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
@@ -82,7 +83,7 @@ export default function Budgets() {
     if (proceed) setEditing({ id: category.id, name: category.name, start });
   }
 
-  const toggle = (id: string) => setOpen((current) => {
+  const toggle = (id: string) => setToggled((current) => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -143,7 +144,7 @@ export default function Budgets() {
                 sub={children(line.category!.id)}
                 elapsed={overview.elapsed}
                 childBudgets={children(line.category!.id).some((c) => c.limit !== null)}
-                open={open.has(line.category!.id)}
+                open={children(line.category!.id).some((c) => c.limit !== null) !== toggled.has(line.category!.id)}
                 onToggle={() => toggle(line.category!.id)}
                 onSet={() => startBudget(line.category!)}
               />
@@ -255,7 +256,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} marker={props.elapsed} />}
       <PaceNote line={line} />
       {props.childBudgets && <Text style={styles.meta}>Budgets are on its sub-categories</Text>}
-      {(props.open || props.childBudgets) && (
+      {props.open && (
         <View style={styles.children}>
           {sub.map((child) => (
             <Pressable
