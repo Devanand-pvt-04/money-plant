@@ -10,6 +10,8 @@ export const ACCOUNT_TYPES = [
   'rd',
   'mutual_fund',
   'stock',
+  'nps',
+  'savings_scheme',
   'person',
   'category',
   'custom',
@@ -27,6 +29,8 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   rd: 'Recurring deposit',
   mutual_fund: 'Mutual fund',
   stock: 'Stocks',
+  nps: 'NPS',
+  savings_scheme: 'Savings scheme',
   person: 'Person',
   category: 'Category',
   custom: 'Custom',
@@ -37,7 +41,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
  * other flows; `custom` accounts are created from a user-defined account type (ACC-6).
  */
 export const USER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(
-  (type) => type !== 'person' && type !== 'category' && type !== 'custom',
+  (type) => type !== 'person' && type !== 'category' && type !== 'custom' && type !== 'nps' && type !== 'savings_scheme',
 );
 
 /** Built-in types whose balance is money owed rather than money held. */

@@ -3,6 +3,7 @@ import { addDays, daysBetween, type DateKey } from './schedule';
 
 /** A CAS as the CAS parser service returns it (NW-3). Amounts, units and NAVs are decimal strings. */
 export interface CasStatement {
+  kind?: 'funds';
   statement: { from: string | null; to: string | null };
   cas_type: string | null;
   file_type: string | null;

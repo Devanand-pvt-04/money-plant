@@ -25,10 +25,11 @@ const GROUPS: Record<Segment, { title: string; has: (b: AccountBalance) => boole
   investments: [
     { title: 'Deposits', has: (b) => b.account.type === 'fd' || b.account.type === 'rd' },
     { title: 'Funds and stocks', has: (b) => b.account.type === 'mutual_fund' || b.account.type === 'stock' },
+    { title: 'Retirement and savings schemes', has: (b) => b.account.type === 'nps' || b.account.type === 'savings_scheme' },
     { title: 'Other investments', has: (b) => b.account.type === 'custom' && !b.liability },
   ],
 };
-const INVESTMENT_TYPES: ReadonlySet<AccountType> = new Set(['fd', 'rd', 'mutual_fund', 'stock']);
+const INVESTMENT_TYPES: ReadonlySet<AccountType> = new Set(['fd', 'rd', 'mutual_fund', 'stock', 'nps', 'savings_scheme']);
 const inSegment = (b: AccountBalance): Segment =>
   INVESTMENT_TYPES.has(b.account.type) || (b.account.type === 'custom' && !b.liability) ? 'investments' : 'cash';
 
@@ -112,8 +113,8 @@ export default function Accounts() {
         <Pressable accessibilityRole="button" onPress={() => router.push('/cas-import')} style={({ pressed }) => [styles.recurring, pressed && styles.pressed]}>
           <Feather name="trending-up" size={18} color={colors.muted} />
           <View style={styles.grow}>
-            <Text style={styles.name}>Import mutual funds</Text>
-            <Text style={styles.meta}>From a CAS PDF, valued daily at the latest NAV</Text>
+            <Text style={styles.name}>Import investments</Text>
+            <Text style={styles.meta}>Funds from a CAS, shares and NPS from an NSDL or CDSL statement</Text>
           </View>
           <Feather name="chevron-right" size={18} color={colors.muted} />
         </Pressable>

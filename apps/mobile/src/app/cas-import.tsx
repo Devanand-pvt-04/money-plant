@@ -3,34 +3,41 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { File } from 'expo-file-system';
-import { paise, type CasStatement } from '@money-plant/core';
+import { dematGroups, paise, type CasStatement, type DematGroup, type DematStatement } from '@money-plant/core';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
 import { Button, Card, ErrorText, Field, colors, radius } from '@/components/ui';
 import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
+import { heldFundIsins, importDemat } from '@/lib/demat';
 import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
 
 const KFINTECH_CAS_URL = 'https://mfs.kfintech.com/investor/General/ConsolidatedAccountStatement';
 
 const ERRORS: Record<PdfErrorCode, string> = {
   wrong_password: "That password didn't open the PDF. It's the one you chose when you asked for the statement.",
-  not_a_cas: "This doesn't look like a CAS from CAMS or KFintech. Ask for the detailed statement for all folios.",
+  not_a_cas: "This doesn't look like a CAS. Use the detailed statement from KFinTech or CAMS, or the monthly one from NSDL or CDSL.",
   not_a_statement: "This doesn't look like a CAS from CAMS or KFintech.",
-  demat_not_supported: 'This is a demat statement from NSDL or CDSL. Funds come from the CAMS or KFintech CAS for now; stocks come later.',
+  demat_not_supported: "This statement couldn't be read.",
   too_large: 'The PDF is over 10 MB.',
   not_configured: "The statement reader isn't set up on the server yet.",
   service_unavailable: "Couldn't reach the statement reader. Check your connection and try again; it can take a minute to wake up.",
   unknown: "Something went wrong reading the statement. Try again in a minute.",
 };
 
-/** NW-3: import mutual fund holdings from a CAS PDF, matching past SIPs to bank debits already in the ledger. */
+const KIND_LABEL: Record<string, string> = { share: 'Share', etf: 'ETF', gold_bond: 'Gold bond', bond: 'Bond', fund: 'Mutual fund', nps: 'NPS' };
+
+/**
+ * NW-3: import mutual fund holdings from a CAS PDF, matching past SIPs to bank debits already in the ledger.
+ * NW-5, NW-6: or shares, ETFs, gold bonds, bonds and NPS from an NSDL or CDSL statement.
+ */
 export default function CasImport() {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState('');
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [statement, setStatement] = useState<CasStatement | null>(null);
-  const funds: CasHolding[] = statement ? casHoldings(statement) : [];
+  const [statement, setStatement] = useState<CasStatement | DematStatement | null>(null);
+  const [demat, setDemat] = useState<DematGroup[] | null>(null);
+  const funds: CasHolding[] = statement && statement.kind !== 'demat' ? casHoldings(statement) : [];
 
   async function pick() {
     setError(null);
@@ -49,7 +56,9 @@ export default function CasImport() {
     setReading(true);
     setError(null);
     try {
-      setStatement(await readCas(file, password));
+      const read = await readCas(file, password);
+      setDemat(read.kind === 'demat' ? dematGroups(read, await heldFundIsins()) : null);
+      setStatement(read);
     } catch (e) {
       setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${e instanceof Error ? e.message : String(e)})`);
     } finally {
@@ -61,15 +70,71 @@ export default function CasImport() {
     if (!statement) return;
     setSaving(true);
     try {
-      await importCas(statement);
+      if (statement.kind === 'demat') await importDemat(statement);
+      else await importCas(statement);
       router.back();
     } catch (e) {
-      setError(`Couldn't save the funds: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`);
       setSaving(false);
     }
   }
 
-  if (statement) {
+  if (statement && statement.kind === 'demat' && demat) {
+    const items = demat.flatMap((g) => g.items);
+    const value = items.reduce((sum, item) => sum + item.value, 0);
+    const end = demat[0]?.asOf;
+    return (
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.summary}>
+          <Text style={styles.meta}>{end ? `Worth on ${formatDay(`${end}T12:00:00`)}` : 'Worth'}</Text>
+          <Text style={styles.total}>{rupees(paise(value))}</Text>
+          <Text style={styles.meta}>
+            {items.length} {items.length === 1 ? 'holding' : 'holdings'} in {demat.length} {demat.length === 1 ? 'account' : 'accounts'}
+          </Text>
+        </View>
+        {demat.length === 0 ? (
+          <Text style={styles.hint}>Nothing with units left in this statement, other than funds you already imported.</Text>
+        ) : (
+          demat.map((group) => (
+            <View key={group.key} style={styles.group}>
+              <Text style={styles.label}>
+                {group.name}
+                {group.last4 ? ` ••${group.last4}` : ''}
+              </Text>
+              <Card>
+                {group.items.map((item, i) => (
+                  <View key={item.key} style={[styles.row, i > 0 && styles.divided]}>
+                    <View style={styles.grow}>
+                      <Text style={styles.name} numberOfLines={2}>
+                        {item.symbol ?? item.name}
+                      </Text>
+                      <Text style={styles.meta}>
+                        {KIND_LABEL[item.kind]} · {(item.unitsE4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 4 })} units
+                      </Text>
+                    </View>
+                    <Text style={styles.amount}>{rupees(item.value)}</Text>
+                  </View>
+                ))}
+              </Card>
+            </View>
+          ))
+        )}
+        <Text style={styles.hint}>
+          Each demat account becomes one account worth its holdings at the latest closing prices, and NPS at the latest NAV, updated through the day.
+          Money you send to a known broker counts as investing, not spending. The statement has no purchase prices for shares, so add what you paid on
+          each holding to see your gain. Import a newer statement any time to update the units.
+        </Text>
+        {statement.warnings.length > 0 && <Text style={styles.hint}>Some lines of the statement couldn't be read, so check the totals against it.</Text>}
+        {error && <ErrorText>{error}</ErrorText>}
+        <View style={styles.actions}>
+          <Button title={demat.length === 1 ? 'Add the account' : `Add ${demat.length} accounts`} onPress={save} loading={saving} disabled={demat.length === 0} />
+          <Button title="Choose another statement" variant="secondary" onPress={() => setStatement(null)} disabled={saving} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (statement && statement.kind !== 'demat') {
     const value = funds.reduce((sum, f) => sum + f.value, 0);
     const cost = funds.reduce((sum, f) => sum + f.cost, 0);
     const payments = funds.reduce((sum, f) => sum + f.flows.length, 0);
@@ -121,6 +186,9 @@ export default function CasImport() {
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Text style={styles.intro}>
         A Consolidated Account Statement (CAS) lists every mutual fund you hold, across all apps and fund houses. Ask KFinTech for the detailed statement for all folios (CAMS sends the same one); it arrives by email as a PDF with the password you choose.
+      </Text>
+      <Text style={styles.intro}>
+        For shares, ETFs, gold bonds and NPS, use the CAS that NSDL or CDSL emails you each month. Its password is usually your PAN in capitals.
       </Text>
       <Pressable accessibilityRole="link" onPress={() => Linking.openURL(KFINTECH_CAS_URL)} style={styles.link}>
         <Feather name="external-link" size={14} color={colors.primary} />
@@ -175,4 +243,5 @@ const styles = StyleSheet.create({
   name: { fontSize: 15, fontWeight: '500', color: colors.text },
   amount: { fontSize: 15, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
   actions: { marginTop: 20, gap: 10 },
+  group: { gap: 2 },
 });

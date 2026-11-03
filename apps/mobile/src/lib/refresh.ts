@@ -3,6 +3,7 @@ import { categoriseWithAi } from './ai-categorise';
 import { fillMissingPayees, hasImportedInbox, importInbox } from './capture';
 import { refreshDeposits } from './deposits';
 import { refreshFunds } from './funds';
+import { refreshDemat } from './demat';
 import { refreshIous } from './ious';
 import { refreshRecurring } from './recurring';
 import { scheduleMonthReview } from './review';
@@ -38,6 +39,8 @@ export function refreshAll(): Promise<void> {
       refreshDeposits().catch(() => {});
       // NW-3: SIP debits become transfers into their funds; today's NAVs once a day.
       refreshFunds().catch(() => {});
+      // NW-5, NW-6: money to brokers becomes transfers into demat accounts; closing prices and NPS NAVs every 6 hours.
+      refreshDemat().catch(() => {});
       // BUD-4: the review notification for the 1st of next month.
       scheduleMonthReview().catch(() => {});
       // IOU-4: payments from people who owe the user settle their IOUs.

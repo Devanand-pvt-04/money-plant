@@ -10,7 +10,7 @@ export interface ExportResult {
   files: string[];
 }
 
-const MONEY: ReadonlySet<AccountType> = new Set<AccountType>(['bank', 'cash', 'wallet', 'credit_card', 'loan', 'fd', 'rd', 'mutual_fund', 'stock', 'custom']);
+const MONEY: ReadonlySet<AccountType> = new Set<AccountType>(['bank', 'cash', 'wallet', 'credit_card', 'loan', 'fd', 'rd', 'mutual_fund', 'stock', 'nps', 'savings_scheme', 'custom']);
 const pad = (n: number) => String(n).padStart(2, '0');
 const localTime = (iso: string) => {
   const d = new Date(iso);

@@ -16,6 +16,7 @@ import { normaliseMerchant, type CategoryLook } from '@money-plant/categoriser';
 import { rebaseOpening, type LedgerTransaction } from '@money-plant/matcher';
 import { depositValue, listDeposits } from './deposits';
 import { fundValues } from './funds';
+import { marketValues } from './demat';
 import { getDb } from './db';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
 import { notifyLedgerChange } from './events';
@@ -78,8 +79,13 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
       inNetWorth: custom ? custom.inNetWorth === 1 : true,
     };
   });
-  const funds = await fundValues(new Map(result.map((r) => [r.account.id, r.balance])));
-  return result.map((r) => (funds.has(r.account.id) ? { ...r, value: funds.get(r.account.id)!.value } : r));
+  const balanceMap = new Map(result.map((r) => [r.account.id, r.balance]));
+  const funds = await fundValues(balanceMap);
+  const markets = await marketValues(balanceMap);
+  return result.map((r) => {
+    const valued = funds.get(r.account.id) ?? markets.get(r.account.id);
+    return valued ? { ...r, value: valued.value } : r;
+  });
 }
 
 /** NW-1: balances are signed, so liabilities already count as negative; deposits and funds count at their value today. */
