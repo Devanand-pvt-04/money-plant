@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { addMonths, dateOf, monthOf, type MonthKey } from '@money-plant/core';
 import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } from '@/components/activity-filters';
 import { formatAmount, formatDay, formatMonth, formatWholeRupees } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
-import { colors, radius } from '@/components/ui';
+import { ErrorText, colors, radius } from '@/components/ui';
 import { flatten, listCategories } from '@/lib/categories';
 import { listTransactions, type TransactionRow } from '@/lib/ledger';
+import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
 async function load() {
@@ -38,7 +39,8 @@ function flows(rows: readonly TransactionRow[]) {
 
 /** HOME-2: a month of entries, grouped by day, with search and filters. */
 export default function Activity() {
-  const { data } = useLedger(load, { rows: [] as TransactionRow[], parents: new Map<string, string | null>() }, 'activity');
+  const { data, reload } = useLedger(load, { rows: [] as TransactionRow[], parents: new Map<string, string | null>() }, 'activity');
+  const { refreshing, onRefresh, error } = usePullToRefresh(reload);
   const [month, setMonth] = useState<MonthKey>(() => monthOf(new Date()));
   const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
   const [filtering, setFiltering] = useState(false);
@@ -79,8 +81,10 @@ export default function Activity() {
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         stickySectionHeadersEnabled={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListHeaderComponent={
           <View style={styles.header}>
+            {error && <ErrorText>{error}</ErrorText>}
             {!custom && (
               <View style={styles.months}>
                 <Pressable accessibilityRole="button" accessibilityLabel="Previous month" hitSlop={8} onPress={() => setMonth(addMonths(month, -1))} style={styles.arrow}>

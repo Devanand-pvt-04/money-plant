@@ -30,6 +30,7 @@ const remote: RemoteAccount = {
   account_type_id: null,
   parent_id: null,
   category_key: null,
+  icon: null,
   vpa: null,
   email: null,
   created_at: '2026-10-21T10:00:00.000Z',

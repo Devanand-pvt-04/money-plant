@@ -207,7 +207,7 @@ export default function QuickAdd() {
             onPress={() => setPicking('category')}
             style={({ pressed }) => [styles.categoryRow, pressed && styles.pressed]}
           >
-            <CategoryIcon categoryKey={category?.key ?? null} size={32} />
+            <CategoryIcon category={category} size={32} />
             <View style={styles.tileText}>
               <Text style={styles.categoryName} numberOfLines={1}>
                 {category ? names.get(category.id) ?? category.name : 'Pick a category'}

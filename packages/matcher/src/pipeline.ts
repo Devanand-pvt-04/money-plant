@@ -2,6 +2,7 @@ import { validatePostings, type AccountType, type Paise } from '@money-plant/cor
 import type { CategoryDecision, PayeeKind } from '@money-plant/categoriser';
 import type { Direction, ParsedNotification, ParsedStatementRow, ParsedTransaction } from '@money-plant/parser';
 import { looksLikePerson, resolveAccount } from './accounts';
+import { findRefunded, REFUND_WINDOW_DAYS } from './refunds';
 import type {
   LedgerAccount,
   LedgerPosting,
@@ -183,27 +184,40 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
       transaction.confidence = bumpConfidence(transaction.confidence, held.source.confidence);
       await store.removePendingNotification(held.id);
     }
-    const person = looksLikePerson({ channel: parsed.channel, counterparty: transaction.counterparty, vpa: parsed.vpa });
-    const decision = await ctx.categorise?.({
-      direction: parsed.direction,
-      amount: parsed.amount,
-      counterparty: transaction.counterparty,
-      vpa: parsed.vpa,
-      accountId: account.id,
-      occurredAt: transaction.occurredAt,
-      payeeKind: person ? 'person' : 'business',
-    });
-    if (decision) applyDecision(transaction, decision);
-    transaction.reviewReason =
-      !resolution.certain ? 'unknown_account'
-      : transaction.confidence < CONFIRM_THRESHOLD ? 'low_confidence'
-      : decision ? decisionReview(decision)
-      // Learned patterns ran first, so a person they recognised is not asked about (CAT-4).
-      : person ? 'person'
-      : null;
-    transaction.status = transaction.reviewReason ? 'pending' : 'confirmed';
-    await store.saveTransaction(transaction);
-    result = { outcome: 'created', transactionId: transaction.id };
+    // LED-5: a refund or reversal takes the category of the payment it gives money back for.
+    const refunded = parsed.refund ? await refundedPayment(store, account.id, parsed.amount, transaction) : null;
+    if (refunded) {
+      transaction.postings[1]!.accountId = refunded.categoryId;
+      transaction.categoryReason = 'refund';
+      transaction.categoryRuleId = refunded.tx.id;
+      transaction.counterparty ??= refunded.tx.counterparty;
+      transaction.reviewReason = !resolution.certain ? 'unknown_account' : transaction.confidence < CONFIRM_THRESHOLD ? 'low_confidence' : null;
+      transaction.status = transaction.reviewReason ? 'pending' : 'confirmed';
+      await store.saveTransaction(transaction);
+      result = { outcome: 'created', transactionId: transaction.id };
+    } else {
+      const person = looksLikePerson({ channel: parsed.channel, counterparty: transaction.counterparty, vpa: parsed.vpa });
+      const decision = await ctx.categorise?.({
+        direction: parsed.direction,
+        amount: parsed.amount,
+        counterparty: transaction.counterparty,
+        vpa: parsed.vpa,
+        accountId: account.id,
+        occurredAt: transaction.occurredAt,
+        payeeKind: person ? 'person' : 'business',
+      });
+      if (decision) applyDecision(transaction, decision);
+      transaction.reviewReason =
+        !resolution.certain ? 'unknown_account'
+        : transaction.confidence < CONFIRM_THRESHOLD ? 'low_confidence'
+        : decision ? decisionReview(decision)
+        // Learned patterns ran first, so a person they recognised is not asked about (CAT-4).
+        : person ? 'person'
+        : null;
+      transaction.status = transaction.reviewReason ? 'pending' : 'confirmed';
+      await store.saveTransaction(transaction);
+      result = { outcome: 'created', transactionId: transaction.id };
+    }
   }
 
   if (parsed.balance !== null && account.type === 'bank') {
@@ -392,6 +406,24 @@ export async function rebaseOpening(store: LedgerStore, accountId: string): Prom
   if (!ref) return;
   const before = await store.sumPostings(accountId, ref.at);
   await store.setOpeningBalance(accountId, (ref.balance - before) as Paise);
+}
+
+/** LED-5: the earlier payment a refund matches, with the category it sits on, unless that payment is uncategorised. */
+async function refundedPayment(
+  store: LedgerStore,
+  accountId: string,
+  amount: Paise,
+  refund: LedgerTransaction,
+): Promise<{ tx: LedgerTransaction; categoryId: string } | null> {
+  const at = Date.parse(refund.occurredAt);
+  const candidates = await store.transactionsBetween(iso(at - REFUND_WINDOW_DAYS * 24 * HOUR), refund.occurredAt);
+  const tx = findRefunded({ accountId, amount, counterparty: refund.counterparty, occurredAt: refund.occurredAt }, candidates);
+  if (!tx) return null;
+  const uncategorised = await store.systemAccount('uncategorised_expense');
+  const accounts = new Map((await store.listAccounts()).map((a) => [a.id, a]));
+  const category = tx.postings.find((p) => p.accountId !== accountId && accounts.get(p.accountId)?.type === 'category');
+  if (!category || category.accountId === uncategorised.id) return null;
+  return { tx, categoryId: category.accountId };
 }
 
 /** Puts the entry's category posting on the decided category. */

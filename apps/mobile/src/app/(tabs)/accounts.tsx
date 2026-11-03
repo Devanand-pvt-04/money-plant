@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { AccountType } from '@money-plant/core';
 import { accountIcon, accountLabel } from '@/components/account-picker';
 import { formatAmount, formatWholeRupees } from '@/components/format';
-import { Card, colors, radius } from '@/components/ui';
+import { ErrorText, Card, colors, radius } from '@/components/ui';
 import { listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
 import { netWorthHistory, type NetWorthPoint } from '@/lib/networth';
 import { recurringOverview, type UpcomingPayment } from '@/lib/recurring';
+import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
 type Segment = 'cash' | 'investments';
@@ -38,7 +39,8 @@ async function load() {
 
 /** NAV-1, NW-1: net worth explained by its groups, and the recurring payments the accounts carry. */
 export default function Accounts() {
-  const { data } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[] }, 'accounts');
+  const { data, reload } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[] }, 'accounts');
+  const { refreshing, onRefresh, error } = usePullToRefresh(reload);
   const [segment, setSegment] = useState<Segment>('cash');
   const counted = data.balances.filter((b) => b.inNetWorth);
   const assets = counted.filter((b) => b.value > 0).reduce((s, b) => s + b.value, 0);
@@ -47,7 +49,8 @@ export default function Accounts() {
   const next = data.upcoming[0];
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+      {error && <ErrorText>{error}</ErrorText>}
       <View style={styles.hero}>
         <Text style={styles.meta}>Net worth</Text>
         <Text style={styles.heroAmount}>{formatWholeRupees(netWorth(data.balances))}</Text>

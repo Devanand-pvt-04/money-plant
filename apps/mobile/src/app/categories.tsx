@@ -66,7 +66,7 @@ function Row({ node, child = false }: { node: CategoryNode; child?: boolean }) {
       onPress={() => router.push(`/category/${node.id}`)}
       style={({ pressed }) => [styles.row, child && styles.child, pressed && styles.pressed]}
     >
-      {!child && <CategoryIcon categoryKey={node.key} size={30} />}
+      {!child && <CategoryIcon category={node} size={30} />}
       <Text style={[styles.name, !child && styles.parent]} numberOfLines={1}>
         {node.name}
       </Text>

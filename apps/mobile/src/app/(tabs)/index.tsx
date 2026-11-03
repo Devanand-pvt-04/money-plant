@@ -7,18 +7,13 @@ import { formatMonth, formatWholeRupees, reviewTime } from '@/components/format'
 import { TransactionItem } from '@/components/transaction-item';
 import { Avatar, useMe } from '@/components/avatar';
 import { ErrorText, ProgressBar, colors, radius } from '@/components/ui';
-import { categoriseWithAi } from '@/lib/ai-categorise';
 import { ensureDefaultCategories } from '@/lib/categories';
 import { currentMonth, incomeThisMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
-import { fillMissingPayees, hasImportedInbox, importInbox } from '@/lib/capture';
+import { hasImportedInbox } from '@/lib/capture';
 import { countPending, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { displayName } from '@/lib/me';
-import { owedSummary, refreshIous, type OwedSummary } from '@/lib/ious';
-import { refreshDeposits } from '@/lib/deposits';
-import { refreshFunds } from '@/lib/funds';
-import { refreshRecurring } from '@/lib/recurring';
-import { scheduleMonthReview } from '@/lib/review';
-import { syncNow } from '@/lib/sync';
+import { owedSummary, type OwedSummary } from '@/lib/ious';
+import { catchUpDue, usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 import { weekAhead, type DueItem } from '@/lib/week';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-reader';
@@ -26,9 +21,6 @@ import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-rea
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** Catching up (SMS, sync, the background passes) on focus at most this often; pulling down always does it. */
-const CATCH_UP_MS = 2 * 60_000;
-let lastCatchUp = 0;
 let categoriesReady = false;
 
 async function loadHome() {
@@ -75,50 +67,19 @@ export default function Home() {
     'home',
   );
   const me = useMe();
-  const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    lastCatchUp = Date.now();
-    setSyncing(true);
-    try {
-      // Catch up on SMS that arrived while the receiver couldn't run, then sync.
-      if (isSmsReaderAvailable && hasSmsPermission() && (await hasImportedInbox())) await importInbox();
-      // Payees a newer parser can now read, for entries captured before it (once per parser change).
-      await fillMissingPayees().catch(() => 0);
-      await syncNow();
-      setError(null);
-      // REC-1, REC-4: new debits mark payments paid, steady ones become suggestions, reminders follow.
-      refreshRecurring().catch(() => {});
-      // NW-2: RD instalments and FD payments become transfers into their deposits.
-      refreshDeposits().catch(() => {});
-      // NW-3: SIP debits become transfers into their funds; today's NAVs once a day.
-      refreshFunds().catch(() => {});
-      // BUD-4: the review notification for the 1st of next month.
-      scheduleMonthReview().catch(() => {});
-      // IOU-4: payments from people who owe the user settle their IOUs.
-      refreshIous().catch(() => {});
-      // CAT-2: only merchants that rules, patterns and the dictionary couldn't place; capped on the server.
-      categoriseWithAi().catch(() => {});
-    } catch (e) {
-      setError(`Sync failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setSyncing(false);
-      reload();
-    }
-  }, [reload]);
+  const { refreshing, onRefresh, error } = usePullToRefresh(reload);
 
   useFocusEffect(
     useCallback(() => {
       const catchUp = () => {
-        if (Date.now() - lastCatchUp > CATCH_UP_MS) void refresh();
+        if (catchUpDue()) void onRefresh();
       };
       catchUp();
       const subscription = AppState.addEventListener('change', (state) => {
         if (state === 'active') catchUp();
       });
       return () => subscription.remove();
-    }, [refresh]),
+    }, [onRefresh]),
   );
 
   const smsReady = !isSmsReaderAvailable || (hasSmsPermission() && data.imported);
@@ -129,7 +90,7 @@ export default function Home() {
     <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={[styles.container, { paddingTop: insets.top + 20 }]}
-        refreshControl={<RefreshControl refreshing={syncing} onRefresh={refresh} progressViewOffset={insets.top} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={insets.top} />}
       >
         <View style={styles.between}>
           <View style={styles.headerText}>

@@ -12,6 +12,8 @@ export function whyLabel(tx: Pick<LedgerTransaction, 'categoryReason' | 'confide
       return 'One of your patterns';
     case 'dictionary':
       return 'Known merchant';
+    case 'refund':
+      return 'Refund of an earlier payment';
     case 'ai':
       return aiConfidence != null ? `AI guess, ${Math.round(aiConfidence * 100)}% sure` : 'AI guess';
     default:

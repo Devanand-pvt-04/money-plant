@@ -10,6 +10,7 @@ import {
   extractInstrument,
   extractReference,
   extractVpa,
+  isRefund,
   ignoreReason,
   lastDigits,
 } from './extract';
@@ -71,6 +72,7 @@ export function parseBankText(bank: BankId, rawBody: string): SmsParseResult {
       channel: extractChannel(body, instrument),
       template: 'generic',
       confidence: accountLast ? GENERIC_CONFIDENCE : GENERIC_NO_ACCOUNT_CONFIDENCE,
+      refund: isRefund(body, direction),
     },
   };
 }
@@ -105,6 +107,7 @@ function matchTemplate(bank: BankId, body: string, amounts: ReturnType<typeof ex
       channel: extractChannel(body, instrument),
       template: template.id,
       confidence: TEMPLATE_CONFIDENCE,
+      refund: isRefund(body, template.direction),
     };
   }
   return null;

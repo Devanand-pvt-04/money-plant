@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { addMonths, type MonthKey, type Paise } from '@money-plant/core';
@@ -8,7 +8,7 @@ import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatWholeRupees } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
-import { Button, ProgressBar, colors, radius } from '@/components/ui';
+import { ErrorText, Button, ProgressBar, colors, radius } from '@/components/ui';
 import {
   currentMonth,
   daysLeft,
@@ -21,6 +21,7 @@ import {
 } from '@/lib/budgets';
 import type { CategoryNode } from '@/lib/categories';
 import { requestNotificationPermission } from '@/lib/notifications';
+import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
 const rupees = formatWholeRupees;
@@ -41,6 +42,7 @@ export default function Budgets() {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<{ id: string; name: string; start: Paise | null } | null>(null);
   const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[] } | null, 'budgets');
+  const { refreshing, onRefresh, error } = usePullToRefresh(reload);
   // useLedger reloads on focus and on ledger changes; a different month needs a reload too.
   useEffect(() => {
     reload();
@@ -89,7 +91,8 @@ export default function Budgets() {
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+        {error && <ErrorText>{error}</ErrorText>}
         <View style={styles.months}>
           <Pressable accessibilityRole="button" accessibilityLabel="Previous month" hitSlop={8} onPress={() => setMonth(addMonths(month, -1))} style={styles.arrow}>
             <Feather name="chevron-left" size={22} color={colors.text} />
@@ -137,7 +140,8 @@ export default function Budgets() {
                 key={line.category!.id}
                 line={line}
                 month={month}
-                sub={children(line.category!.id).filter(active)}
+                sub={children(line.category!.id)}
+                elapsed={overview.elapsed}
                 childBudgets={children(line.category!.id).some((c) => c.limit !== null)}
                 open={open.has(line.category!.id)}
                 onToggle={() => toggle(line.category!.id)}
@@ -221,15 +225,15 @@ function PaceNote({ line }: { line: BudgetLine }) {
   return null;
 }
 
-function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; childBudgets: boolean; open: boolean; onToggle: () => void; onSet: () => void }) {
+function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; elapsed: number; childBudgets: boolean; open: boolean; onToggle: () => void; onSet: () => void }) {
   const { line, month, sub } = props;
   const category = line.category!;
-  const style = categoryStyle(category.key);
+  const style = categoryStyle(category);
   const status = line.pace?.status ?? 'ok';
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(budgetHref(category.id, month))} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
       <View style={styles.row}>
-        <CategoryIcon categoryKey={category.key} />
+        <CategoryIcon category={category} />
         <Text style={[styles.name, styles.grow]} numberOfLines={1}>
           {category.name}
         </Text>
@@ -248,7 +252,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
           </Pressable>
         )}
       </View>
-      {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} />}
+      {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} marker={props.elapsed} />}
       <PaceNote line={line} />
       {props.childBudgets && <Text style={styles.meta}>Budgets are on its sub-categories</Text>}
       {(props.open || props.childBudgets) && (
@@ -258,15 +262,20 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
               key={child.category!.id}
               accessibilityRole="button"
               onPress={() => router.push(budgetHref(child.category!.id, month))}
-              style={({ pressed }) => [styles.child, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.childItem, pressed && styles.pressed]}
             >
-              <Text style={[styles.childText, styles.grow]} numberOfLines={1}>
-                {child.category!.name}
-              </Text>
-              <Text style={[styles.childText, child.pace?.status === 'over' && { color: colors.warning }]}>
-                {rupees(child.spent)}
-                {child.limit !== null ? ` of ${rupees(child.limit)}` : ''}
-              </Text>
+              <View style={styles.child}>
+                <Text style={[styles.childText, styles.grow]} numberOfLines={1}>
+                  {child.category!.name}
+                </Text>
+                <Text style={[styles.childText, child.pace?.status === 'over' && { color: colors.warning }]}>
+                  {rupees(child.spent)}
+                  {child.limit !== null ? ` of ${rupees(child.limit)}` : ''}
+                </Text>
+              </View>
+              {child.limit !== null && (
+                <ProgressBar value={child.spent / child.limit} status={child.pace?.status ?? 'ok'} color={style.color} marker={props.elapsed} />
+              )}
             </Pressable>
           ))}
         </View>
@@ -292,7 +301,7 @@ function IncomeList({ month, income }: { month: MonthKey; income: { category: Ca
           style={({ pressed }) => [styles.card, pressed && styles.pressed]}
         >
           <View style={styles.row}>
-            <CategoryIcon categoryKey={category.key} />
+            <CategoryIcon category={category} />
             <Text style={[styles.name, styles.grow]} numberOfLines={1}>
               {category.name}
             </Text>
@@ -333,6 +342,7 @@ const styles = StyleSheet.create({
   amount: { fontSize: 14, color: colors.text, fontVariant: ['tabular-nums'] },
   of: { color: colors.muted },
   children: { paddingLeft: 46, gap: 2 },
+  childItem: { gap: 6, paddingBottom: 6 },
   child: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 },
   childText: { fontSize: 13, color: colors.secondary, fontVariant: ['tabular-nums'] },
   warn: { fontSize: 12, color: colors.warning },

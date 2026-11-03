@@ -8,7 +8,7 @@
     {
       "sender": "AX-ICICIB",
       "body": "Dear Customer, Acct XX234 is credited with Rs 2,000.00 on 21-Oct-26 from RAVI KUMAR. UPI:629412345679-ICICI Bank.",
-      "expect": { "template": "icici.upi_credit", "direction": "credit", "amount": 200000, "accountLast": "234", "counterparty": "RAVI KUMAR", "reference": "629412345679" }
+      "expect": { "template": "icici.upi_credit", "direction": "credit", "amount": 200000, "accountLast": "234", "counterparty": "RAVI KUMAR", "reference": "629412345679", "refund": false }
     },
     {
       "sender": "VM-ICICIT",
@@ -19,6 +19,16 @@
       "sender": "VM-ICICIB",
       "body": "ICICI Bank Account XX234 credited:Rs. 50,000.00 on 01-Oct-26. Info NEFT-ACME CORP. Available Balance is Rs. 62,345.67.",
       "expect": { "template": "icici.acct_credit", "direction": "credit", "amount": 5000000, "accountLast": "234", "counterparty": "NEFT-ACME CORP", "balance": 6234567 }
+    },
+    {
+      "sender": "VM-ICICIB",
+      "body": "ICICI Bank Account XX234 credited:Rs. 1,299.00 on 25-Oct-26. Info REFUND-AMAZON. Available Balance is Rs. 63,644.67.",
+      "expect": { "template": "icici.acct_credit", "direction": "credit", "amount": 129900, "accountLast": "234", "refund": true }
+    },
+    {
+      "sender": "VM-ICICIT",
+      "body": "Dear Customer, Rs 450.00 reversed to your ICICI Bank Card XX5678 on 22-Oct-26 for SWIGGY. Avl Limit: INR 99,151.00.",
+      "expect": { "direction": "credit", "amount": 45000, "accountLast": "5678", "refund": true }
     },
     {
       "sender": "VM-ICICIB",

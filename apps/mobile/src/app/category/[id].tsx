@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { ICON_CHOICES } from '@money-plant/categoriser';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { CategoryPicker } from '@/components/category-picker';
-import { Button, ErrorText, Field, colors } from '@/components/ui';
-import { deleteCategory, flatten, listCategories, mergeCategory, moveCategory, renameCategory, type CategoryNode } from '@/lib/categories';
+import { categoryStyle, type IconName } from '@/components/category-style';
+import { CategoryIcon } from '@/components/sheet';
+import { Button, ErrorText, Field, colors, radius } from '@/components/ui';
+import { deleteCategory, flatten, listCategories, mergeCategory, moveCategory, renameCategory, setCategoryIcon, type CategoryNode } from '@/lib/categories';
 
-/** CAT-5: rename, move, merge or delete one category. Entries keep their history. */
+/** CAT-1, CAT-5: rename, change the icon, move, merge or delete one category. Entries keep their history. */
 export default function CategoryDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [category, setCategory] = useState<CategoryNode | null>(null);
@@ -22,6 +26,13 @@ export default function CategoryDetail() {
   }, [id]);
 
   if (!category) return null;
+  // The icon as it would look with the name being typed, so a new name shows its icon before saving.
+  const typed = { ...category, name: name.trim() || category.name };
+  const automatic = categoryStyle({ ...typed, icon: null });
+  const pickIcon = (icon: string | null) => {
+    setCategory({ ...category, icon });
+    setCategoryIcon(id, icon).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  };
   const run = (work: () => Promise<unknown>) =>
     work().then(
       () => router.back(),
@@ -31,8 +42,39 @@ export default function CategoryDetail() {
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{ title: category.name }} />
-      <Field label="Name" value={name} onChangeText={setName} maxLength={80} />
+      <View style={styles.nameRow}>
+        <CategoryIcon category={typed} size={48} />
+        <View style={styles.grow}>
+          <Field label="Name" value={name} onChangeText={setName} maxLength={80} />
+        </View>
+      </View>
       <Button title="Rename" onPress={() => run(() => renameCategory(id, name))} disabled={name.trim() === '' || name === category.name} />
+
+      <Text style={styles.section}>Icon</Text>
+      <View style={styles.icons}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Pick the icon from the name"
+          accessibilityState={{ selected: category.icon === null }}
+          onPress={() => pickIcon(null)}
+          style={[styles.auto, category.icon === null && styles.chosen]}
+        >
+          <MaterialCommunityIcons name={automatic.icon} size={20} color={automatic.color} />
+          <Text style={styles.autoText}>From the name</Text>
+        </Pressable>
+        {ICON_CHOICES.map((icon) => (
+          <Pressable
+            key={icon}
+            accessibilityRole="button"
+            accessibilityLabel={icon.replace(/-/g, ' ')}
+            accessibilityState={{ selected: category.icon === icon }}
+            onPress={() => pickIcon(icon)}
+            style={[styles.icon, category.icon === icon && styles.chosen]}
+          >
+            <MaterialCommunityIcons name={icon as IconName} size={22} color={colors.secondary} />
+          </Pressable>
+        ))}
+      </View>
 
       <Text style={styles.body}>
         Moving or merging keeps every entry: they count toward the new place from then on, in every month.
@@ -88,5 +130,13 @@ export default function CategoryDetail() {
 const styles = StyleSheet.create({
   container: { padding: 16, paddingBottom: 48, gap: 12 },
   body: { fontSize: 14, color: colors.muted, marginTop: 16 },
+  nameRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
+  grow: { flex: 1 },
+  section: { fontSize: 15, fontWeight: '600', color: colors.text, marginTop: 12 },
+  icons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  icon: { width: 44, height: 44, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.subtle, borderWidth: 2, borderColor: 'transparent' },
+  auto: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 12, borderRadius: radius.sm, backgroundColor: colors.subtle, borderWidth: 2, borderColor: 'transparent' },
+  autoText: { fontSize: 13, color: colors.text },
+  chosen: { borderColor: colors.primary },
   actions: { gap: 12 },
 });

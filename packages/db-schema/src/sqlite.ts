@@ -22,6 +22,8 @@ export const accounts = sqliteTable(
     parentId: text('parent_id'),
     /** For categories: the standard category key the shared dictionary uses, e.g. "food.lunch". */
     categoryKey: text('category_key'),
+    /** For categories: the icon the user picked (a Material Community Icons name); null follows the name and key (CAT-1). */
+    icon: text('icon'),
     /** For people: their UPI ID, to pay them and recognise their payments (IOU-3, IOU-4). */
     vpa: text('vpa'),
     /** For people: the email they use Money Plant with, to share IOUs (IOU-2). */
@@ -729,4 +731,6 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     nav_e4 INTEGER NOT NULL,
     date TEXT NOT NULL
   );`,
+  // Review 4: an icon the user picked for a category (CAT-1, decision 0013).
+  `ALTER TABLE accounts ADD COLUMN icon TEXT;`,
 ];

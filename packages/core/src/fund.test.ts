@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { casDate, casFlows, detectSip, fundValue, isFundPayee, matchesFlow, pairFlows, rupeesToPaise, scaleDecimal, type CasTransaction } from './fund';
+import { casDate, casFlows, detectSip, fundValue, isFundPayee, matchesFlow, navOn, pairFlows, rupeesToPaise, scaleDecimal, unitsBought, type CasTransaction } from './fund';
 import { paise } from './money';
 
 const tx = (date: string, type: string, amount: string | null, units: string | null = null): CasTransaction => ({ date, type, amount, units, nav: null });
@@ -104,5 +104,23 @@ describe('matching flows to bank entries', () => {
       { candidateId: 'oct', parts: [{ key: 'A', amount: 250_000 }] },
       { candidateId: 'both', parts: [{ key: 'B', amount: 100_000 }, { key: 'C', amount: 50_000 }] },
     ]);
+  });
+});
+
+describe('units bought after the statement (NW-3)', () => {
+  it('divides the amount by the NAV, to 4 decimals', () => {
+    // ₹2,500 at ₹81.2345 buys 30.7751 units.
+    expect(unitsBought(paise(250_000), 812_345)).toBe(307_751);
+    expect(unitsBought(paise(0), 812_345)).toBe(0);
+  });
+
+  it('estimates the NAV on a date between the statement and today', () => {
+    const statement = { navE4: 800_000, date: '2026-10-01' };
+    const latest = { navE4: 830_000, date: '2026-10-31' };
+    expect(navOn('2026-10-16', statement, latest)).toBe(815_000);
+    expect(navOn('2026-11-02', statement, latest)).toBe(830_000);
+    expect(navOn('2026-09-20', statement, latest)).toBe(800_000);
+    expect(navOn('2026-10-16', null, latest)).toBe(830_000);
+    expect(navOn('2026-10-16', statement, null)).toBe(800_000);
   });
 });

@@ -12,7 +12,7 @@ import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount, formatTime } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
 import { Button, ErrorText, Initial, colors, radius } from '@/components/ui';
-import { categoryNames, flatten, listCategories } from '@/lib/categories';
+import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { editEntry, setCategoryForEntries } from '@/lib/entries';
 import { listAccountBalances } from '@/lib/ledger';
 import { guessForPayee, isShop, payWithUpi, recentPayees, settleUnconfirmed, type PayeeGuess, type PaymentResult } from '@/lib/upi';
@@ -353,7 +353,7 @@ const TITLES: Record<UpiStatus, string> = {
 function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: PaymentResult; amount: Paise; at: string; onRetry: () => void }) {
   const { payment, result, amount } = props;
   const [answered, setAnswered] = useState<boolean | null>(null);
-  const [category, setCategory] = useState<{ id: string; name: string; key: string | null; hint: string | null } | null>(null);
+  const [category, setCategory] = useState<{ id: string; name: string; key: string | null; hint: string | null; node: CategoryNode } | null>(null);
   const [picked, setPicked] = useState(false);
   const [picking, setPicking] = useState(false);
   const [note, setNote] = useState('');
@@ -368,7 +368,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
     if (!guessed) return;
     Promise.all([categoryNames(), listCategories()]).then(([names, tree]) => {
       const node = flatten(tree).find((c) => c.id === guessed);
-      if (node) setCategory({ id: node.id, name: names.get(node.id) ?? node.name, key: node.key, hint: props.guess?.hint ?? null });
+      if (node) setCategory({ id: node.id, name: names.get(node.id) ?? node.name, key: node.key, hint: props.guess?.hint ?? null, node });
     });
   }, [props.guess]);
 
@@ -433,7 +433,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
           <View style={styles.handle} />
           <Text style={styles.withoutTitle}>What was it for?</Text>
           <Pressable accessibilityRole="button" onPress={() => setPicking(true)} style={({ pressed }) => [styles.categoryRow, category && styles.categoryChosen, pressed && styles.pressed]}>
-            {category ? <CategoryIcon categoryKey={category.key} /> : <View style={styles.emptyIcon}><Feather name="tag" size={18} color={colors.muted} /></View>}
+            {category ? <CategoryIcon category={category.node} /> : <View style={styles.emptyIcon}><Feather name="tag" size={18} color={colors.muted} /></View>}
             <View style={styles.grow}>
               <Text style={styles.categoryName}>{category?.name ?? 'Pick a category'}</Text>
               {category?.hint && !picked && <Text style={styles.small}>{category.hint}</Text>}
@@ -481,7 +481,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
         flow="expense"
         onPick={async (node) => {
           const names = await categoryNames();
-          setCategory({ id: node.id, name: names.get(node.id) ?? node.name, key: node.key, hint: null });
+          setCategory({ id: node.id, name: names.get(node.id) ?? node.name, key: node.key, hint: null, node });
           setPicked(true);
           setPicking(false);
         }}

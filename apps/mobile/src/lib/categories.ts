@@ -9,6 +9,7 @@ import {
   type CategoriseInput,
   type CategoryDecision,
   type CategoryFlow,
+  type CategoryLook,
   type KnownMerchant,
   type PayeeKind,
   type Rule,
@@ -34,6 +35,10 @@ import { toRule } from './rules-store';
 const now = () => new Date().toISOString();
 
 export interface CategoryNode extends UserCategory {
+  /** The icon the user picked; null lets the name and key decide (CAT-1). */
+  icon: string | null;
+  /** For a sub-category: its parent, so it can share the parent's look. */
+  parent: CategoryLook | null;
   flow: CategoryFlow;
   /** The pipeline's Uncategorised accounts. They can't be renamed, moved or deleted. */
   system: boolean;
@@ -102,6 +107,8 @@ export async function listCategories(): Promise<CategoryNode[]> {
         name: row.name,
         parentId: row.parentId,
         key: row.categoryKey,
+        icon: row.icon,
+        parent: null,
         flow: system.get(row.id) === 'uncategorised_income' ? 'income' : flowOfKey(row.categoryKey),
         system: system.has(row.id),
         children: [],
@@ -111,7 +118,10 @@ export async function listCategories(): Promise<CategoryNode[]> {
   const roots: CategoryNode[] = [];
   for (const node of nodes) {
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
-    if (parent) parent.children.push(node);
+    if (parent) {
+      parent.children.push(node);
+      node.parent = { key: parent.key, name: parent.name, icon: parent.icon };
+    }
     else roots.push(node);
   }
   const order = (a: CategoryNode, b: CategoryNode) => Number(a.system) - Number(b.system) || a.name.localeCompare(b.name);
@@ -167,6 +177,16 @@ export async function renameCategory(id: string, name: string): Promise<void> {
   const db = await getDb();
   db.update(accounts)
     .set({ name: name.trim(), dirty: 1, rev: sql`${accounts.rev} + 1` })
+    .where(eq(accounts.id, id))
+    .run();
+  notifyLedgerChange();
+}
+
+/** CAT-1: the icon the user picked for a category, or null to let its name and key decide again. */
+export async function setCategoryIcon(id: string, icon: string | null): Promise<void> {
+  const db = await getDb();
+  db.update(accounts)
+    .set({ icon, dirty: 1, rev: sql`${accounts.rev} + 1` })
     .where(eq(accounts.id, id))
     .run();
   notifyLedgerChange();
@@ -344,7 +364,8 @@ export async function recategoriseHistory(options: { only?: (tx: LedgerTransacti
   const rows = db.select().from(transactions).where(and(...conditions)).all();
   let changed = 0;
   for (const tx of loadTransactions(db, rows)) {
-    if (tx.userSetFields.includes('category') || tx.categoryReason === 'user') continue;
+    // A refund follows the payment it reverses, not the rules (LED-5).
+    if (tx.userSetFields.includes('category') || tx.categoryReason === 'user' || tx.categoryReason === 'refund') continue;
     if (options.only && !options.only(tx)) continue;
     const features = entryFeatures(tx, owned);
     if (!features) continue;

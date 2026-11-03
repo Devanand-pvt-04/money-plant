@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import Feather from '@expo/vector-icons/Feather';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { categoryStyle } from './category-style';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { categoryStyle, type CategoryLike } from './category-style';
 import { colors, radius } from './ui';
 
 /**
@@ -27,11 +27,11 @@ export function Sheet(props: { visible: boolean; onClose: () => void; title?: st
 }
 
 /** A category's icon on its coloured tile. */
-export function CategoryIcon({ categoryKey, size = 34 }: { categoryKey: string | null | undefined; size?: number }) {
-  const style = categoryStyle(categoryKey);
+export function CategoryIcon({ category, size = 34 }: { category: CategoryLike; size?: number }) {
+  const style = categoryStyle(category);
   return (
     <View style={[styles.icon, { width: size, height: size, borderRadius: size * 0.3, backgroundColor: style.tint }]}>
-      <Feather name={style.icon} size={Math.round(size * 0.52)} color={style.color} />
+      <MaterialCommunityIcons name={style.icon} size={Math.round(size * 0.56)} color={style.color} />
     </View>
   );
 }

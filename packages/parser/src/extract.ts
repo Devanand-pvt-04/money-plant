@@ -45,6 +45,13 @@ export function amountOrNull(text: string | undefined): Paise | null {
 const DEBIT_WORDS = /\b(?:debited|debit of|spent|sent|withdrawn|withdrawal of|paid|purchase|deducted|used for|txn of|transaction of)\b/i;
 const CREDIT_WORDS = /\b(?:credited|received|deposited|refund(?:ed)?|reversed|reversal of|added to)\b/i;
 
+const REFUND_WORDS = /\b(?:refund(?:ed)?|reversed|reversal|chargeback)\b/i;
+
+/** LED-5: whether a credit message says the money is a refund or a reversal of an earlier payment. */
+export function isRefund(text: string, direction: Direction): boolean {
+  return direction === 'credit' && REFUND_WORDS.test(text);
+}
+
 /** Debit or credit, whichever keyword comes first. "Acct debited; SWIGGY credited" is a debit. */
 export function extractDirection(text: string): Direction | null {
   const debit = DEBIT_WORDS.exec(text);
