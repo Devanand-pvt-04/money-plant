@@ -21,6 +21,7 @@ import {
   FLOW_TOLERANCE,
   costFromTransactions,
   type CasStatement,
+  type DematStatement,
   type DateKey,
   type FlowCandidate,
   type Paise,
@@ -41,11 +42,15 @@ const today = () => dateKey(new Date());
 const NAV_FETCHED_KEY = 'funds.nav.fetched';
 const NAV_EVERY_MS = 6 * 60 * 60_000;
 
-/** NW-3: reads a CAS PDF through the parse-cas edge function. */
-export async function readCas(file: PdfFile, password: string): Promise<CasStatement> {
-  const data = await sendPdf<CasStatement>('parse-cas', file, password);
-  if (!Array.isArray(data.folios)) throw new PdfError('not_a_cas');
-  return data;
+/** NW-3, NW-5: reads a CAS PDF through the parse-cas edge function: funds from CAMS or KFinTech, or a demat statement from NSDL or CDSL. */
+export async function readCas(file: PdfFile, password: string): Promise<CasStatement | DematStatement> {
+  const data = await sendPdf<CasStatement | DematStatement>('parse-cas', file, password);
+  if ('kind' in data && data.kind === 'demat') {
+    if (!Array.isArray(data.accounts)) throw new PdfError('not_a_cas');
+    return data;
+  }
+  if (!Array.isArray((data as CasStatement).folios)) throw new PdfError('not_a_cas');
+  return data as CasStatement;
 }
 
 /** One scheme from a CAS, ready to show and save. */
@@ -113,20 +118,20 @@ export function shortSchemeName(scheme: string): string {
 }
 
 /** Accounts that hold the user's money and can pay into a fund, so not funds, categories or people. */
-function payingAccounts(db: Awaited<ReturnType<typeof getDb>>): Set<string> {
+export function payingAccounts(db: Awaited<ReturnType<typeof getDb>>): Set<string> {
   return new Set(
     db
       .select({ id: accounts.id, type: accounts.type })
       .from(accounts)
       .where(isNull(accounts.deletedAt))
       .all()
-      .filter((a) => !['category', 'person', 'mutual_fund', 'stock', 'fd', 'rd'].includes(a.type))
+      .filter((a) => !['category', 'person', 'mutual_fund', 'stock', 'nps', 'savings_scheme', 'fd', 'rd'].includes(a.type))
       .map((a) => a.id),
   );
 }
 
 /** Expense and income entries in a date range that are one bank leg and one category leg, with the bank leg. */
-function bankEntries(db: Awaited<ReturnType<typeof getDb>>, from: DateKey, to: DateKey) {
+export function bankEntries(db: Awaited<ReturnType<typeof getDb>>, from: DateKey, to: DateKey) {
   const owned = payingAccounts(db);
   return loadTransactions(
     db,
@@ -159,7 +164,7 @@ const candidateOf = ({ tx, leg }: { tx: LedgerTransaction; leg: LedgerPosting })
 });
 
 /** Turns a bank entry into a transfer between the bank account and one or more funds. */
-function toTransfer(db: Awaited<ReturnType<typeof getDb>>, tx: LedgerTransaction, leg: LedgerPosting, parts: { accountId: string; amount: Paise }[]): void {
+export function toTransfer(db: Awaited<ReturnType<typeof getDb>>, tx: LedgerTransaction, leg: LedgerPosting, parts: { accountId: string; amount: Paise }[]): void {
   // Money into a fund leaves the bank (negative leg), so the fund side is positive, and the other way round.
   const sign = leg.amount < 0 ? 1 : -1;
   writeTransaction(db, {
@@ -268,14 +273,14 @@ export async function importCas(statement: CasStatement): Promise<CasImportResul
   return { funds: items.length, added, matched };
 }
 
-/** Holdings whose account still exists. */
+/** Mutual fund holdings whose account still exists: one per mutual_fund account (NW-3). */
 export async function listHoldings(): Promise<LocalHolding[]> {
   const db = await getDb();
   return db
     .select({ holding: holdings })
     .from(holdings)
     .innerJoin(accounts, eq(accounts.id, holdings.accountId))
-    .where(and(isNull(holdings.deletedAt), isNull(accounts.deletedAt)))
+    .where(and(isNull(holdings.deletedAt), isNull(accounts.deletedAt), eq(accounts.type, 'mutual_fund')))
     .all()
     .map((row) => row.holding);
 }
@@ -292,7 +297,7 @@ export interface FundValue {
 }
 
 /** The freshest NAV for a holding: AMFI's if it's newer than the statement's. */
-async function latestNavs(): Promise<Map<string, { navE4: number; date: DateKey }>> {
+export async function latestNavs(): Promise<Map<string, { navE4: number; date: DateKey }>> {
   const db = await getDb();
   const out = new Map<string, { navE4: number; date: DateKey }>();
   for (const row of db.select().from(navs).all()) {
@@ -371,10 +376,16 @@ async function fetchNavs(list: LocalHolding[]): Promise<void> {
   if ((fetched && Date.now() - Date.parse(fetched) < NAV_EVERY_MS) || list.length === 0) return;
   const codes = [...new Set(list.map((h) => h.amfiCode).filter((c): c is string => !!c))];
   const isins = [...new Set(list.map((h) => h.isin).filter((c): c is string => !!c))];
+  if (await requestNavs(codes, isins)) await kvSet(NAV_FETCHED_KEY, new Date().toISOString());
+}
+
+/** Asks the nav-prices function for these schemes and keeps their NAVs on the phone. False if it couldn't. */
+export async function requestNavs(codes: string[], isins: string[]): Promise<boolean> {
+  if (codes.length === 0 && isins.length === 0) return true;
   const { data, error } = await supabase.functions.invoke<{ navs: { code: string; isins: string[]; nav: string; date: string }[] }>('nav-prices', {
     body: { codes, isins },
   });
-  if (error || !data) return;
+  if (error || !data) return false;
   const db = await getDb();
   db.transaction((t) => {
     for (const row of data.navs) {
@@ -387,7 +398,7 @@ async function fetchNavs(list: LocalHolding[]): Promise<void> {
         .run();
     }
   });
-  await kvSet(NAV_FETCHED_KEY, new Date().toISOString());
+  return true;
 }
 
 /**

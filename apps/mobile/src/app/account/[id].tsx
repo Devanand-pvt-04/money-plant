@@ -1,6 +1,6 @@
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { formatRupees, paise, type Paise } from '@money-plant/core';
+import { formatRupees, isBalanceScheme, paise, SCHEMES, type Paise, type SchemeKind } from '@money-plant/core';
 import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { Button, colors } from '@/components/ui';
 import { formatDate, formatDateTime } from '@/components/format';
@@ -8,6 +8,7 @@ import { TransactionItem } from '@/components/transaction-item';
 import { deleteAccount } from '@/lib/accounts';
 import { depositValue, getDeposit } from '@/lib/deposits';
 import { fundValues, listHoldings, type FundValue } from '@/lib/funds';
+import { marketValues, type MarketAccountValue } from '@/lib/demat';
 import { adoptBankBalance, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -16,17 +17,19 @@ async function load(id: string) {
   const balance = balances.find((b) => b.account.id === id) ?? null;
   const holding = holdings.find((h) => h.accountId === id) ?? null;
   const fund = holding && balance ? { holding, value: (await fundValues(new Map([[id, balance.balance]]))).get(id)! } : null;
-  return { balance, rows, deposit, fund };
+  const market = balance && (balance.account.type === 'stock' || balance.account.type === 'nps') ? ((await marketValues(new Map([[id, balance.balance]]))).get(id) ?? null) : null;
+  return { balance, rows, deposit, fund, market };
 }
 
 type Fund = { holding: LocalHolding; value: FundValue } | null;
 
 export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[], deposit: null as LocalDeposit | null, fund: null as Fund }, 'account');
+  const { data } = useLedger(() => load(id), { balance: null as AccountBalance | null, rows: [] as TransactionRow[], deposit: null as LocalDeposit | null, fund: null as Fund, market: null as MarketAccountValue | null }, 'account');
   if (!data.balance) return null;
   const { account, balance, value, reconciliation, typeLabel } = data.balance;
-  const isDeposit = account.type === 'fd' || account.type === 'rd';
+  const isDeposit = account.type === 'fd' || account.type === 'rd' || account.type === 'savings_scheme';
+  const passbook = !!data.deposit && isBalanceScheme(data.deposit.kind);
 
   function confirmDelete() {
     Alert.alert('Delete account?', `${account.name} will be removed from all your devices.`, [
@@ -49,8 +52,9 @@ export default function AccountDetail() {
             {account.last4 ? ` · ••${account.last4}` : ''}
           </Text>
           <Text style={styles.balance}>{formatRupees(value)}</Text>
-          {isDeposit && <DepositCard accountId={account.id} deposit={data.deposit} balance={balance} />}
+          {isDeposit && <DepositCard accountId={account.id} deposit={data.deposit} balance={balance} value={value} />}
           {data.fund && <FundCard fund={data.fund} balance={balance} />}
+          {data.market && <HoldingsCard market={data.market} />}
           {reconciliation && (
             <Text style={[styles.meta, reconciliation.flagged && styles.warn]}>
               Bank said {formatRupees(reconciliation.latest.anchor.balance)} on {formatDateTime(reconciliation.latest.anchor.observedAt)}
@@ -60,9 +64,9 @@ export default function AccountDetail() {
             </Text>
           )}
           <View style={styles.actions}>
-            {!data.deposit && !data.fund && (
+            {((!data.deposit && !data.fund && !data.market) || passbook) && (
               <View style={styles.action}>
-                <Button title="Set balance" variant="secondary" onPress={() => router.push(`/account/balance?id=${account.id}`)} />
+                <Button title={passbook ? 'Update from passbook' : 'Set balance'} variant="secondary" onPress={() => router.push(`/account/balance?id=${account.id}`)} />
               </View>
             )}
             {account.type === 'bank' && (
@@ -90,8 +94,22 @@ export default function AccountDetail() {
   );
 }
 
-/** NW-2: what went in, interest so far and maturity; or a prompt to add the terms. */
-function DepositCard({ accountId, deposit, balance }: { accountId: string; deposit: LocalDeposit | null; balance: Paise }) {
+/** NW-2, NW-6: what went in, interest so far and maturity; or a prompt to add the terms. */
+function DepositCard({ accountId, deposit, balance, value }: { accountId: string; deposit: LocalDeposit | null; balance: Paise; value: Paise }) {
+  if (deposit && isBalanceScheme(deposit.kind)) {
+    const info = SCHEMES[deposit.kind as SchemeKind];
+    const rate = `${(deposit.rateBp / 100).toFixed(2).replace(/\.?0+$/, '')}%`;
+    return (
+      <Pressable accessibilityRole="button" onPress={() => router.push(`/deposit?account=${accountId}`)} style={({ pressed }) => [styles.card, pressed && styles.pressedCard]}>
+        <Line label="Balance" amount={balance} />
+        <Line label={`Interest not yet in the balance, at ${rate}`} amount={paise(value - balance)} />
+        <Text style={styles.note}>
+          {info.label}: interest on each month's balance after the 5th, added every 31 March. An estimate until your passbook shows it
+          {deposit.kind === 'epf' ? '' : `; matures on ${formatDate(`${deposit.maturityDate}T12:00:00`)}`}. Tap to change the terms.
+        </Text>
+      </Pressable>
+    );
+  }
   if (!deposit) {
     return (
       <View style={styles.card}>
@@ -144,6 +162,56 @@ function FundCard({ fund, balance }: { fund: NonNullable<Fund>; balance: Paise }
   );
 }
 
+const KIND_LABEL: Record<string, string> = { share: 'Share', etf: 'ETF', gold_bond: 'Gold bond', bond: 'Bond', fund: 'Mutual fund', nps: 'NPS' };
+const fmtUnits = (e4: number) => (e4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+const fmtPrice = (e4: number) => `₹${(e4 / 10_000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+
+/** NW-5, NW-6: each share, ETF, bond or NPS scheme at its latest price, with what was paid where known. */
+function HoldingsCard({ market }: { market: MarketAccountValue }) {
+  const asOf = market.holdings[0]?.holding.asOf;
+  return (
+    <View style={styles.card}>
+      {market.gain !== null && (
+        <>
+          <Line label="Invested" amount={market.invested} />
+          <Line label={market.gain >= 0 ? 'Gain' : 'Loss'} amount={paise(Math.abs(market.gain))} />
+        </>
+      )}
+      {market.missingCost > 0 && (
+        <Text style={styles.note}>
+          {market.missingCost === market.holdings.length ? 'Add what you paid for each holding to see your gain.' : `Gain leaves out ${market.missingCost} ${market.missingCost === 1 ? 'holding' : 'holdings'} with no price paid yet.`}
+        </Text>
+      )}
+      {market.holdings.map(({ holding, priceE4, priceDate, value }) => (
+        <Pressable
+          key={holding.id}
+          accessibilityRole="button"
+          onPress={() => router.push(`/holding-cost?id=${holding.id}`)}
+          style={({ pressed }) => [styles.holding, pressed && styles.pressedCard]}
+        >
+          <View style={styles.grow}>
+            <Text style={styles.holdingName} numberOfLines={2}>
+              {holding.symbol ?? holding.scheme}
+            </Text>
+            <Text style={styles.note}>
+              {KIND_LABEL[holding.kind]} · {fmtUnits(holding.unitsE4)} units
+              {priceE4 !== null ? ` at ${fmtPrice(priceE4)}` : ''}
+              {priceDate ? ` on ${formatDate(`${priceDate}T12:00:00`)}` : ''}
+            </Text>
+            <Text style={[styles.note, holding.costKnown === 0 && styles.link]}>
+              {holding.costKnown === 1 ? `Paid ${formatRupees(paise(holding.costPaise))}` : 'Add what you paid'}
+            </Text>
+          </View>
+          <Text style={styles.lineAmount}>{formatRupees(value)}</Text>
+        </Pressable>
+      ))}
+      <Text style={styles.note}>
+        Units as on {asOf ? formatDate(`${asOf}T12:00:00`) : 'the statement'}. Import a newer NSDL or CDSL statement to update them.
+      </Text>
+    </View>
+  );
+}
+
 function ordinal(day: number): string {
   const tens = day % 100;
   const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th';
@@ -167,6 +235,10 @@ const styles = StyleSheet.create({
   lineLabel: { fontSize: 14, color: colors.muted, flex: 1 },
   lineAmount: { fontSize: 14, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
   note: { fontSize: 12, color: colors.muted },
+  link: { color: colors.primary, fontWeight: '600' },
+  holding: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.divider },
+  holdingName: { fontSize: 14, fontWeight: '500', color: colors.text },
+  grow: { flex: 1, minWidth: 0 },
   list: { paddingHorizontal: 20, paddingVertical: 12 },
   header: { gap: 6, marginBottom: 4 },
   meta: { fontSize: 14, color: colors.muted },

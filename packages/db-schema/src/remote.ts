@@ -10,6 +10,7 @@ import type {
   LocalRecurring,
   LocalDeposit,
   LocalHolding,
+  HoldingKind,
   LocalRule,
   LocalSplitGroup,
   LocalSource,
@@ -726,6 +727,9 @@ export interface RemoteHolding {
   as_of: string;
   sip_paise: number | null;
   sip_day: number | null;
+  kind: HoldingKind;
+  symbol: string | null;
+  cost_known: boolean;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -747,6 +751,9 @@ export function toRemoteHolding(row: LocalHolding): Omit<RemoteHolding, 'user_id
     as_of: row.asOf,
     sip_paise: row.sipPaise,
     sip_day: row.sipDay,
+    kind: row.kind,
+    symbol: row.symbol,
+    cost_known: row.costKnown === 1,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -769,6 +776,9 @@ export function fromRemoteHolding(row: RemoteHolding): LocalHolding {
     asOf: row.as_of,
     sipPaise: maybe(row.sip_paise),
     sipDay: maybe(row.sip_day),
+    kind: row.kind ?? 'fund',
+    symbol: row.symbol ?? null,
+    costKnown: row.cost_known === false ? 0 : 1,
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

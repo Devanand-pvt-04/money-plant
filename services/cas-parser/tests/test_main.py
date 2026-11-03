@@ -115,3 +115,69 @@ def test_reads_a_statement(client):
     assert len(response.json()["rows"]) == len(ROWS)
     assert post_statement(client, build(password="pw1"), password="x").json()["detail"] == "wrong_password"
     assert post_statement(client, b"%PDF-1.4 nothing").json()["detail"] == "not_a_statement"
+
+
+from casparser.types import NSDLCASData
+
+DEMAT = {
+    "statement_period": {"from": "01-Oct-2026", "to": "31-Oct-2026"},
+    "investor_info": {"name": "A Person", "email": "a@example.com", "address": "Somewhere", "mobile": "9999999999"},
+    "file_type": "CDSL",
+    "parse_warnings": [],
+    "accounts": [
+        {
+            "name": "EXAMPLE BROKING LIMITED",
+            "type": "CDSL",
+            "dp_id": "12081600",
+            "client_id": "12081600 00123456",
+            "folios": 0,
+            "balance": Decimal("15250.00"),
+            "owners": [{"name": "A Person", "PAN": "ABCDE1234F"}],
+            "equities": [
+                {"name": "EXAMPLE INDUSTRIES LTD", "isin": "INE000A01011", "num_shares": Decimal("10"), "price": Decimal("1200.50"), "value": Decimal("12005.00"), "symbol": "EXAMPLE"},
+            ],
+            "mutual_funds": [
+                {"name": "Example Liquid Fund", "isin": "INF000000002", "balance": Decimal("1.5"), "nav": Decimal("2000"), "value": Decimal("3000"), "total_cost": Decimal("2900")},
+            ],
+            "bonds": [
+                {"name": "SGB 2030 SERIES I", "isin": "IN0020230001", "num_bonds": Decimal("1"), "value": Decimal("7245.00"), "market_price": Decimal("7245.00")},
+            ],
+        }
+    ],
+    "nps": {
+        "pran": "XXXXXXXX1234",
+        "value": Decimal("50000"),
+        "schemes": [
+            {"scheme": "EXAMPLE PENSION FUND SCHEME E - TIER I", "fund_manager": "Example Pension Fund", "tier": "I", "asset_class": "E", "units": Decimal("1000.1234"), "nav": Decimal("50"), "value": Decimal("50006.17")},
+        ],
+    },
+}
+
+
+def demat(*args, **kwargs):
+    return NSDLCASData.model_validate(DEMAT)
+
+
+def test_returns_demat_holdings_without_owners_or_ids(client, monkeypatch):
+    monkeypatch.setattr(main.casparser, "read_cas_pdf", demat)
+    response = post(client)
+    assert response.status_code == 200
+    text = response.text
+    for private in ("A Person", "a@example.com", "9999999999", "ABCDE1234F", "Somewhere", "12081600", "XXXXXXXX1234"):
+        assert private not in text
+    body = response.json()
+    assert body["kind"] == "demat"
+    account = body["accounts"][0]
+    assert account["client"] == "3456"
+    assert account["equities"][0] == {
+        "name": "EXAMPLE INDUSTRIES LTD",
+        "isin": "INE000A01011",
+        "symbol": "EXAMPLE",
+        "units": "10",
+        "price": "1200.50",
+        "value": "12005.00",
+    }
+    assert account["bonds"][0]["units"] == "1"
+    assert account["funds"][0]["cost"] == "2900"
+    assert body["nps"]["pran"] == "1234"
+    assert body["nps"]["schemes"][0]["units"] == "1000.1234"

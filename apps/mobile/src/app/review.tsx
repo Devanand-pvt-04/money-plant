@@ -27,6 +27,7 @@ import { listRecurring } from '@/lib/recurring';
 import { listRules } from '@/lib/rules-store';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { useLedger } from '@/lib/use-ledger';
+import { useReviewTimer } from '@/lib/health';
 
 interface Proposal {
   rule: Rule & { match: PatternMatch };
@@ -56,6 +57,7 @@ async function load() {
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
 export default function Review() {
+  useReviewTimer();
   const { data } = useLedger(
     load,
     {

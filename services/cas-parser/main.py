@@ -1,12 +1,15 @@
 """CAS and statement parsing service (NW-3, CAP-5, decision 0010).
 
 Reads a CAMS or KFintech Consolidated Account Statement with casparser and
-returns the folios, schemes, units, valuation and transactions; reads a bank
+returns the folios, schemes, units, valuation and transactions; reads an NSDL
+or CDSL statement into each demat account's shares, bonds and funds and the
+NPS schemes (NW-5, decision 0014); reads a bank
 statement PDF into transaction rows (statement.py). Only the parse-cas and
 parse-statement edge functions call it, with a shared token; the phone never does.
 
 Nothing is stored: the file and password live in memory for one request.
-Investor details (name, email, phone, address, PAN, nominees) are dropped
+Investor details (name, email, phone, address, PAN, nominees, DP and client
+IDs, PRAN beyond its last 4 digits) are dropped
 before the response, so only what the ledger needs leaves this service.
 """
 
@@ -20,7 +23,7 @@ from typing import Any, Optional
 import casparser
 import statement
 from casparser.exceptions import IncorrectPasswordError, ParserException
-from casparser.types import CASData
+from casparser.types import CASData, NSDLCASData
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 
 MAX_BYTES = 10 * 1024 * 1024
@@ -81,11 +84,88 @@ def trim(data: dict) -> dict:
         folios.append({"folio": folio.get("folio"), "amc": folio.get("amc"), "schemes": schemes})
     period = data.get("statement_period") or {}
     return {
+        "kind": "funds",
         "statement": {"from": _text(period.get("from")), "to": _text(period.get("to"))},
         "cas_type": _text(data.get("cas_type")),
         "file_type": _text(data.get("file_type")),
         "warnings": [str(w) for w in data.get("parse_warnings", [])],
         "folios": folios,
+    }
+
+
+def _last4(value: Any) -> Optional[str]:
+    digits = "".join(ch for ch in str(value or "") if ch.isalnum())
+    return digits[-4:] if len(digits) >= 4 else None
+
+
+def trim_demat(data: dict) -> dict:
+    """NW-5: shares, bonds and funds per demat account, and NPS, without owners or IDs."""
+    accounts = []
+    for account in data.get("accounts", []):
+        accounts.append(
+            {
+                "depository": _text(account.get("type")),
+                "dp": _text(account.get("name")),
+                "client": _last4(account.get("client_id")),
+                "equities": [
+                    {
+                        "name": e.get("name"),
+                        "isin": e.get("isin"),
+                        "symbol": e.get("symbol"),
+                        "units": _text(e.get("num_shares")),
+                        "price": _text(e.get("price")),
+                        "value": _text(e.get("value")),
+                    }
+                    for e in account.get("equities", [])
+                ],
+                "bonds": [
+                    {
+                        "name": b.get("name"),
+                        "isin": b.get("isin"),
+                        "units": _text(b.get("num_bonds")),
+                        "price": _text(b.get("market_price")),
+                        "value": _text(b.get("value")),
+                    }
+                    for b in account.get("bonds", [])
+                ],
+                "funds": [
+                    {
+                        "name": f.get("name"),
+                        "isin": f.get("isin"),
+                        "amfi": f.get("amfi"),
+                        "units": _text(f.get("balance")),
+                        "price": _text(f.get("nav")),
+                        "value": _text(f.get("value")),
+                        "cost": _text(f.get("total_cost")),
+                    }
+                    for f in account.get("mutual_funds", [])
+                ],
+            }
+        )
+    nps = data.get("nps")
+    period = data.get("statement_period") or {}
+    return {
+        "kind": "demat",
+        "statement": {"from": _text(period.get("from")), "to": _text(period.get("to"))},
+        "file_type": _text(data.get("file_type")),
+        "warnings": [str(w) for w in data.get("parse_warnings", [])],
+        "accounts": accounts,
+        "nps": None
+        if not nps
+        else {
+            "pran": _last4(nps.get("pran")),
+            "schemes": [
+                {
+                    "name": s.get("scheme"),
+                    "manager": s.get("fund_manager"),
+                    "tier": s.get("tier"),
+                    "units": _text(s.get("units")),
+                    "price": _text(s.get("nav")),
+                    "value": _text(s.get("value")),
+                }
+                for s in nps.get("schemes", [])
+            ],
+        },
     }
 
 
@@ -113,9 +193,10 @@ async def cas(
         raise HTTPException(status_code=422, detail="not_a_cas")
     finally:
         del data
-    # NSDL and CDSL statements list demat holdings; stocks wait (decision 0010).
+    if isinstance(parsed, NSDLCASData):
+        return trim_demat(parsed.model_dump(by_alias=True))
     if not isinstance(parsed, CASData):
-        raise HTTPException(status_code=422, detail="demat_not_supported")
+        raise HTTPException(status_code=422, detail="not_a_cas")
     return trim(parsed.model_dump(by_alias=True))
 
 

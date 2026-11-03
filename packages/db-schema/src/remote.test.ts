@@ -271,6 +271,17 @@ describe('deposit mapping', () => {
     });
     expect(back).toEqual({ ...local, updatedAt: '2026-10-25T10:00:01+00:00', dirty: 0, rev: 0 });
   });
+
+  it('keeps a share whose cost the user has not added', () => {
+    const remote = toRemoteHolding({
+      id: 'h-2', accountId: 'demat', scheme: 'EXAMPLE INDUSTRIES LTD', isin: 'INE000A01011', amfiCode: null, folio: null, amc: null,
+      unitsE4: 100_000, costPaise: 1_200_500, navE4: 12_005_000, navDate: '2026-10-31', asOf: '2026-10-31', sipPaise: null, sipDay: null,
+      kind: 'share', symbol: 'EXAMPLE', costKnown: 0, createdAt: '2026-11-03T10:00:00.000Z', updatedAt: null, deletedAt: null, dirty: 1, rev: 1,
+    });
+    expect(remote).toMatchObject({ kind: 'share', symbol: 'EXAMPLE', cost_known: false });
+    const back = fromRemoteHolding({ ...remote, user_id: 'u', updated_at: '2026-11-03T10:00:01+00:00' });
+    expect(back).toMatchObject({ kind: 'share', costKnown: 0 });
+  });
 });
 
 describe('holding mapping', () => {
@@ -290,6 +301,9 @@ describe('holding mapping', () => {
       asOf: '2026-09-30',
       sipPaise: null,
       sipDay: null,
+      kind: 'fund' as const,
+      symbol: null,
+      costKnown: 1,
       createdAt: '2026-10-25T10:00:00.000Z',
       updatedAt: null,
       deletedAt: null,
@@ -307,5 +321,16 @@ describe('holding mapping', () => {
       created_at: '2026-10-25T10:00:00+00:00',
     });
     expect(back).toEqual({ ...local, updatedAt: '2026-10-25T10:00:01+00:00', dirty: 0, rev: 0 });
+  });
+
+  it('keeps a share whose cost the user has not added', () => {
+    const remote = toRemoteHolding({
+      id: 'h-2', accountId: 'demat', scheme: 'EXAMPLE INDUSTRIES LTD', isin: 'INE000A01011', amfiCode: null, folio: null, amc: null,
+      unitsE4: 100_000, costPaise: 1_200_500, navE4: 12_005_000, navDate: '2026-10-31', asOf: '2026-10-31', sipPaise: null, sipDay: null,
+      kind: 'share', symbol: 'EXAMPLE', costKnown: 0, createdAt: '2026-11-03T10:00:00.000Z', updatedAt: null, deletedAt: null, dirty: 1, rev: 1,
+    });
+    expect(remote).toMatchObject({ kind: 'share', symbol: 'EXAMPLE', cost_known: false });
+    const back = fromRemoteHolding({ ...remote, user_id: 'u', updated_at: '2026-11-03T10:00:01+00:00' });
+    expect(back).toMatchObject({ kind: 'share', costKnown: 0 });
   });
 });

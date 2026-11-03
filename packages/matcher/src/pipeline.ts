@@ -66,7 +66,7 @@ export type IngestResult =
   | { outcome: 'transfer'; transactionId: string }
   | { outcome: 'held' };
 
-const OWNED: ReadonlySet<AccountType> = new Set(['bank', 'cash', 'wallet', 'credit_card', 'loan', 'fd', 'rd', 'mutual_fund', 'stock']);
+const OWNED: ReadonlySet<AccountType> = new Set(['bank', 'cash', 'wallet', 'credit_card', 'loan', 'fd', 'rd', 'mutual_fund', 'stock', 'nps', 'savings_scheme']);
 
 const signed = (direction: Direction, amount: Paise) => (direction === 'debit' ? -amount : amount) as Paise;
 const iso = (ms: number) => new Date(ms).toISOString();

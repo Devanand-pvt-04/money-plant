@@ -284,9 +284,14 @@ export const deposits = sqliteTable(
   (table) => [index('deposits_account_idx').on(table.accountId), index('deposits_dirty_idx').on(table.dirty)],
 );
 
+export type HoldingKind = 'fund' | 'share' | 'etf' | 'gold_bond' | 'bond' | 'nps';
+
 /**
  * Mutual fund holdings from a CAS (NW-3): one per scheme and folio, each on
- * its own mutual_fund account. Units and cost are as of `asOf`.
+ * its own mutual_fund account. Shares, ETFs, gold bonds and bonds from an
+ * NSDL or CDSL statement (NW-5): several on one stock account per demat
+ * account. NPS schemes (NW-6): several on one nps account. Units and cost
+ * are as of `asOf`.
  */
 export const holdings = sqliteTable(
   'holdings',
@@ -308,6 +313,11 @@ export const holdings = sqliteTable(
     asOf: text('as_of').notNull(),
     sipPaise: integer('sip_paise'),
     sipDay: integer('sip_day'),
+    kind: text('kind').$type<HoldingKind>().notNull().default('fund'),
+    /** The exchange symbol of a share or ETF, for display. */
+    symbol: text('symbol'),
+    /** 0 when cost_paise is the statement's value standing in for a cost the user hasn't added (NW-5). */
+    costKnown: integer('cost_known').notNull().default(1),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -323,6 +333,17 @@ export const navs = sqliteTable('navs', {
   isin: text('isin'),
   navE4: integer('nav_e4').notNull(),
   /** "2026-10-24", the NAV's own date. */
+  date: text('date').notNull(),
+});
+
+/**
+ * Local only, never synced (NW-5, NW-6): the latest closing price of each
+ * share, ETF, gold bond and bond held, keyed by ISIN, and each NPS scheme's
+ * NAV, keyed by `nps:` and its normalised name.
+ */
+export const prices = sqliteTable('prices', {
+  key: text('key').primaryKey(),
+  priceE4: integer('price_e4').notNull(),
   date: text('date').notNull(),
 });
 
@@ -408,6 +429,7 @@ export type LocalSplitGroup = typeof splitGroups.$inferSelect;
 export type LocalRecurring = typeof recurring.$inferSelect;
 export type LocalDeposit = typeof deposits.$inferSelect;
 export type LocalHolding = typeof holdings.$inferSelect;
+export type LocalPrice = typeof prices.$inferSelect;
 export type LocalAccountType = typeof accountTypes.$inferSelect;
 export type LocalRule = typeof rules.$inferSelect;
 export type LocalBudget = typeof budgets.$inferSelect;
@@ -733,4 +755,13 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   );`,
   // Review 4: an icon the user picked for a category (CAT-1, decision 0013).
   `ALTER TABLE accounts ADD COLUMN icon TEXT;`,
+  // Investments step: demat holdings, NPS and their prices (NW-5, NW-6, decision 0014).
+  `ALTER TABLE holdings ADD COLUMN kind TEXT NOT NULL DEFAULT 'fund';
+  ALTER TABLE holdings ADD COLUMN symbol TEXT;
+  ALTER TABLE holdings ADD COLUMN cost_known INTEGER NOT NULL DEFAULT 1;
+  CREATE TABLE prices (
+    key TEXT PRIMARY KEY NOT NULL,
+    price_e4 INTEGER NOT NULL,
+    date TEXT NOT NULL
+  );`,
 ];

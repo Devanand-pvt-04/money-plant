@@ -23,8 +23,9 @@ export default function AddAccount() {
   const [saving, setSaving] = useState(false);
 
   const liability = choice.custom ? choice.custom.class === 'liability' : LIABILITY_TYPES.has(choice.type);
-  // An FD or RD's balance comes from its terms (NW-2), asked for next.
-  const deposit = !choice.custom && (choice.type === 'fd' || choice.type === 'rd');
+  // An FD or RD's balance comes from its terms (NW-2), asked for next; so do a savings scheme's (NW-6).
+  const scheme = !choice.custom && choice.type === 'savings_scheme';
+  const deposit = !choice.custom && (choice.type === 'fd' || choice.type === 'rd' || scheme);
 
   async function save() {
     const amount = parseRupees(balance.trim() === '' ? '0' : balance);
@@ -39,7 +40,7 @@ export default function AddAccount() {
       institution: institution.trim() || null,
       last4: last4 || null,
       // Balances are signed: money owed on a card, loan or liability type is stored as negative.
-      openingBalance: deposit ? paise(0) : liability ? paise(-Math.abs(amount)) : amount,
+      openingBalance: deposit && !scheme ? paise(0) : liability ? paise(-Math.abs(amount)) : amount,
     });
     // Saved locally; sync in the background and go back right away.
     syncNow().catch(() => {});
@@ -80,7 +81,14 @@ export default function AddAccount() {
         maxLength={4}
         placeholder="1234"
       />
-      {deposit ? (
+      {scheme ? (
+        <>
+          <Field label="Balance today (₹)" value={balance} onChangeText={setBalance} keyboardType="decimal-pad" placeholder="0" />
+          <Text style={styles.hint}>
+            For PPF, EPF or Sukanya Samriddhi, the balance in your passbook. Leave it at 0 for NSC or KVP. Next, pick the scheme and its rate.
+          </Text>
+        </>
+      ) : deposit ? (
         <Text style={styles.hint}>Next, add the amount, rate and dates. The balance and interest are worked out from them.</Text>
       ) : (
         <Field

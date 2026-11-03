@@ -6,13 +6,18 @@ import {
   addMonthsToDate,
   dateKey,
   daysBetween,
+  isBalanceScheme,
+  isScheme,
   maturityValue,
+  paise,
   parseRupees,
+  SCHEMES,
   valueOn,
   type DateKey,
   type DepositKind,
   type DepositPayout,
   type DepositTerms,
+  type SchemeKind,
 } from '@money-plant/core';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { DateField } from '@/components/date-fields';
@@ -47,7 +52,11 @@ interface Payer {
   label: string;
 }
 
-/** NW-2: the terms of an FD or RD, from which the app works out interest, maturity and reminders. */
+/** EPF has no maturity the app tracks; this stands in for "until retirement". */
+const EPF_MONTHS = 420;
+const SCHEME_KINDS = Object.keys(SCHEMES) as SchemeKind[];
+
+/** NW-2, NW-6: the terms of an FD, RD or savings scheme, from which the app works out interest, maturity and reminders. */
 export default function DepositTermsScreen() {
   const params = useLocalSearchParams<{ account: string }>();
   const [kind, setKind] = useState<DepositKind | null>(null);
@@ -67,9 +76,13 @@ export default function DepositTermsScreen() {
     (async () => {
       const [existing, balances] = await Promise.all([getDeposit(params.account), listAccountBalances()]);
       const account = balances.find((b) => b.account.id === params.account)?.account;
-      setKind(existing?.kind ?? (account?.type === 'rd' ? 'rd' : 'fd'));
-      if (!existing) return;
-      setAmount(rupeeText(existing.amountPaise));
+      const initial: DepositKind = existing?.kind ?? (account?.type === 'rd' ? 'rd' : account?.type === 'savings_scheme' ? 'ppf' : 'fd');
+      setKind(initial);
+      if (!existing) {
+        if (isScheme(initial)) pickScheme(initial, dateKey(new Date()));
+        return;
+      }
+      if (!isBalanceScheme(existing.kind) || existing.amountPaise > 100) setAmount(rupeeText(existing.amountPaise));
       setRate(rateText(existing.rateBp));
       setStart(existing.startDate);
       setMaturity(existing.maturityDate);
@@ -81,13 +94,25 @@ export default function DepositTermsScreen() {
     })();
   }, [params.account]);
 
+  function pickScheme(next: SchemeKind, from: DateKey = start) {
+    setKind(next);
+    setRate(rateText(SCHEMES[next].rateBp));
+    const m = SCHEMES[next].months ?? EPF_MONTHS;
+    setMonths(String(m));
+    setMaturity(addMonthsToDate(from, m));
+  }
+
   if (!kind) return null;
   const rd = kind === 'rd';
-  const parsedAmount = parseRupees(amount);
+  const scheme = isScheme(kind);
+  const balanceScheme = isBalanceScheme(kind);
+  const epf = kind === 'epf';
+  // PPF and Sukanya Samriddhi take any amount; what's typed is only the usual contribution. EPF has none.
+  const parsedAmount = balanceScheme && amount.trim() === '' ? paise(100) : parseRupees(amount);
   const rateBp = parseRate(rate);
   const terms: DepositTerms | null =
     parsedAmount !== null && parsedAmount > 0 && rateBp !== null && maturity > start
-      ? { kind, amount: parsedAmount, rateBp, startDate: start, maturityDate: maturity, payout: rd ? 'reinvest' : payout }
+      ? { kind, amount: parsedAmount, rateBp, startDate: start, maturityDate: maturity, payout: kind === 'fd' ? payout : 'reinvest' }
       : null;
 
   function changeStart(key: DateKey) {
@@ -107,18 +132,18 @@ export default function DepositTermsScreen() {
   }
 
   async function save() {
-    if (parsedAmount === null || parsedAmount <= 0) return setError(rd ? 'Enter the monthly instalment, for example 12,000' : 'Enter the amount deposited, for example 1,00,000');
+    if (parsedAmount === null || parsedAmount <= 0) return setError(rd ? 'Enter the monthly instalment, for example 12,000' : balanceScheme ? 'Enter the usual contribution as a number, or leave it empty' : 'Enter the amount deposited, for example 1,00,000');
     if (rateBp === null) return setError('Enter the interest rate as a number, for example 7.25');
     if (maturity <= start) return setError('The maturity date must be after the start date');
     setSaving(true);
     await saveDeposit({
       accountId: params.account,
-      kind: rd ? 'rd' : 'fd',
+      kind: kind ?? (rd ? 'rd' : 'fd'),
       amount: parsedAmount,
       rateBp,
       startDate: start,
       maturityDate: maturity,
-      payout: rd ? 'reinvest' : payout,
+      payout: kind === 'fd' ? payout : 'reinvest',
       paidFromAccountId: payer?.id ?? null,
       payee: payee.trim() || null,
     });
@@ -126,24 +151,41 @@ export default function DepositTermsScreen() {
     router.back();
   }
 
-  const preview = terms && previewOf(terms);
+  const preview = terms && !balanceScheme && previewOf(terms);
   return (
     <>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Field
-          label={rd ? 'Monthly instalment (₹)' : 'Amount deposited (₹)'}
-          value={amount}
-          onChangeText={setAmount}
-          onBlur={fillPayee}
-          keyboardType="decimal-pad"
-          placeholder={rd ? '12,000' : '1,00,000'}
-        />
+        {scheme && (
+          <>
+            <Text style={styles.label}>Scheme</Text>
+            <Chips>
+              {SCHEME_KINDS.map((k) => (
+                <Chip key={k} label={SCHEMES[k].label} selected={kind === k} onPress={() => pickScheme(k)} />
+              ))}
+            </Chips>
+            <Text style={styles.hint}>{SCHEMES[kind as SchemeKind].long}. The rate is the current government rate; change it if yours differs.</Text>
+          </>
+        )}
+        {!epf && (
+          <Field
+            label={rd ? 'Monthly instalment (₹)' : balanceScheme ? 'Usual contribution (₹, optional)' : 'Amount deposited (₹)'}
+            value={amount}
+            onChangeText={setAmount}
+            onBlur={fillPayee}
+            keyboardType="decimal-pad"
+            placeholder={rd ? '12,000' : balanceScheme ? '12,500' : '1,00,000'}
+          />
+        )}
         <Field label="Interest rate (% a year)" value={rate} onChangeText={setRate} keyboardType="decimal-pad" placeholder="7.25" />
-        <DateField label={rd ? 'First instalment' : 'Start date'} value={start} onChange={(key) => key && changeStart(key)} />
-        <Field label="Tenure (months)" value={months} onChangeText={changeMonths} keyboardType="number-pad" placeholder="12" />
-        <DateField label="Matures on" value={maturity} min={start} onChange={(key) => key && setMaturity(key)} />
+        <DateField label={rd ? 'First instalment' : epf ? 'Joined on' : scheme ? 'Opened on' : 'Start date'} value={start} onChange={(key) => key && changeStart(key)} />
+        {!epf && (
+          <>
+            <Field label="Tenure (months)" value={months} onChangeText={changeMonths} keyboardType="number-pad" placeholder="12" />
+            <DateField label="Matures on" value={maturity} min={start} onChange={(key) => key && setMaturity(key)} />
+          </>
+        )}
 
-        {!rd && (
+        {kind === 'fd' && (
           <>
             <Text style={styles.label}>Interest</Text>
             <Chips>
@@ -154,24 +196,35 @@ export default function DepositTermsScreen() {
           </>
         )}
 
-        <Text style={styles.label}>{rd ? 'Instalments paid from' : 'Paid from'}</Text>
-        <Pressable accessibilityRole="button" onPress={() => setPicking(true)} style={({ pressed }) => [styles.picker, pressed && styles.pressed]}>
-          <Text style={[styles.pickerText, !payer && styles.placeholder]}>{payer?.label ?? 'Pick an account (optional)'}</Text>
-          <Feather name="chevron-down" size={18} color={colors.muted} />
-        </Pressable>
-        <Field
-          label={rd ? 'Payee on the instalment SMS' : 'Payee on the payment SMS (optional)'}
-          value={payee}
-          onChangeText={setPayee}
-          autoCapitalize="characters"
-          placeholder={rd ? 'SHIVALIK' : 'Leave empty to match any payee'}
-          maxLength={80}
-        />
-        <Text style={styles.hint}>
-          {rd
-            ? 'Debits of the instalment to this payee become payments into this RD, so they stop counting as spending.'
-            : 'A debit of this amount within 3 days of the start date becomes the payment into this FD.'}
-        </Text>
+        {epf ? (
+          <Text style={styles.hint}>
+            Your employer pays into EPF, so nothing is matched from your bank. Update the balance from your EPFO passbook now and then; interest is
+            worked out on top of it.
+          </Text>
+        ) : (
+          <>
+            <Text style={styles.label}>{rd ? 'Instalments paid from' : 'Paid from'}</Text>
+            <Pressable accessibilityRole="button" onPress={() => setPicking(true)} style={({ pressed }) => [styles.picker, pressed && styles.pressed]}>
+              <Text style={[styles.pickerText, !payer && styles.placeholder]}>{payer?.label ?? 'Pick an account (optional)'}</Text>
+              <Feather name="chevron-down" size={18} color={colors.muted} />
+            </Pressable>
+            <Field
+              label={rd || balanceScheme ? 'Payee on the payment SMS' : 'Payee on the payment SMS (optional)'}
+              value={payee}
+              onChangeText={setPayee}
+              autoCapitalize="characters"
+              placeholder={rd ? 'SHIVALIK' : balanceScheme ? 'PPF' : 'Leave empty to match any payee'}
+              maxLength={80}
+            />
+            <Text style={styles.hint}>
+              {rd
+                ? 'Debits of the instalment to this payee become payments into this RD, so they stop counting as spending.'
+                : balanceScheme
+                  ? 'Debits of any amount to this payee become payments into this account, so they stop counting as spending. Interest is worked out on each month’s balance after the 5th and added every 31 March.'
+                  : `A debit of this amount within 3 days of the start date becomes the payment into this ${scheme ? SCHEMES[kind as SchemeKind].label : 'FD'}.`}
+            </Text>
+          </>
+        )}
 
         {preview && (
           <View style={styles.preview}>
@@ -180,7 +233,7 @@ export default function DepositTermsScreen() {
         )}
         {error && <ErrorText>{error}</ErrorText>}
         <View style={styles.actions}>
-          <Button title="Save" onPress={save} loading={saving} disabled={amount.trim() === '' || rate.trim() === ''} />
+          <Button title="Save" onPress={save} loading={saving} disabled={(!balanceScheme && amount.trim() === '') || rate.trim() === ''} />
         </View>
       </ScrollView>
       <AccountPicker

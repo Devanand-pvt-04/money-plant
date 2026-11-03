@@ -2,7 +2,9 @@ import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   addDays,
+  balanceSchemeValue,
   dateKey,
+  isBalanceScheme,
   dateOf,
   interestOn,
   isDepositPayment,
@@ -66,11 +68,51 @@ export interface DepositValue {
   maturity: Paise;
 }
 
-/** NW-1: a deposit's value today, interest so far included. A closed deposit is worth nothing more. */
+/**
+ * NW-1: a deposit's value today, interest so far included. A closed deposit is worth nothing more.
+ * PPF, EPF and Sukanya Samriddhi depend on what was actually paid in, so schemeValues works them out instead.
+ */
 export function depositValue(row: LocalDeposit, on: DateKey = today()): DepositValue {
   const terms = termsOf(row);
+  if (isBalanceScheme(row.kind)) return { value: paise(0), interest: paise(0), maturity: paise(0) };
   if (row.closedAt) return { value: paise(0), interest: paise(0), maturity: maturityValue(terms) };
   return { value: paise(paidIn(terms, on) + interestOn(terms, on)), interest: interestOn(terms, on), maturity: maturityValue(terms) };
+}
+
+/**
+ * NW-6: PPF, EPF and Sukanya Samriddhi accounts at their value today: the
+ * last balance the user set (from the passbook) or the opening balance, plus
+ * every payment in or out since, with interest worked out on them. Keyed by
+ * account id.
+ */
+export async function schemeValues(): Promise<Map<string, { value: Paise; interest: Paise }>> {
+  const list = (await listDeposits()).filter((d) => isBalanceScheme(d.kind) && !d.closedAt);
+  const out = new Map<string, { value: Paise; interest: Paise }>();
+  if (list.length === 0) return out;
+  const db = await getDb();
+  const ids = list.map((d) => d.accountId);
+  const refs = new Map(db.select().from(balanceRefs).where(inArray(balanceRefs.accountId, ids)).all().map((r) => [r.accountId, r]));
+  const opening = new Map(db.select().from(accounts).where(inArray(accounts.id, ids)).all().map((a) => [a.id, a]));
+  const rows = db
+    .select({ accountId: postings.accountId, occurredAt: transactions.occurredAt, amount: postings.amountPaise })
+    .from(postings)
+    .innerJoin(transactions, eq(transactions.id, postings.transactionId))
+    .where(and(isNull(transactions.deletedAt), inArray(postings.accountId, ids)))
+    .all();
+  const on = today();
+  for (const d of list) {
+    const ref = refs.get(d.accountId);
+    const account = opening.get(d.accountId);
+    const own = rows.filter((r) => r.accountId === d.accountId);
+    const flows = ref
+      ? [{ on: dateOf(ref.at), amount: paise(ref.balancePaise) }, ...own.filter((r) => r.occurredAt > ref.at).map((r) => ({ on: dateOf(r.occurredAt), amount: paise(r.amount) }))]
+      : [
+          { on: account ? dateOf(account.createdAt) : d.startDate, amount: paise(account?.openingBalancePaise ?? 0) },
+          ...own.map((r) => ({ on: dateOf(r.occurredAt), amount: paise(r.amount) })),
+        ];
+    out.set(d.accountId, balanceSchemeValue(flows, d.rateBp, on));
+  }
+  return out;
 }
 
 export interface DepositInput {
@@ -99,7 +141,7 @@ export async function saveDeposit(input: DepositInput): Promise<void> {
     rateBp: input.rateBp,
     startDate: input.startDate,
     maturityDate: input.maturityDate,
-    payout: input.kind === 'rd' ? ('reinvest' as const) : input.payout,
+    payout: input.kind === 'fd' ? input.payout : ('reinvest' as const),
     paidFromAccountId: input.paidFromAccountId,
     payee: input.payee?.trim() || null,
     deletedAt: null,
@@ -186,7 +228,8 @@ export async function refreshDeposits(): Promise<number> {
     }
 
     // Before a payout closes it, so every instalment is in and the balance ends at zero.
-    await keepScheduledBalance(row, terms, on);
+    // PPF, EPF and Sukanya Samriddhi have no schedule: their balance is what was paid in.
+    if (!isBalanceScheme(row.kind)) await keepScheduledBalance(row, terms, on);
 
     if (on >= addDays(terms.maturityDate, -3)) {
       const credit = candidates.find((tx) => {
@@ -250,17 +293,19 @@ async function scheduleMaturityReminders(): Promise<void> {
   await cancelScheduled(REMINDER_PREFIX);
   const names = new Map(db.select({ id: accounts.id, name: accounts.name }).from(accounts).all().map((a) => [a.id, a.name]));
   for (const row of await listDeposits()) {
-    if (row.closedAt) continue;
+    if (row.closedAt || row.kind === 'epf') continue;
     const at = startOfDate(addDays(row.maturityDate, -MATURITY_REMINDER_DAYS));
     at.setHours(REMINDER_HOUR);
-    const name = names.get(row.accountId) ?? (row.kind === 'fd' ? 'Your FD' : 'Your RD');
+    const name = names.get(row.accountId) ?? (row.kind === 'fd' ? 'Your FD' : row.kind === 'rd' ? 'Your RD' : `Your ${row.kind.toUpperCase()}`);
     const payer = row.paidFromAccountId ? names.get(row.paidFromAccountId) : undefined;
     await notifyAt({
       id: `${REMINDER_PREFIX}${row.id}`,
       channel: 'reminders',
       at,
       title: `${name} matures in ${MATURITY_REMINDER_DAYS} days`,
-      body: `It should pay about ${formatWholeRupees(maturityValue(termsOf(row)))}${payer ? ` into ${payer}` : ''}.`,
+      body: isBalanceScheme(row.kind)
+        ? 'Check with the bank or post office whether to extend it or take the money out.'
+        : `It should pay about ${formatWholeRupees(maturityValue(termsOf(row)))}${payer ? ` into ${payer}` : ''}.`,
       data: { url: `/account/${row.accountId}` },
     });
   }

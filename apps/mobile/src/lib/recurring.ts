@@ -187,7 +187,7 @@ async function recentDebits(): Promise<Debit[]> {
     db
       .select({ id: accounts.id })
       .from(accounts)
-      .where(inArray(accounts.type, ['mutual_fund', 'fd', 'rd', 'stock', 'loan']))
+      .where(inArray(accounts.type, ['mutual_fund', 'fd', 'rd', 'stock', 'nps', 'savings_scheme', 'loan']))
       .all()
       .map((a) => a.id),
   );
