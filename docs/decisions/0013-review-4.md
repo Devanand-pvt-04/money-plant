@@ -28,3 +28,9 @@ Decided by Deva on 2026-11-03, from the fourth app review (https://claude.ai/art
 | Category icons (CAT-1) | Material Community Icons replace Feather for categories. An icon the user picks wins; otherwise a word in the name picks one (Car, Petrol, Gym, Rent…); otherwise the standard key; otherwise the parent's. Category Edit has an icon grid with "From the name". Stored in a new nullable `accounts.icon` column, synced | Feather had no car, fuel or gym, so the categories Deva made all looked the same |
 | Notes in Activity | An entry with a note shows the note as the row title, and the payee moves to the second line ("Swiggy · Food · 1:14 pm"). Rows without a note are unchanged | Notes were only visible inside the entry |
 | Balance set, then an earlier entry | No change. Setting a balance records it at that moment; an entry dated before that only changes history | Deva asked how it works |
+
+## Added on 2026-11-03: restart to update
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Getting an update | The app checks for an update when it opens and when it comes back (at most every 15 minutes), downloads it, and shows "A new version is ready" with Restart and Later above the tabs. Later hides it until the next update, which still applies on the next cold start. Settings → Version shows what is running (version, channel, update date) and checks on tap | By default an update downloads in the background and only runs on the next full start, so a closed-and-reopened app often still showed the old version |

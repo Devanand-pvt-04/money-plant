@@ -8,6 +8,7 @@ import { lockAvailable, lockEnabled, setLockEnabled, unlock } from '@/lib/lock';
 import { displayName } from '@/lib/me';
 import { hideInRecents, setHideInRecents } from '@/lib/privacy';
 import { signOut } from '@/lib/session';
+import { fetchLatestUpdate, restartToUpdate, runningVersion, updatesOn, type UpdateCheck } from '@/lib/updates';
 import { setThemePreference, themePreference, type ThemePreference } from '@/lib/theme';
 
 const THEMES: { key: ThemePreference; label: string }[] = [
@@ -100,10 +101,47 @@ export default function Settings() {
         <Link icon="activity" title="Speed log" href="/speed" />
       </Card>
 
+      <SectionTitle>Version</SectionTitle>
+      <Card>
+        <UpdateRow />
+      </Card>
+
       <Pressable accessibilityRole="button" onPress={signOut} style={({ pressed }) => [styles.signOut, pressed && styles.pressed]}>
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+const CHECK_TEXT: Record<UpdateCheck | 'checking', string> = {
+  checking: 'Checking…',
+  ready: 'Downloaded. Tap to restart on it',
+  latest: 'This is the latest version',
+  off: 'Updates are off in this build',
+  failed: "Couldn't check. Are you online?",
+};
+
+/** What version is running, and a check for a newer update on tap. */
+function UpdateRow() {
+  const [state, setState] = useState<UpdateCheck | 'checking' | null>(null);
+  async function check() {
+    if (state === 'ready') return void restartToUpdate().catch(() => setState('failed'));
+    setState('checking');
+    setState(await fetchLatestUpdate(true));
+  }
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={check}
+      disabled={!updatesOn || state === 'checking'}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    >
+      <Feather name="refresh-cw" size={18} color={colors.muted} />
+      <View style={styles.grow}>
+        <Text style={styles.name}>{state === 'ready' ? 'Restart to update' : 'Check for updates'}</Text>
+        <Text style={styles.meta}>{state ? CHECK_TEXT[state] : runningVersion()}</Text>
+      </View>
+    </Pressable>
   );
 }
 
