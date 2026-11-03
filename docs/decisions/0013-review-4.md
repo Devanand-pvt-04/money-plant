@@ -40,3 +40,11 @@ Decided by Deva on 2026-11-03, from the fourth app review (https://claude.ai/art
 | Decision | Choice | Why |
 | --- | --- | --- |
 | Order of categories in Budgets | "Needs attention" by default: over budget, then on pace to go over, then other budgets by share used, then spending with no budget. A menu beside Categories also offers most of budget used, biggest budget, most spent and name; the choice is remembered on the phone. Sub-categories follow the same order, and a category budgeted through its sub-categories counts their budgets added up and their worst status | In daily use the question is where the month is going wrong, so the default answers it without a tap |
+
+## Added on 2026-11-03: more icons and an easier New category
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Icons from the name | After the keyword list, a category's name is matched against every icon in the font the app already ships (Material Design Icons, about 7,400, Apache 2.0) and their other names from MDI's metadata (`icon-aliases.json`, built by `packages/categoriser/scripts/icon-aliases.py`): the whole name, pairs of words, single words, then icons named after a word ("guitar" → guitar-pick). Badminton, cricket, swim and thousands more now get their own icon | No web lookups: icons from the web look inconsistent, need storing, licence checks and a network, and the bundled set already covers almost everything. The AI model in milestone 6 can suggest an icon from this set for names that still miss |
+| Icon search | Category Edit has a search over every icon, by name and other names; the common grid stays below it when nothing is typed | Deva wanted more than a fixed set |
+| New category | A search field and a New button at the top of Categories; a search with no match offers to add it | The button sat below every category |

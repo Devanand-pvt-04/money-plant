@@ -80,7 +80,7 @@ The MVP has 61 requirements across 11 areas. "Must" items block the first releas
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| CAT-1 | A small editable default set with an icon and colour each (a category the user makes gets an icon from a word in its name, such as Car or Gym, and any icon can be changed in Edit; decision 0013): Food, Groceries, Transport, Shopping, Bills, Rent, Health, Entertainment, Travel, Family and gifts, and Other, plus Salary and Other income. No preset sub-categories; the user adds their own (Food > Breakfast). A dictionary or rule match for a sub-category the user doesn't have lands on its parent | Must |
+| CAT-1 | A small editable default set with an icon and colour each (a category the user makes gets an icon from a word in its name, such as Car, Gym or Badminton, matched against all of Material Design Icons' names and other names; any icon can be changed in Edit, with a search over the whole set; decision 0013): Food, Groceries, Transport, Shopping, Bills, Rent, Health, Entertainment, Travel, Family and gifts, and Other, plus Salary and Other income. No preset sub-categories; the user adds their own (Food > Breakfast). A dictionary or rule match for a sub-category the user doesn't have lands on its parent | Must |
 | CAT-2 | Categorise in this order: user rules, learned patterns, merchant dictionary, AI model | Must |
 | CAT-3 | Let a correction become a rule ("always do this for this merchant") | Must |
 | CAT-4 | For payments to people, ask once and remember per person; offer to create an IOU. Learned patterns run first, so a matched payment to a person (a bus conductor's UPI ID) is not asked about | Must |

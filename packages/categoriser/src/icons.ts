@@ -1,9 +1,12 @@
 /**
- * Category icons (CAT-1, decision 0013). Names are Material Community Icons.
+ * Category icons (CAT-1, decision 0013). Names are Material Community Icons
+ * (Material Design Icons, Apache 2.0), the set @expo/vector-icons ships.
  * An icon the user picked wins; otherwise a word in the category's name picks
- * one ("Car", "Petrol", "Gym"); otherwise its standard key does; a
- * sub-category with neither looks like its parent.
+ * one, first from the keyword list below ("Car", "Petrol", "Gym"), then from
+ * every icon's name and its other names ("Badminton", "Shuttlecock");
+ * otherwise its standard key does; a sub-category with none looks like its parent.
  */
+import ICON_ALIASES from './icon-aliases.json';
 
 export interface CategoryLook {
   key: string | null;
@@ -52,6 +55,10 @@ const WORDS: readonly (readonly [readonly string[], string, string])[] = [
   [['car', 'cars'], 'car', 'transport'],
   [['bike', 'scooter', 'motorbike', 'motorcycle'], 'motorbike', 'transport'],
   [['cycle', 'bicycle'], 'bicycle', 'transport'],
+  [['shuttle', 'badminton'], 'badminton', 'health'],
+  [['swim', 'swimming', 'pool'], 'swim', 'health'],
+  [['massage'], 'spa', 'personal_care'],
+  [['temple', 'pooja', 'puja', 'mandir'], 'temple-hindu', 'family'],
   [['fuel', 'petrol', 'diesel', 'gas', 'cng'], 'gas-station', 'transport'],
   [['parking', 'toll', 'fastag'], 'parking', 'transport'],
   [['service', 'servicing', 'repair', 'repairs', 'maintenance', 'mechanic'], 'car-wrench', 'transport'],
@@ -126,12 +133,100 @@ const keyIcon = (key: string | null) => (key ? (KEY_ICONS[key] ?? KEY_ICONS[root
 /** A key with its own colours: a standard key, not the "custom" placeholder for user-made categories. */
 const colorKeyOf = (key: string | null) => (key ? (KEY_ICONS[key] ? key : KEY_ICONS[rootOf(key)] ? rootOf(key) : null) : null);
 
+/** The names in the app's icon font, so the categoriser needn't bundle them a second time. */
+export interface IconSet {
+  has(name: string): boolean;
+  /** The shortest icon name starting with `word-` ("guitar" → guitar-acoustic), if the app can look one up. */
+  firstStartingWith?(word: string): string | null;
+}
+
+/** Other names for icons, from Material Design Icons' metadata (scripts/icon-aliases.py). */
+const ALIASES: Readonly<Record<string, string>> = ICON_ALIASES;
+
+/** Words that would match an icon but say nothing about the category. */
+const STOP_WORDS = new Set(['and', 'the', 'for', 'with', 'from', 'other', 'others', 'misc', 'new', 'my', 'all', 'more', 'stuff', 'general', 'expense', 'expenses', 'spend', 'spends', 'spending', 'monthly', 'daily', 'weekly', 'yearly', 'one', 'two', 'plus', 'minus', 'set', 'off', 'on', 'help', 'account', 'details']);
+
+/**
+ * An icon whose name or other name is in the category's name: the whole name
+ * ("table tennis" → table-tennis), then pairs of words, then single words, each
+ * also without a plural s. Null when nothing matches.
+ */
+export function iconInSet(name: string, icons: IconSet): string | null {
+  const words = name.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+  const tries: string[] = [];
+  if (words.length > 1) tries.push(words.join('-'));
+  for (let i = 0; i + 1 < words.length; i++) tries.push(`${words[i]}-${words[i + 1]}`);
+  tries.push(...words);
+  for (const t of tries) {
+    for (const candidate of t.endsWith('s') ? [t, t.slice(0, -1)] : [t]) {
+      if (icons.has(candidate)) return candidate;
+      const alias = ALIASES[candidate];
+      if (alias && icons.has(alias)) return alias;
+    }
+  }
+  for (const w of words) {
+    const prefixed = icons.firstStartingWith?.(w) ?? null;
+    if (prefixed) return prefixed;
+  }
+  return null;
+}
+
+let aliasesByIcon: Map<string, string[]> | null = null;
+function aliasesOf(icon: string): readonly string[] {
+  if (!aliasesByIcon) {
+    aliasesByIcon = new Map();
+    for (const [alias, target] of Object.entries(ALIASES)) {
+      const list = aliasesByIcon.get(target);
+      if (list) list.push(alias);
+      else aliasesByIcon.set(target, [alias]);
+    }
+  }
+  return aliasesByIcon.get(icon) ?? [];
+}
+
+/**
+ * Icons matching what the user typed, best first: the exact name, then names
+ * starting with it, then names with a part starting with it, then other names,
+ * then anything containing it. Every word typed must match.
+ */
+export function searchIcons(query: string, names: readonly string[], limit = 120): string[] {
+  const words = query.toLowerCase().trim().split(/[^a-z0-9]+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const joined = words.join('-');
+  const scoreOf = (name: string): number | null => {
+    const parts = name.split('-');
+    const scoreWord = (w: string): number | null => {
+      if (parts.some((p) => p.startsWith(w))) return 2;
+      if (aliasesOf(name).some((a) => a.split('-').some((p) => p.startsWith(w)))) return 3;
+      if (w.length >= 3 && name.includes(w)) return 4;
+      return null;
+    };
+    if (name === joined) return 0;
+    if (name.startsWith(joined)) return 1;
+    let worst = 0;
+    for (const w of words) {
+      const s = scoreWord(w);
+      if (s === null) return null;
+      worst = Math.max(worst, s);
+    }
+    return worst;
+  };
+  const hits: { name: string; score: number }[] = [];
+  for (const name of names) {
+    const score = scoreOf(name);
+    if (score !== null) hits.push({ name, score });
+  }
+  hits.sort((a, b) => a.score - b.score || a.name.length - b.name.length || a.name.localeCompare(b.name));
+  return hits.slice(0, limit).map((h) => h.name);
+}
+
 /** The icon and colours for a category. Colours follow the standard key, or the name for a category the user made. */
-export function resolveLook(look: CategoryLook): ResolvedLook {
+export function resolveLook(look: CategoryLook, icons?: IconSet): ResolvedLook {
   const named = iconForName(look.name);
-  const parent = look.parent ? resolveLook(look.parent) : null;
+  const parent = look.parent ? resolveLook(look.parent, icons) : null;
   const colorKey = colorKeyOf(look.key) ?? parent?.colorKey ?? named?.colorKey ?? null;
-  const icon = look.icon ?? named?.icon ?? keyIcon(look.key) ?? parent?.icon ?? DEFAULT_ICON;
+  const fromSet = !look.icon && !named && icons ? iconInSet(look.name, icons) : null;
+  const icon = look.icon ?? named?.icon ?? fromSet ?? keyIcon(look.key) ?? parent?.icon ?? DEFAULT_ICON;
   return { icon, colorKey };
 }
 

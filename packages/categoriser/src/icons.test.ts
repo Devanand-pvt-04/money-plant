@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ICON, iconForName, resolveLook } from './icons';
+import { DEFAULT_ICON, iconForName, iconInSet, resolveLook, searchIcons } from './icons';
 
 describe('category icons', () => {
   it('picks an icon from a word in the name', () => {
@@ -31,5 +31,35 @@ describe('category icons', () => {
       icon: 'coffee',
       colorKey: 'food',
     });
+  });
+});
+
+describe('icons from the whole set', () => {
+  const names = ['badminton', 'table-tennis', 'tennis', 'dumbbell', 'guitar-acoustic', 'home', 'tag', 'cricket', 'swim', 'theater'];
+  const set = new Set(names);
+  it('finds an icon by name or other name, past words that say nothing', () => {
+    expect(iconInSet('Badminton', set)).toBe('badminton');
+    expect(iconInSet('Table tennis', set)).toBe('table-tennis');
+    expect(iconInSet('Cricket matches', set)).toBe('cricket');
+    expect(iconInSet('Other expenses', set)).toBeNull();
+  });
+  it('uses the set only when the keyword list has nothing', () => {
+    expect(resolveLook({ key: 'custom', name: 'Badminton', icon: null }, set).icon).toBe('badminton');
+    expect(resolveLook({ key: 'custom', name: 'Pottery classes', icon: null }, new Set(['swim'])).icon).toBe('tag');
+    expect(resolveLook({ key: 'custom', name: 'Swim', icon: null }, set).icon).toBe('swim');
+    expect(resolveLook({ key: 'custom', name: 'Gym', icon: null }, set).icon).toBe('dumbbell');
+  });
+  it('searches names, parts of names and other names', () => {
+    expect(searchIcons('tennis', names)).toEqual(['tennis', 'table-tennis']);
+    expect(searchIcons('guitar', names)).toEqual(['guitar-acoustic']);
+    expect(searchIcons('', names)).toEqual([]);
+  });
+});
+
+describe('icon names that start with a word', () => {
+  it('falls back to the shortest icon named after a word', () => {
+    const names = ['guitar-acoustic', 'guitar-electric', 'guitar-pick'];
+    const set = { has: (n: string) => names.includes(n), firstStartingWith: (w: string) => names.filter((n) => n.startsWith(`${w}-`)).sort((a, b) => a.length - b.length)[0] ?? null };
+    expect(iconInSet('Guitar class', set)).toBe('guitar-pick');
   });
 });
