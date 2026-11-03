@@ -46,7 +46,7 @@ The MVP has 62 requirements across 11 areas. "Must" items block the first releas
 | ACC-3 | Data syncs across a user's devices and works offline | Must |
 | ACC-4 | Export all data as CSV, and delete the account along with all its data. Deleting asks for a typed confirmation and offers the export first | Must |
 | ACC-7 | Clear all my data but keep the account: every entry, account, category, rule and IOU is removed on the phone and the server, and the app starts again from first run. Typed confirmation, export offered first | Must |
-| ACC-5 | Onboarding consent screen that explains SMS reading, cloud sync, contacts and AI use | Must |
+| ACC-5 | Onboarding consent screen that explains SMS reading, cloud sync, contacts and AI use. It says AI runs on Deva's PC, not with an AI company, and that AI can be switched off in the Money tab (decision 0012) | Must |
 | ACC-6 | Custom account types: the user names a type (for example Chit fund, PF, Gold) and picks its class (asset or liability) and whether it counts toward net worth. Custom types behave as plain manual accounts | Must |
 
 ### Capture
@@ -96,7 +96,7 @@ The MVP has 62 requirements across 11 areas. "Must" items block the first releas
 | BUD-1 | Monthly budgets on the categories the user picks: a default that applies to every month, and an override for one month only that can be reset. A branch has either one budget on the parent, covering the parent and its sub-categories, or budgets on its sub-categories, never both. The month's total budget is the sum of the category budgets; there is no separate overall budget. Only spending in budgeted categories counts against the total; the rest is shown as spending outside budgets. Investments, cash withdrawals and transfers between the user's own accounts are not spending, and are listed apart | Must |
 | BUD-2 | Mid-month pace alerts when a budgeted category, or the month's total budget, is on track to overspend. Every budget bar, the total's and each category's and sub-category's, shows a pace marker for how far through the month it is. Categories list over budget first, then on pace to go over, then by share used; a menu also orders them by share used, budget, spent or name (decision 0013) | Must |
 | BUD-3 | Overspend breakdown by category, merchant and largest transactions, versus budget and the last 3 months | Must |
-| BUD-4 | Month review on the 1st at 9 am, also open any time for past months under Budgets: spent against the total budget, what went over and why (top payees and largest entries against the 3-month average), uncategorised entries to review, and suggested budget changes the user can accept, edit or ignore in one tap. Every number opens the entries behind it. It starts as a numbers review worked out on the phone; the AI-written explanation comes in milestone 6 | Must |
+| BUD-4 | Month review on the 1st at 9 am, also open any time for past months under Budgets: spent against the total budget, what went over and why (top payees and largest entries against the 3-month average), uncategorised entries to review, and suggested budget changes the user can accept, edit or ignore in one tap. Every number opens the entries behind it. It starts as a numbers review worked out on the phone; in milestone 6 the phone sends the same facts for an AI-written headline and 2 to 4 causes, each linked to its entries, shown above the numbers (decision 0012) | Must |
 
 ### Net worth and investments
 
@@ -242,7 +242,7 @@ These items are deliberately left out of the MVP.
 | Gmail and email parsing | Restricted Gmail access requires a yearly security assessment | Phase 2 (a forwarding inbox instead) |
 | Shared split groups between app users, Splitwise import | Personal splits cover the core need without friends installing the app | After the friends release |
 | Finding friends on the app by phone number | Sign-in is email only, and hashed phone numbers are easy to reverse; friends are invited by email | With phone sign-in |
-| Ask-anything AI chat | The month review delivers the main AI value first | Phase 2 |
+| Ask-anything AI chat and a bigger role for AI | The month review and categorising deliver the main AI value first; Deva wants to shape AI's wider role later (decision 0012) | Phase 2 |
 | Crypto, digital gold in apps, P2P lending, foreign shares, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime (decision 0014) | When a tester needs it |
 | Broker APIs, live prices | Daily prices are enough for net worth | Phase 3 |
 | Web app, family accounts | Phones come first | Phase 3 |
@@ -264,7 +264,7 @@ Between milestones 3 and 4, a short design step (about a week) sets the look and
 After milestone 4, a second design step (decision 0008) follows Deva's end-to-end review: five tabs, settings behind a profile avatar, livelier Home and Activity, Budgets that hold categories, a grouped Accounts tab, one expense flow for people and groups, pay first in scan and pay, and shared pickers. Mockups were signed off on 24 Oct 2026, and the build ships in small PRs before milestone 5.
 5. **Net worth, imports and month review.** Four builds in order (decision 0010): month review with numbers (no AI yet), FDs and RDs, mutual funds from a CAS import with daily NAV, then statement import. *Exit:* net worth matches the user's own sum within 1%.
 After milestone 5, an investments step (decision 0014) adds Settings → Health (HOME-3), the demat statement import (NW-5) and long-term savings (NW-6), in that order, while milestone 6 waits on its open choices. Collecting friends' HDFC, HSBC and SBI samples for milestone 7 starts at the same time.
-6. **AI.** A self-hosted open model on Deva's PC (decision 0006): the AI job queue and PC worker, a model chosen by testing candidates on the labelled merchant set, AI categorisation as the last CAT-2 layer, and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
+6. **AI.** A self-hosted open model on Deva's PC (decisions 0006 and 0012), in four builds: the AI job queue and PC worker, a model chosen by testing candidates on Deva's tagged merchants, AI categorisation as the last CAT-2 layer (with a per-user AI switch and icon suggestions for new categories), and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, a speed pass (measured on Deva's phone first), APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
 ## Free-tier plan
