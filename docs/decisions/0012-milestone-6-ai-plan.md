@@ -11,7 +11,7 @@ AI takes over the work left to the user after rules, learned patterns and the di
 | Build | What | To ship it |
 | --- | --- | --- |
 | 1. Queue and worker | `ai_jobs` table, `ai-worker` edge function, and a Node worker in `services/ai-worker` that runs a test job | `db push`, set `AI_WORKER_TOKEN`, deploy `ai-worker`, install Ollama on the PC |
-| 2. Model test | An eval script scores two or three candidate models on Deva's own tagged merchants and writes October's review with each | Run on the PC; Deva picks the model from the scores |
+| 2. Model test | An eval script scores two or three candidate models on Deva's own tagged merchants. Comparing the models' month reviews moves to build 4, which adds the month review job | Run on the PC; Deva picks the model from the scores |
 | 3. AI categorising | The categorise function queues misses; the phone applies or suggests the answers; AI switch, consent text and a waiting line in Activity; icon suggestions | Deploy `categorise` and `ai-worker`, OTA |
 | 4. AI month review | The phone sends the review facts; the write-up shows above the numbers | `db push`, OTA |
 

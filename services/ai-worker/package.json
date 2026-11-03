@@ -6,11 +6,15 @@
   "scripts": {
     "start": "tsx src/main.ts start",
     "check": "tsx src/main.ts check",
+    "eval": "tsx src/eval/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@money-plant/categoriser": "workspace:*"
+    "@money-plant/categoriser": "workspace:*",
+    "@money-plant/core": "workspace:*",
+    "@money-plant/matcher": "workspace:*",
+    "@supabase/supabase-js": "^2.118.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
