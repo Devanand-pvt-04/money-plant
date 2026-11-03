@@ -1,6 +1,11 @@
 packages:
   - apps/*
   - packages/*
+  - services/ai-worker
+
+# esbuild (used by tsx in services/ai-worker) ships its binary as a platform package; its install script only checks it.
+allowBuilds:
+  esbuild: false
 
 # React Native native builds are more reliable with a flat node_modules.
 nodeLinker: hoisted

@@ -168,6 +168,10 @@ cd apps/mobile && npx expo start
 
 If the app behaves strangely after switching branches, run `npx expo start --clear`.
 
+## 13. AI worker on your PC (milestone 6)
+
+The AI runs on your PC (decisions 0006 and 0012). Follow [services/ai-worker/README.md](../services/ai-worker/README.md) once: install Ollama, set `AI_WORKER_TOKEN`, run `npx supabase db push` and `npx supabase functions deploy ai-worker`, fill in `services/ai-worker/.env`, run the check, and add the Task Scheduler entry. After that, jobs clear on their own whenever the PC is on.
+
 ## Troubleshooting
 
 | Symptom | Fix |
