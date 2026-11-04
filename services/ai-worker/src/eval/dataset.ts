@@ -17,7 +17,7 @@ export interface EvalTransaction {
   occurred_at: string;
   counterparty: string | null;
   kind: string;
-  postings: { account_id: string; amount_paise: number }[];
+  postings: { account_id: string; amount_paise: number; deleted_at?: string | null }[];
   sources: { kind: string; parsed_fields: Record<string, unknown> | null }[];
 }
 
@@ -33,6 +33,8 @@ export interface LabelledMerchant {
 export interface Dataset {
   categories: CategoriseCategory[];
   merchants: LabelledMerchant[];
+  /** Entries left out, by reason, so an empty set can be explained. */
+  skipped?: Record<string, number>;
 }
 
 type Channel = Parameters<typeof looksLikePerson>[0]['channel'];
@@ -66,22 +68,50 @@ function expectedKey(account: EvalAccount, byId: ReadonlyMap<string, EvalAccount
 export function buildDataset(accounts: readonly EvalAccount[], transactions: readonly EvalTransaction[]): Dataset {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const votes = new Map<string, { item: AiCategoriseItem; keys: Map<string, number>; entries: number; label: string; vpa: string | null }>();
+  const skipped: Record<string, number> = {};
+  const skip = (reason: string) => {
+    skipped[reason] = (skipped[reason] ?? 0) + 1;
+  };
   for (const tx of transactions) {
-    if ((tx.kind !== 'expense' && tx.kind !== 'income') || tx.postings.length !== 2 || !tx.counterparty) continue;
-    const category = tx.postings.map((p) => byId.get(p.account_id)).find((a) => a?.type === 'category');
-    const own = tx.postings.find((p) => {
+    const postings = tx.postings.filter((p) => !p.deleted_at);
+    if (tx.kind !== 'expense' && tx.kind !== 'income') {
+      skip('not a spend or income (transfer, IOU and so on)');
+      continue;
+    }
+    if (!tx.counterparty) {
+      skip('no payee name');
+      continue;
+    }
+    if (postings.length !== 2) {
+      skip('split across several categories');
+      continue;
+    }
+    const category = postings.map((p) => byId.get(p.account_id)).find((a) => a?.type === 'category');
+    const own = postings.find((p) => {
       const type = byId.get(p.account_id)?.type;
       return type && type !== 'category' && type !== 'person';
     });
-    if (!category || !own) continue;
+    if (!category || !own) {
+      skip('no category or own account');
+      continue;
+    }
     const expected = expectedKey(category, byId);
-    if (!expected) continue;
+    if (!expected) {
+      skip('in a category you made at the top level (the AI only knows standard ones)');
+      continue;
+    }
     const sms = tx.sources.find((s) => s.kind === 'sms')?.parsed_fields ?? {};
     const vpa = typeof sms.vpa === 'string' ? sms.vpa : null;
     const channel = (typeof sms.channel === 'string' ? sms.channel : 'upi') as Channel;
-    if (looksLikePerson({ channel, counterparty: tx.counterparty, vpa })) continue;
+    if (looksLikePerson({ channel, counterparty: tx.counterparty, vpa })) {
+      skip('payment to a person (never sent to the AI)');
+      continue;
+    }
     const merchant = normaliseMerchant(tx.counterparty);
-    if (merchant.length < 2 || /\d{6,}/.test(merchant)) continue;
+    if (merchant.length < 2 || /\d{6,}/.test(merchant)) {
+      skip('payee is mostly a number');
+      continue;
+    }
     let entry = votes.get(merchant);
     if (!entry) {
       entry = {
@@ -110,5 +140,5 @@ export function buildDataset(accounts: readonly EvalAccount[], transactions: rea
     inDictionary: lookupBuiltin(v.label, v.vpa) !== null,
   }));
   merchants.sort((a, b) => b.entries - a.entries || a.item.merchant.localeCompare(b.item.merchant));
-  return { categories: categoryList(accounts), merchants };
+  return { categories: categoryList(accounts), merchants, skipped };
 }

@@ -172,6 +172,8 @@ If the app behaves strangely after switching branches, run `npx expo start --cle
 
 The AI runs on your PC (decisions 0006 and 0012). Follow [services/ai-worker/README.md](../services/ai-worker/README.md) once: install Ollama, set `AI_WORKER_TOKEN`, run `npx supabase db push` and `npx supabase functions deploy ai-worker`, fill in `services/ai-worker/.env`, run the check, and add the Task Scheduler entry. After that, jobs clear on their own whenever the PC is on.
 
+Build 3 (AI categorising): `npx supabase db push`, `npx supabase functions deploy categorise` and `npx supabase functions deploy ai-worker`, restart the worker (`schtasks /End` then `/Run`, or sign out and in), then ship the app as an OTA update. Everyone sees the consent screen once more, because its AI point changed.
+
 ## Troubleshooting
 
 | Symptom | Fix |

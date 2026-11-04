@@ -53,6 +53,10 @@ pnpm --filter @money-plant/ai-worker eval -- --models qwen2.5:7b,qwen3:8b,llama3
 Swap in newer models of about 8B if https://ollama.com/library has them; anything over about
 5 GB on disk won't fit fully in the 4060's 8 GB.
 
+- Add `--sample` to test on a built-in set of about 60 made-up Indian shops the dictionary doesn't
+  know (local stores, payment-gateway names, business UPI IDs), with no sign-in. The test also falls
+  back to it on its own when none of your tagged merchants would reach the AI, because the
+  dictionary already places them or they are payments to people.
 - The first run asks for your Money Plant email and the code it sends, like the app, and reads your
   own entries through row-level security. It saves the labelled set to `eval-data/dataset.json`, so
   later runs skip the sign-in (`--refresh` downloads it again). `eval-data/` is git-ignored.
@@ -78,10 +82,10 @@ sees in the app. The second covers everything you tagged.
 
 | Kind | From | Answer | Build |
 | --- | --- | --- | --- |
-| categorise | The categorise function, for merchants the dictionary doesn't know | A category key from the user's list (or unknown), a display name and a confidence | 1 (worker side); queued from build 3 |
-| icon | The phone, for a new category whose name matches no icon | An icon name from a shortlist | 3 |
+| categorise | The categorise function, one job per merchant the dictionary doesn't know (shared across users) | A category key from the user's list (or unknown), a display name and a confidence. Answers at 0.8 or more join the shared merchants table | 3 |
+| icon | The phone, for a new category whose name matches no icon | Up to 5 English words, which the phone matches against icon names | 3 |
 | month_review | The phone, on the 1st | A headline and 2 to 4 causes, each linked to transaction IDs | 4 |
 
-The worker claims only the kinds it has a handler for, so an older worker never takes a newer kind.
+The worker claims up to 20 jobs at a time and sends categorise jobs that share a category list to the model in one call. It claims only the kinds it has a handler for, so an older worker never takes a newer kind.
 A bad answer is retried once and then marked failed; a job left running for 10 minutes (the PC
 slept) goes back to the queue. Tests run against a fake Ollama, so CI needs no GPU.

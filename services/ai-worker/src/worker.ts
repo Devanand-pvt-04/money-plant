@@ -1,19 +1,22 @@
-import { runCategorise } from './jobs/categorise';
+import { runCategorise, type CategorisePayload } from './jobs/categorise';
+import { runIcon } from './jobs/icon';
 import type { Model } from './ollama';
 import { QueueError, type Job, type JobKind, type Queue } from './queue';
 
 type Handler = (model: Model, payload: unknown) => Promise<object>;
 
-/** The job kinds this worker can run. Month reviews and icons join in later builds (decision 0012). */
+/** The job kinds this worker can run. Month reviews join in build 4 (decision 0012). */
 export const handlers: Partial<Record<JobKind, Handler>> = {
   categorise: runCategorise,
+  icon: runIcon,
 };
 
 export interface Log {
   (line: string): void;
 }
 
-export const BATCH = 5;
+/** Jobs claimed at a time (the database hands out at most 20). */
+export const BATCH = 20;
 
 /**
  * Claims one batch and runs it. Returns how many jobs it claimed, so the loop
@@ -29,8 +32,41 @@ export async function runOnce(queue: Queue, model: Model, log: Log, now: () => n
   }
   const kinds = Object.keys(handlers) as JobKind[];
   const jobs = await queue.claim(BATCH, kinds);
-  for (const job of jobs) await runJob(queue, model, job, log, now);
+  // Each categorise job is one merchant; jobs that share a category list go to the model together.
+  const groups = new Map<string, Job[]>();
+  for (const job of jobs) {
+    if (job.kind !== 'categorise') {
+      await runJob(queue, model, job, log, now);
+      continue;
+    }
+    const key = JSON.stringify((job.payload as Partial<CategorisePayload> | null)?.categories ?? null);
+    groups.set(key, [...(groups.get(key) ?? []), job]);
+  }
+  for (const group of groups.values()) await runCategoriseGroup(queue, model, group, log, now);
   return jobs.length;
+}
+
+async function runCategoriseGroup(queue: Queue, model: Model, jobs: readonly Job[], log: Log, now: () => number): Promise<void> {
+  if (jobs.length === 1) return runJob(queue, model, jobs[0]!, log, now);
+  const started = now();
+  const payloads = jobs.map((job) => job.payload as Partial<CategorisePayload> | null);
+  const merged = { items: payloads.flatMap((p) => (Array.isArray(p?.items) ? p.items : [])), categories: payloads[0]?.categories };
+  let answers;
+  try {
+    answers = (await runCategorise(model, merged)).results;
+  } catch (error) {
+    // The whole batch failed: run them one at a time instead, so one odd merchant can't sink the rest.
+    log(`${jobs.length} categorise jobs together failed (${(error as Error).message.slice(0, 120)}); running them one by one`);
+    for (const job of jobs) await runJob(queue, model, job, log, now);
+    return;
+  }
+  for (const job of jobs) {
+    const merchant = (job.payload as Partial<CategorisePayload> | null)?.items?.[0]?.merchant;
+    const answer = answers.find((a) => a.merchant === merchant);
+    if (answer) await queue.complete(job.id, { results: [answer] });
+    else await queue.fail(job.id, 'bad payload');
+  }
+  log(`${jobs.length} categorise jobs done together in ${now() - started} ms`);
 }
 
 async function runJob(queue: Queue, model: Model, job: Job, log: Log, now: () => number): Promise<void> {

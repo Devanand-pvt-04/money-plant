@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import type { CategoryFlow } from '@money-plant/categoriser';
+import { wantIcon } from '@/lib/ai-icons';
 import { createCategory, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { kvGet, kvSet } from '@/lib/kv';
 import { CategoryIcon, Sheet } from './sheet';
@@ -217,7 +218,9 @@ export function NewCategory(props: {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      props.onCreated(await createCategory({ name, parentId, flow: props.flow }));
+      const id = await createCategory({ name, parentId, flow: props.flow });
+      wantIcon(id, name).catch(() => {});
+      props.onCreated(id);
     } catch (e) {
       setSaving(false);
       Alert.alert("Couldn't add", e instanceof Error ? e.message : String(e));

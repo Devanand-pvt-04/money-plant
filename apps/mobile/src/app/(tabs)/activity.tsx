@@ -6,6 +6,7 @@ import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } fr
 import { formatAmount, formatDay, formatMonth, formatWholeRupees } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
 import { ErrorText, colors, radius } from '@/components/ui';
+import { useAiWaiting } from '@/lib/ai-settings';
 import { flatten, listCategories } from '@/lib/categories';
 import { listTransactions, type TransactionRow } from '@/lib/ledger';
 import { usePullToRefresh } from '@/lib/refresh';
@@ -45,6 +46,7 @@ export default function Activity() {
   const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
   const [filtering, setFiltering] = useState(false);
   const [query, setQuery] = useState('');
+  const waiting = useAiWaiting();
   const thisMonth = monthOf(new Date());
   const custom = filters.from !== null || filters.to !== null;
 
@@ -85,6 +87,15 @@ export default function Activity() {
         ListHeaderComponent={
           <View style={styles.header}>
             {error && <ErrorText>{error}</ErrorText>}
+            {waiting > 0 && (
+              // Decision 0012: so a PC that's off reads as waiting, not as a bug.
+              <View style={styles.waiting} accessibilityRole="text">
+                <Feather name="cpu" size={14} color={colors.muted} />
+                <Text style={styles.waitingText}>
+                  {waiting} {waiting === 1 ? 'merchant' : 'merchants'} waiting for AI
+                </Text>
+              </View>
+            )}
             {!custom && (
               <View style={styles.months}>
                 <Pressable accessibilityRole="button" accessibilityLabel="Previous month" hitSlop={8} onPress={() => setMonth(addMonths(month, -1))} style={styles.arrow}>
@@ -217,5 +228,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: '600', color: colors.primary },
   day: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 16, paddingBottom: 4 },
   dayText: { fontSize: 12, fontWeight: '600', color: colors.muted, letterSpacing: 0.3 },
+  waiting: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  waitingText: { fontSize: 13, color: colors.muted },
   empty: { textAlign: 'center', color: colors.muted, fontSize: 15, marginTop: 48 },
 });

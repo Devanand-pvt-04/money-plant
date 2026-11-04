@@ -5,9 +5,13 @@
 // merchants table, and records categories users confirm so the next person
 // gets them from the dictionary.
 //
-// No AI runs here yet. A self-hosted model on Deva's PC takes over the misses
-// in the AI milestone (decision 0006); until then they stay uncategorised and
-// the phone asks again after MERCHANT_RECHECK_DAYS.
+// Misses go to the AI (decision 0012): each becomes a categorise job in
+// ai_jobs, one per merchant across all users, which the worker on Deva's PC
+// answers. Until it does, the merchant comes back in `pending` and the phone
+// asks again on its next refresh. A finished answer is returned to anyone who
+// asks for that merchant, and answers at SHARE_CONFIDENCE or more are also
+// added to the merchants table by the ai-worker function. A user who turned
+// AI off sends `ai: false`, and nothing of theirs is queued.
 //
 // It never receives raw SMS text, account numbers or phone numbers: only a
 // cleaned merchant label, a business UPI ID, an amount band and a time of day.
@@ -19,6 +23,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 /** Answers at or above this are shared with everyone through the merchants table. */
 const SHARE_CONFIDENCE = 0.8;
 const MAX_ITEMS = 25;
+/** AI answers are reused for this long; after it a merchant can be asked about again. */
+const ANSWER_DAYS = 30;
 const KEY_PATTERN = /^[a-z_]+(\.[a-z_]+)?$/;
 
 interface Item {
@@ -86,7 +92,7 @@ Deno.serve(async (request) => {
   const { data: auth, error: authError } = await admin.auth.getUser(token);
   if (authError || !auth.user) return json({ error: 'unauthorised' }, 401);
 
-  let body: { items?: unknown; categories?: unknown; confirm?: unknown };
+  let body: { items?: unknown; categories?: unknown; confirm?: unknown; ai?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -130,10 +136,40 @@ Deno.serve(async (request) => {
     confidence: Number(row.confidence),
     source: 'dictionary' as const,
   }));
-  const misses = items.filter((item) => !results.some((r) => r.merchant === item.merchant));
-  // Not in the dictionary: answered as unknown, so the phone caches the miss and checks again later.
-  for (const item of misses) {
-    results.push({ merchant: item.merchant, key: null, name: null, confidence: 0, source: 'dictionary' });
+  let misses = items.filter((item) => !results.some((r) => r.merchant === item.merchant));
+  if (misses.length === 0 || body.ai !== true) {
+    // Not in the dictionary and no AI: answered as unknown, so the phone caches the miss and checks again later.
+    for (const item of misses) results.push({ merchant: item.merchant, key: null, name: null, confidence: 0, source: 'dictionary' });
+    return json({ results, pending: [] });
   }
-  return json({ results });
+
+  // What the AI already said, for this user or anyone else. Keys are standard, so they carry across users.
+  const since = new Date(Date.now() - ANSWER_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data: done, error: doneError } = await admin
+    .from('ai_jobs')
+    .select('dedupe_key, result, finished_at')
+    .eq('kind', 'categorise')
+    .eq('status', 'done')
+    .is('deleted_at', null)
+    .gte('finished_at', since)
+    .in('dedupe_key', misses.map((m) => m.merchant))
+    .order('finished_at', { ascending: false });
+  if (doneError) return json({ error: 'database' }, 500);
+  const allowed = new Set(categories.map((c) => c.key));
+  for (const row of done ?? []) {
+    if (results.some((r) => r.merchant === row.dedupe_key)) continue;
+    const answer = (row.result as { results?: { merchant: string; key: string | null; name: string | null; confidence: number }[] } | null)?.results?.[0];
+    if (!answer || answer.merchant !== row.dedupe_key) continue;
+    // A key this user has no category for is no answer for them.
+    const key = answer.key && (allowed.has(answer.key) || allowed.has(answer.key.split('.')[0]!)) ? answer.key : null;
+    results.push({ merchant: answer.merchant, key, name: answer.name, confidence: key ? answer.confidence : 0, source: 'ai' });
+  }
+  misses = misses.filter((item) => !results.some((r) => r.merchant === item.merchant));
+
+  // Queue the rest. An open job for the same merchant (from anyone) already covers it.
+  if (misses.length > 0) {
+    const { error: queueError } = await admin.rpc('queue_categorise_jobs', { p_user_id: auth.user.id, p_items: misses, p_categories: categories });
+    if (queueError) return json({ error: 'database' }, 500);
+  }
+  return json({ results, pending: misses.map((m) => m.merchant) });
 });

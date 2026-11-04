@@ -29,8 +29,8 @@ const POINTS: { icon: ComponentProps<typeof Feather>['name']; title: string; bod
   },
   {
     icon: 'cpu',
-    title: 'AI runs on our own computer',
-    body: 'Later, an AI model will suggest categories for unknown payees and write your month review. It runs on a computer the app owner controls, not an AI company, and gets only what each task needs, such as payee names and amounts: never SMS text or account numbers.',
+    title: "AI runs on Deva's computer",
+    body: "An AI model suggests categories for shops the app doesn't know and writes your month review. It runs on Deva's own PC, not with an AI company, and gets only what each task needs, such as a shop's name, a rough amount and your category names: never SMS text, account numbers or phone numbers. You can turn AI off in Settings.",
   },
 ];
 

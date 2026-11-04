@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { kvGet, kvSet } from './kv';
 
 /** Bumped when what the consent screen says changes, so it is shown again. */
-const CONSENT_KEY = 'consent.v1';
+// v2: AI now runs (decision 0012), so everyone reads the AI point once more.
+const CONSENT_KEY = 'consent.v2';
 
 const listeners = new Set<(given: boolean) => void>();
 
