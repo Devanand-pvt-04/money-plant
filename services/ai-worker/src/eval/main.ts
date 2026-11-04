@@ -63,8 +63,9 @@ async function download(): Promise<Dataset> {
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from('transactions')
-      .select('occurred_at, counterparty, kind, postings(account_id, amount_paise), sources(kind, parsed_fields)')
-      .eq('category_reason', 'user')
+      .select('occurred_at, counterparty, kind, postings(account_id, amount_paise, deleted_at), sources(kind, parsed_fields)')
+      // Your own picks, and entries your own rules and patterns placed: both are categories you chose.
+      .in('category_reason', ['user', 'rule', 'pattern'])
       .is('deleted_at', null)
       .order('id')
       .range(from, from + PAGE - 1);
@@ -72,7 +73,7 @@ async function download(): Promise<Dataset> {
     transactions.push(...(data as unknown as EvalTransaction[]));
     if (data.length < PAGE) break;
   }
-  console.log(`Read ${accounts.length} accounts and categories, and ${transactions.length} entries you categorised yourself.`);
+  console.log(`Read ${accounts.length} accounts and categories, and ${transactions.length} entries you categorised yourself or with your rules.`);
   return buildDataset(accounts, transactions);
 }
 
@@ -116,6 +117,7 @@ async function main(): Promise<void> {
   }
   const unseen = dataset.merchants.filter((m) => !m.inDictionary);
   console.log(`${dataset.merchants.length} merchants you tagged by hand. ${unseen.length} aren't in the built-in dictionary, so the app would ask the AI about them.`);
+  for (const [reason, count] of Object.entries(dataset.skipped ?? {})) console.log(`  Left out ${count}: ${reason}`);
   if (unseen.length === 0) throw new Error('No merchants to test with yet');
 
   const aiScores: Score[] = [];
