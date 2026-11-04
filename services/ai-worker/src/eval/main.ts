@@ -32,11 +32,15 @@ async function signIn(url: string, anonKey: string) {
   const email = (await prompt.question('Your Money Plant email: ')).trim();
   const { error: sendError } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
   if (sendError) throw new Error(`Couldn't send the code: ${sendError.message}`);
-  const token = (await prompt.question('The 6-digit code from the email: ')).trim();
+  const token = (await prompt.question('The code from the email: ')).trim();
   prompt.close();
-  const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
-  if (error) throw new Error(`Sign-in failed: ${error.message}`);
-  return supabase;
+  const { data, error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
+  if (error || !data.session) throw new Error(`Sign-in failed: ${error?.message ?? 'no session'}`);
+  // Every read carries the signed-in user's token explicitly; without it row-level security returns nothing, silently.
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${data.session.access_token}` } },
+  });
 }
 
 /** Reads your own rows through row-level security, as the app does. Nothing is written. */
@@ -68,7 +72,7 @@ async function download(): Promise<Dataset> {
     transactions.push(...(data as unknown as EvalTransaction[]));
     if (data.length < PAGE) break;
   }
-  await supabase.auth.signOut();
+  console.log(`Read ${accounts.length} accounts and categories, and ${transactions.length} entries you categorised yourself.`);
   return buildDataset(accounts, transactions);
 }
 
@@ -96,17 +100,19 @@ async function answer(model: string, dataset: Dataset, merchants: Dataset['merch
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { models: { type: 'string' }, refresh: { type: 'boolean', default: false } } });
-  const models = (values.models ?? process.env.AI_MODEL ?? '').split(',').map((m) => m.trim()).filter(Boolean);
+  // PowerShell turns "a,b,c" into "a b c", so either separator works.
+  const models = (values.models ?? process.env.AI_MODEL ?? '').split(/[\s,]+/).map((m) => m.trim()).filter(Boolean);
   if (models.length === 0) throw new Error('Name the models to test: --models qwen2.5:7b,llama3.1:8b');
 
   mkdirSync(dataDir, { recursive: true });
   let dataset: Dataset;
-  if (existsSync(datasetFile) && !values.refresh) {
-    dataset = JSON.parse(readFileSync(datasetFile, 'utf8')) as Dataset;
+  const saved = existsSync(datasetFile) && !values.refresh ? (JSON.parse(readFileSync(datasetFile, 'utf8')) as Dataset) : null;
+  if (saved && saved.merchants.length > 0) {
+    dataset = saved;
     console.log(`Using the saved set in eval-data/dataset.json (--refresh to download again)`);
   } else {
     dataset = await download();
-    writeFileSync(datasetFile, JSON.stringify(dataset, null, 1));
+    if (dataset.merchants.length > 0) writeFileSync(datasetFile, JSON.stringify(dataset, null, 1));
   }
   const unseen = dataset.merchants.filter((m) => !m.inDictionary);
   console.log(`${dataset.merchants.length} merchants you tagged by hand. ${unseen.length} aren't in the built-in dictionary, so the app would ask the AI about them.`);
