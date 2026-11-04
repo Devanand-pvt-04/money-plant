@@ -143,5 +143,6 @@ async function main(): Promise<void> {
 
 main().catch((error: Error) => {
   console.error(error.message);
-  process.exit(1);
+  // Not process.exit: on Windows, exiting while fetch's sockets are closing crashes Node (libuv async.c assertion).
+  process.exitCode = 1;
 });

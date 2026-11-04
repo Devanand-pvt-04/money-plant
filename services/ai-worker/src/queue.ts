@@ -46,7 +46,14 @@ export function httpQueue(config: Pick<Config, 'supabaseUrl' | 'workerToken'>, f
       throw new QueueError(`Supabase unreachable (${(error as Error).name})`, null);
     }
     if (!response.ok) {
-      const reason = response.status === 401 ? 'the worker token was refused' : `HTTP ${response.status}`;
+      const reason =
+        response.status === 401
+          ? 'the worker token was refused'
+          : response.status === 404
+            ? 'not found. Deploy it: npx supabase functions deploy ai-worker'
+            : response.status === 503
+              ? 'AI_WORKER_TOKEN is not set. Run: npx supabase secrets set AI_WORKER_TOKEN=...'
+              : `HTTP ${response.status}`;
       throw new QueueError(`ai-worker function: ${reason}`, response.status);
     }
     return (await response.json()) as T;
