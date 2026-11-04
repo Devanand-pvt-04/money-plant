@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { categoriseWithAi } from './ai-categorise';
+import { refreshAiReview } from './ai-review';
 import { fillMissingPayees, hasImportedInbox, importInbox } from './capture';
 import { refreshDeposits } from './deposits';
 import { refreshFunds } from './funds';
@@ -47,6 +48,8 @@ export function refreshAll(): Promise<void> {
       refreshIous().catch(() => {});
       // CAT-2: only merchants that rules, patterns and the dictionary couldn't place; capped on the server.
       categoriseWithAi().catch(() => {});
+      // BUD-4, decision 0012: last month's AI write-up, queued once the month ends.
+      refreshAiReview().catch(() => {});
     } finally {
       running = null;
     }

@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { addMonths, type MonthKey, type Paise } from '@money-plant/core';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { formatDate, formatMonth, formatWholeRupees as rupees } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
 import { ProgressBar, SectionTitle, colors, radius } from '@/components/ui';
+import { aiReviewFor, type AiReview } from '@/lib/ai-review';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { acceptSuggestion, ignoreSuggestion, lastMonth, monthReview, type MonthReview, type ReviewOverspend, type ReviewSuggestion } from '@/lib/review';
 import { useLedger } from '@/lib/use-ledger';
@@ -17,7 +18,8 @@ const budgetHref = (id: string, month: MonthKey) => `/budget/${id}?month=${month
 /**
  * BUD-4: the month review. What was spent against the total budget, what
  * went over and why, what is still uncategorised, and budget changes to
- * accept, edit or ignore. Numbers only until the AI review (milestone 6).
+ * accept, edit or ignore. With AI on, a write-up from Deva's PC sits above
+ * the numbers it was written from (decision 0012).
  */
 export default function MonthReviewScreen() {
   const params = useLocalSearchParams<{ month?: string }>();
@@ -27,6 +29,8 @@ export default function MonthReviewScreen() {
   useEffect(() => {
     reload();
   }, [month, reload]);
+
+  const ai = useAiReview(data && data.month === month ? data : null);
 
   const latest = month >= lastMonth();
   return (
@@ -49,7 +53,7 @@ export default function MonthReviewScreen() {
             <Feather name="chevron-right" size={22} color={colors.text} />
           </Pressable>
         </View>
-        {data && data.month === month && <Body review={data} onEdit={setEditing} onIgnored={reload} />}
+        {data && data.month === month && <Body review={data} ai={ai} onEdit={setEditing} onIgnored={reload} />}
       </ScrollView>
       <BudgetSheet
         visible={editing !== null}
@@ -69,19 +73,50 @@ export default function MonthReviewScreen() {
   );
 }
 
-function Body({ review, onEdit, onIgnored }: { review: MonthReview; onEdit: (s: ReviewSuggestion) => void; onIgnored: () => void }) {
+/** How often the screen looks again while the write-up is being written. */
+const AI_POLL_MS = 20_000;
+
+/** The AI write-up for the review on screen, checked again while the screen is open and the PC is still writing it. */
+function useAiReview(review: MonthReview | null): AiReview {
+  const [ai, setAi] = useState<AiReview>({ status: 'off' });
+  useFocusEffect(
+    useCallback(() => {
+      if (!review) return;
+      let live = true;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const look = () =>
+        aiReviewFor(review)
+          .catch((): AiReview => ({ status: 'off' }))
+          .then((next) => {
+            if (!live) return;
+            setAi(next);
+            if (next.status === 'waiting') timer = setTimeout(look, AI_POLL_MS);
+          });
+      setAi({ status: 'off' });
+      void look();
+      return () => {
+        live = false;
+        clearTimeout(timer);
+      };
+    }, [review]),
+  );
+  return ai;
+}
+
+function Body({ review, ai, onEdit, onIgnored }: { review: MonthReview; ai: AiReview; onEdit: (s: ReviewSuggestion) => void; onIgnored: () => void }) {
   const { month } = review;
   const empty = review.spent === 0 && review.income === 0;
   if (empty) return <Text style={styles.meta}>Nothing was recorded in {formatMonth(month)}.</Text>;
   return (
     <>
+      <AiWriteUp ai={ai} />
       <Headline review={review} />
 
       {review.overspends.length > 0 ? (
         <>
           <SectionTitle>What went over</SectionTitle>
           {review.overspends.map((o) => (
-            <OverspendCard key={o.categoryId} overspend={o} month={month} />
+            <OverspendCard key={o.categoryId} overspend={o} month={month} cause={causeFor(ai, o.category.name)} />
           ))}
         </>
       ) : (
@@ -146,6 +181,25 @@ function Body({ review, onEdit, onIgnored }: { review: MonthReview; onEdit: (s: 
   );
 }
 
+function causeFor(ai: AiReview, category: string): string | null {
+  return ai.status === 'done' ? (ai.writeUp.causes.find((c) => c.category === category)?.text ?? null) : null;
+}
+
+function AiWriteUp({ ai }: { ai: AiReview }) {
+  if (ai.status === 'off') return null;
+  return (
+    <View style={styles.ai}>
+      <View style={styles.aiLabel}>
+        <Feather name="cpu" size={13} color={colors.muted} />
+        <Text style={styles.aiLabelText}>AI write-up</Text>
+      </View>
+      {ai.status === 'done' && <Text style={styles.aiText}>{ai.writeUp.summary}</Text>}
+      {ai.status === 'waiting' && <Text style={styles.meta}>Being written on Deva's PC. It appears here once the PC is on; the numbers below are already final.</Text>}
+      {ai.status === 'failed' && <Text style={styles.meta}>The AI couldn't write this month's review. The numbers below are complete.</Text>}
+    </View>
+  );
+}
+
 function Headline({ review }: { review: MonthReview }) {
   const kept = review.income - review.spent;
   const status = review.budget === null ? 'ok' : review.inBudgets > review.budget ? 'over' : 'ok';
@@ -185,7 +239,7 @@ function Stat({ label, amount, tone }: { label: string; amount: Paise; tone?: 'g
   );
 }
 
-function OverspendCard({ overspend: o, month }: { overspend: ReviewOverspend; month: MonthKey }) {
+function OverspendCard({ overspend: o, month, cause }: { overspend: ReviewOverspend; month: MonthKey; cause: string | null }) {
   return (
     <View style={styles.card}>
       <Pressable accessibilityRole="button" onPress={() => router.push(budgetHref(o.categoryId, month))} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
@@ -201,6 +255,12 @@ function OverspendCard({ overspend: o, month }: { overspend: ReviewOverspend; mo
         </View>
         <Text style={styles.over}>{rupees(o.over)} over</Text>
       </Pressable>
+      {cause && (
+        <View style={styles.cause}>
+          <Feather name="cpu" size={12} color={colors.muted} style={styles.causeIcon} />
+          <Text style={styles.causeText}>{cause}</Text>
+        </View>
+      )}
       {o.payees.map((p) => (
         <View key={p.merchant} style={styles.line}>
           <Text style={styles.lineText} numberOfLines={1}>
@@ -307,4 +367,11 @@ const styles = StyleSheet.create({
   choiceText: { fontSize: 13, fontWeight: '600', color: colors.text },
   choiceTextPrimary: { color: colors.onInk },
   meta: { fontSize: 13, color: colors.muted, lineHeight: 19 },
+  ai: { padding: 14, borderRadius: 16, borderWidth: 1, borderColor: colors.border, gap: 6 },
+  aiLabel: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  aiLabelText: { fontSize: 12, fontWeight: '600', color: colors.muted },
+  aiText: { fontSize: 14, color: colors.text, lineHeight: 21 },
+  cause: { flexDirection: 'row', gap: 6, paddingLeft: 46 },
+  causeIcon: { marginTop: 3 },
+  causeText: { fontSize: 13, color: colors.secondary, lineHeight: 19, flex: 1, fontStyle: 'italic' },
 });

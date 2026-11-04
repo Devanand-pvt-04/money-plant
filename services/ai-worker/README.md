@@ -53,6 +53,8 @@ pnpm --filter @money-plant/ai-worker eval -- --models qwen2.5:7b,qwen3:8b,llama3
 Swap in newer models of about 8B if https://ollama.com/library has them; anything over about
 5 GB on disk won't fit fully in the 4060's 8 GB.
 
+- Add `--review` to have each model write the month review for a made-up month instead, through
+  the same checks as a real job, and compare the write-ups by eye.
 - Add `--sample` to test on a built-in set of about 60 made-up Indian shops the dictionary doesn't
   know (local stores, payment-gateway names, business UPI IDs), with no sign-in. The test also falls
   back to it on its own when none of your tagged merchants would reach the AI, because the
@@ -84,7 +86,7 @@ sees in the app. The second covers everything you tagged.
 | --- | --- | --- | --- |
 | categorise | The categorise function, one job per merchant the dictionary doesn't know (shared across users) | A category key from the user's list (or unknown), a display name and a confidence. Answers at 0.8 or more join the shared merchants table | 3 |
 | icon | The phone, for a new category whose name matches no icon | Up to 5 English words, which the phone matches against icon names | 3 |
-| month_review | The phone, on the 1st | A headline and 2 to 4 causes, each linked to transaction IDs | 4 |
+| month_review | The phone, once a month has ended, with the facts its review already shows | A 2 to 3 sentence summary and one cause per overspent budget, linked to its largest entries. A summary quoting a figure not in the facts fails the job; a cause with an unknown figure, category or transaction ID is dropped | 4 |
 
 The worker claims up to 20 jobs at a time and sends categorise jobs that share a category list to the model in one call. It claims only the kinds it has a handler for, so an older worker never takes a newer kind.
 A bad answer is retried once and then marked failed; a job left running for 10 minutes (the PC

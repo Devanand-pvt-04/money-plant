@@ -96,3 +96,50 @@ function average(values: readonly Paise[]): Paise {
   if (values.length === 0) return paise(0);
   return paise(Math.round(values.reduce((sum, v) => sum + v, 0) / values.length));
 }
+
+/**
+ * Decision 0012: the facts the phone sends for an AI month review, taken from
+ * the review it already shows, so the write-up and the numbers can't disagree.
+ * Amounts are whole rupees for the model to read; they are display figures,
+ * never written back to the ledger. Payee names carry no long digit runs.
+ */
+export interface MonthReviewFacts {
+  /** "October 2026". */
+  month: string;
+  spent: number;
+  /** The month's total budget, or null with no budgets. */
+  budget: number | null;
+  inBudgets: number;
+  outside: number;
+  income: number;
+  /** Income minus spending; negative when more went out than came in. */
+  kept: number;
+  /** Budget minus spending in budgets; negative when over, null with no budgets. */
+  budgetLeft: number | null;
+  overspends: {
+    category: string;
+    spent: number;
+    limit: number;
+    over: number;
+    /** Average of the 3 months before, or null when there was nothing. */
+    usual: number | null;
+    payees: { payee: string; amount: number; count: number }[];
+    largest: { id: string; payee: string; amount: number; date: string }[];
+  }[];
+  /** Top-level categories by spending, with their usual. */
+  biggest: { category: string; spent: number; usual: number | null }[];
+  uncategorised: { count: number; amount: number } | null;
+  suggestions: { category: string; kind: SuggestionKind; current: number | null; suggested: number }[];
+}
+
+/** The AI's write-up for a month review: checked by the worker against the facts it was given. */
+export interface MonthReviewWriteUp {
+  summary: string;
+  /** One per overspent budget at most, by the facts' category name. */
+  causes: { category: string; text: string; transactionIds: string[] }[];
+}
+
+/** Paise to whole rupees for the facts, rounded half away from zero. */
+export function wholeRupees(amount: Paise): number {
+  return Math.sign(amount) * Math.round(Math.abs(amount) / 100);
+}
