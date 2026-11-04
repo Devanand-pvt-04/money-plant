@@ -38,6 +38,42 @@ To run it in a terminal instead, use `pnpm --filter @money-plant/ai-worker start
 If the token ever leaks, set a new one with `npx supabase secrets set` and in `.env`; the old
 one stops working at once.
 
+## Model test (build 2)
+
+Before the app starts sending jobs, pick the model by testing two or three candidates on merchants
+you categorised by hand (decision 0012). Pull each one first, then run from the repo root:
+
+```
+ollama pull qwen2.5:7b
+ollama pull qwen3:8b
+ollama pull llama3.1:8b
+pnpm --filter @money-plant/ai-worker eval -- --models qwen2.5:7b,qwen3:8b,llama3.1:8b
+```
+
+Swap in newer models of about 8B if https://ollama.com/library has them; anything over about
+5 GB on disk won't fit fully in the 4060's 8 GB.
+
+- The first run asks for your Money Plant email and the code it sends, like the app, and reads your
+  own entries through row-level security. It saves the labelled set to `eval-data/dataset.json`, so
+  later runs skip the sign-in (`--refresh` downloads it again). `eval-data/` is git-ignored.
+- Each model categorises every merchant with the same fields a real job sends, in batches of 25.
+- The summary has no merchant names, so it's safe to paste into the chat. The full report, with
+  each wrong answer, stays in `eval-data/`.
+
+How to read the summary:
+
+| Column | Meaning |
+| --- | --- |
+| Parent right | Share of merchants put in the right top-level category (Food for Food > Lunch) |
+| Exact | Share with exactly your category |
+| Applied (≥ 0.8) | Share the app would apply without asking |
+| Applied but wrong | Of those, the share in the wrong top-level category: the mistake that costs you |
+| Entries applied right | Share of your entries (not merchants) the app would get right with no tap |
+| Time per merchant | Seconds on your GPU, after the model is loaded |
+
+The first table covers only merchants the built-in dictionary doesn't know, which is what the AI
+sees in the app. The second covers everything you tagged.
+
 ## Jobs
 
 | Kind | From | Answer | Build |

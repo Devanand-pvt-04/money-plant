@@ -362,6 +362,15 @@ importers:
       '@money-plant/categoriser':
         specifier: workspace:*
         version: link:../../packages/categoriser
+      '@money-plant/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@money-plant/matcher':
+        specifier: workspace:*
+        version: link:../../packages/matcher
+      '@supabase/supabase-js':
+        specifier: ^2.118.0
+        version: 2.118.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
