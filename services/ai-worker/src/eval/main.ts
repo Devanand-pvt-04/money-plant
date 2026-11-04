@@ -4,7 +4,9 @@
 //
 // Signs in as you (an email code, like the app), reads the entries you
 // categorised by hand, and asks each model to categorise those merchants with
-// the same fields a real job carries. The labelled set and the full report
+// the same fields a real job carries. With --sample (or when none of your
+// tagged merchants would reach the AI) it tests on a built-in set of made-up
+// Indian shops the dictionary doesn't know instead, with no sign-in. The labelled set and the full report
 // (with merchant names) stay in eval-data/, which git ignores. The summary
 // printed at the end has no merchant names, so it is safe to share.
 
@@ -16,6 +18,7 @@ import { createClient } from '@supabase/supabase-js';
 import { runCategorise, type CategoriseAnswer } from '../jobs/categorise';
 import { ollama } from '../ollama';
 import { buildDataset, type Dataset, type EvalAccount, type EvalTransaction } from './dataset';
+import { sampleDataset } from './sample';
 import { score, summaryTable, type Miss, type Score } from './score';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
@@ -100,24 +103,39 @@ async function answer(model: string, dataset: Dataset, merchants: Dataset['merch
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { models: { type: 'string' }, refresh: { type: 'boolean', default: false } } });
+  const { values } = parseArgs({ options: { models: { type: 'string' }, refresh: { type: 'boolean', default: false }, sample: { type: 'boolean', default: false } } });
   // PowerShell turns "a,b,c" into "a b c", so either separator works.
   const models = (values.models ?? process.env.AI_MODEL ?? '').split(/[\s,]+/).map((m) => m.trim()).filter(Boolean);
   if (models.length === 0) throw new Error('Name the models to test: --models qwen2.5:7b,llama3.1:8b');
 
   mkdirSync(dataDir, { recursive: true });
   let dataset: Dataset;
-  const saved = existsSync(datasetFile) && !values.refresh ? (JSON.parse(readFileSync(datasetFile, 'utf8')) as Dataset) : null;
-  if (saved && saved.merchants.length > 0) {
-    dataset = saved;
-    console.log(`Using the saved set in eval-data/dataset.json (--refresh to download again)`);
+  let sample = values.sample;
+  if (sample) {
+    dataset = sampleDataset();
   } else {
-    dataset = await download();
-    if (dataset.merchants.length > 0) writeFileSync(datasetFile, JSON.stringify(dataset, null, 1));
+    const saved = existsSync(datasetFile) && !values.refresh ? (JSON.parse(readFileSync(datasetFile, 'utf8')) as Dataset) : null;
+    if (saved && saved.merchants.length > 0) {
+      dataset = saved;
+      console.log(`Using the saved set in eval-data/dataset.json (--refresh to download again)`);
+    } else {
+      dataset = await download();
+      if (dataset.merchants.length > 0) writeFileSync(datasetFile, JSON.stringify(dataset, null, 1));
+    }
+    const unseenOwn = dataset.merchants.filter((m) => !m.inDictionary).length;
+    console.log(`${dataset.merchants.length} merchants you tagged by hand. ${unseenOwn} aren't in the built-in dictionary, so the app would ask the AI about them.`);
+    for (const [reason, count] of Object.entries(dataset.skipped ?? {})) console.log(`  Left out ${count}: ${reason}`);
+    if (unseenOwn === 0) {
+      console.log('None of your merchants would reach the AI, so testing on the built-in sample instead.');
+      sample = true;
+      dataset = sampleDataset();
+    }
+  }
+  if (sample) {
+    console.log(`Built-in sample: ${dataset.merchants.length} made-up shops of the kind the dictionary misses.`);
+    for (const [reason, count] of Object.entries(dataset.skipped ?? {})) console.log(`  Left out ${count}: ${reason}`);
   }
   const unseen = dataset.merchants.filter((m) => !m.inDictionary);
-  console.log(`${dataset.merchants.length} merchants you tagged by hand. ${unseen.length} aren't in the built-in dictionary, so the app would ask the AI about them.`);
-  for (const [reason, count] of Object.entries(dataset.skipped ?? {})) console.log(`  Left out ${count}: ${reason}`);
   if (unseen.length === 0) throw new Error('No merchants to test with yet');
 
   const aiScores: Score[] = [];
@@ -135,12 +153,12 @@ async function main(): Promise<void> {
   const summary = [
     summaryTable('Merchants the AI would see (not in the dictionary)', aiScores),
     '',
-    summaryTable('All merchants you tagged', allScores),
+    summaryTable(sample ? 'Whole built-in sample' : 'All merchants you tagged', allScores),
   ].join('\n');
   const details = models.map((model) => [
     `### Wrong or unknown: ${model}`,
     '',
-    '| Merchant | You chose | Model said | Confidence |',
+    `| Merchant | ${sample ? 'Expected' : 'You chose'} | Model said | Confidence |`,
     '| --- | --- | --- | --- |',
     ...misses.get(model)!.map((m) => `| ${m.merchant} | ${m.expected} | ${m.answer} | ${Math.round(m.confidence * 100)}% |`),
   ].join('\n'));

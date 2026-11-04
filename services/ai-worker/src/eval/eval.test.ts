@@ -99,3 +99,13 @@ describe('score', () => {
     expect(summaryTable('t', [s])).toContain('| m | 4 | 50% | 25% | 50% | 50% | 30% | 2.0 s |');
   });
 });
+
+describe('sampleDataset', () => {
+  it('holds merchants the AI would see, labelled with categories it is sent', async () => {
+    const { sampleDataset } = await import('./sample');
+    const set = sampleDataset();
+    const keys = new Set(set.categories.map((c) => c.key));
+    expect(set.merchants.filter((m) => !m.inDictionary).length).toBeGreaterThanOrEqual(40);
+    for (const m of set.merchants) expect(keys.has(m.expected)).toBe(true);
+  });
+});

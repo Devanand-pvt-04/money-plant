@@ -53,6 +53,10 @@ pnpm --filter @money-plant/ai-worker eval -- --models qwen2.5:7b,qwen3:8b,llama3
 Swap in newer models of about 8B if https://ollama.com/library has them; anything over about
 5 GB on disk won't fit fully in the 4060's 8 GB.
 
+- Add `--sample` to test on a built-in set of about 60 made-up Indian shops the dictionary doesn't
+  know (local stores, payment-gateway names, business UPI IDs), with no sign-in. The test also falls
+  back to it on its own when none of your tagged merchants would reach the AI, because the
+  dictionary already places them or they are payments to people.
 - The first run asks for your Money Plant email and the code it sends, like the app, and reads your
   own entries through row-level security. It saves the labelled set to `eval-data/dataset.json`, so
   later runs skip the sign-in (`--refresh` downloads it again). `eval-data/` is git-ignored.
