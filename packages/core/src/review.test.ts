@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { overspends, reviewSuggestions, type ReviewLine } from './review';
+import { overspends, reviewSuggestions, wholeRupees, type ReviewLine } from './review';
 
 const r = (rupees: number) => paise(rupees * 100);
 const line = (over: Partial<ReviewLine> & { categoryId: string }): ReviewLine => ({
@@ -69,5 +69,13 @@ describe('reviewSuggestions', () => {
 
   it('suggests nothing for a month with no spending', () => {
     expect(reviewSuggestions([line({ categoryId: 'x', limit: r(1000) })])).toEqual([]);
+  });
+});
+
+describe('wholeRupees', () => {
+  it('rounds paise to whole rupees for the AI facts, half away from zero', () => {
+    expect(wholeRupees(paise(1_234_550))).toBe(12_346);
+    expect(wholeRupees(paise(-1_234_550))).toBe(-12_346);
+    expect(wholeRupees(paise(49))).toBe(0);
   });
 });

@@ -47,7 +47,7 @@ describe('runOnce', () => {
     const lines: string[] = [];
     const claimed = await runOnce(queue, model(() => ({ results: [{ merchant: 'swiggy', key: 'food', name: 'Swiggy', confidence: 0.9 }] })), (l) => lines.push(l));
     expect(claimed).toBe(1);
-    expect(calls[0]).toEqual({ action: 'claim', kinds: ['categorise', 'icon'] });
+    expect(calls[0]).toEqual({ action: 'claim', kinds: ['categorise', 'icon', 'month_review'] });
     expect(calls[1]).toEqual({
       action: 'complete',
       id: categoriseJob.id,

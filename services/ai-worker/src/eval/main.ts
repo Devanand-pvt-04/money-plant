@@ -16,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, parseEnv } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import { runCategorise, type CategoriseAnswer } from '../jobs/categorise';
+import { runMonthReview } from '../jobs/month-review';
+import { SAMPLE_FACTS } from '../jobs/month-review-sample';
 import { ollama } from '../ollama';
 import { buildDataset, type Dataset, type EvalAccount, type EvalTransaction } from './dataset';
 import { sampleDataset } from './sample';
@@ -102,12 +104,35 @@ async function answer(model: string, dataset: Dataset, merchants: Dataset['merch
   return { answers, seconds: (Date.now() - started) / 1000 };
 }
 
+/**
+ * Build 4: each model writes the month review for a made-up month, through
+ * the same checks as a real job, so the write-ups can be compared by eye.
+ */
+async function compareReviews(models: readonly string[]): Promise<void> {
+  for (const model of models) {
+    const local = ollama({ ollamaUrl: process.env.OLLAMA_URL ?? 'http://localhost:11434', model });
+    const started = Date.now();
+    console.log(`\n### ${model}`);
+    try {
+      const review = await runMonthReview(local, SAMPLE_FACTS);
+      console.log(`${review.summary}\n`);
+      for (const cause of review.causes) console.log(`- ${cause.category}: ${cause.text} (${cause.transactionIds.length} entries linked)`);
+      const dropped = SAMPLE_FACTS.overspends.length - review.causes.length;
+      if (dropped > 0) console.log(`- ${dropped} of ${SAMPLE_FACTS.overspends.length} causes missing or dropped by the checks`);
+    } catch (error) {
+      console.log(`Failed the checks: ${(error as Error).message}`);
+    }
+    console.log(`(${((Date.now() - started) / 1000).toFixed(1)} s, model loading included)`);
+  }
+}
+
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { models: { type: 'string' }, refresh: { type: 'boolean', default: false }, sample: { type: 'boolean', default: false } } });
+  const { values } = parseArgs({ options: { models: { type: 'string' }, refresh: { type: 'boolean', default: false }, sample: { type: 'boolean', default: false }, review: { type: 'boolean', default: false } } });
   // PowerShell turns "a,b,c" into "a b c", so either separator works.
   const models = (values.models ?? process.env.AI_MODEL ?? '').split(/[\s,]+/).map((m) => m.trim()).filter(Boolean);
   if (models.length === 0) throw new Error('Name the models to test: --models qwen2.5:7b,llama3.1:8b');
 
+  if (values.review) return compareReviews(models);
   mkdirSync(dataDir, { recursive: true });
   let dataset: Dataset;
   let sample = values.sample;

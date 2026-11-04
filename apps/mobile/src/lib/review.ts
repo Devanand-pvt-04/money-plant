@@ -43,7 +43,7 @@ export interface MonthReview {
   income: Paise;
   overspends: ReviewOverspend[];
   /** Top-level categories by spending, for months with nothing over. */
-  biggest: { category: CategoryNode; spent: Paise }[];
+  biggest: { category: CategoryNode; spent: Paise; usual: Paise }[];
   uncategorised: { category: CategoryNode; count: number; amount: Paise } | null;
   suggestions: ReviewSuggestion[];
   moved: MonthOverview['moved'];
@@ -110,7 +110,10 @@ export async function monthReview(month: MonthKey): Promise<MonthReview> {
       .filter((l) => l.category!.parentId === null && l.spent > 0)
       .sort((a, b) => b.spent - a.spent)
       .slice(0, BIGGEST)
-      .map((l) => ({ category: l.category!, spent: l.spent })),
+      .map((l) => {
+        const before = spentBefore(l.category!.id);
+        return { category: l.category!, spent: l.spent, usual: paise(Math.round(before.reduce((sum, v) => sum + v, 0) / before.length)) };
+      }),
     uncategorised,
     suggestions,
     moved: overview.moved,

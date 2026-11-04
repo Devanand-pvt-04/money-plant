@@ -1,14 +1,16 @@
 import { runCategorise, type CategorisePayload } from './jobs/categorise';
 import { runIcon } from './jobs/icon';
+import { runMonthReview } from './jobs/month-review';
 import type { Model } from './ollama';
 import { QueueError, type Job, type JobKind, type Queue } from './queue';
 
 type Handler = (model: Model, payload: unknown) => Promise<object>;
 
-/** The job kinds this worker can run. Month reviews join in build 4 (decision 0012). */
+/** The job kinds this worker can run (decision 0012). */
 export const handlers: Partial<Record<JobKind, Handler>> = {
   categorise: runCategorise,
   icon: runIcon,
+  month_review: runMonthReview,
 };
 
 export interface Log {
