@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { paise, type Paise } from '@money-plant/core';
 import { normaliseMerchant, ruleFromEntry, ruleMatches, type RuleMatch } from '@money-plant/categoriser';
 import { accounts, transactions } from '@money-plant/db-schema';
@@ -187,6 +187,25 @@ export async function editEntry(id: string, edit: EntryEdit): Promise<void> {
   const store = new SqliteLedgerStore(db);
   for (const accountId of touched) await rebaseOpening(store, accountId);
   notifyLedgerChange();
+}
+
+/** LED-8: the user's latest distinct notes, offered as chips when writing one. */
+export async function recentNotes(limit = 6): Promise<string[]> {
+  const db = await getDb();
+  const rows = db
+    .select({ note: transactions.note })
+    .from(transactions)
+    .where(and(isNull(transactions.deletedAt), isNotNull(transactions.note)))
+    .orderBy(desc(transactions.occurredAt))
+    .limit(200)
+    .all();
+  const out: string[] = [];
+  for (const { note } of rows) {
+    const text = note?.trim();
+    if (text && !out.includes(text)) out.push(text);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export interface ManualEntry {

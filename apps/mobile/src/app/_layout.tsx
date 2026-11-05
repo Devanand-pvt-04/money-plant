@@ -107,7 +107,6 @@ export default function RootLayout() {
             <Stack.Screen name="holding-cost" options={{ title: 'What you paid', presentation: 'modal' }} />
             <Stack.Screen name="statement-import" options={{ title: 'Import a statement', presentation: 'modal' }} />
             <Stack.Screen name="transaction/[id]" options={{ title: '' }} />
-            <Stack.Screen name="transaction/edit" options={{ title: 'Edit entry', presentation: 'modal' }} />
             <Stack.Screen name="review" options={{ title: 'Review' }} />
             <Stack.Screen name="categories" options={{ title: 'Categories' }} />
             <Stack.Screen name="category/[id]" options={{ title: 'Category' }} />
