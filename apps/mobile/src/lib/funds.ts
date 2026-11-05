@@ -21,12 +21,13 @@ import {
   FLOW_TOLERANCE,
   costFromTransactions,
   type CasStatement,
+  type CasTransaction,
   type DematStatement,
   type DateKey,
   type FlowCandidate,
   type Paise,
 } from '@money-plant/core';
-import { accounts, holdings, navs, postings, transactions, type LocalHolding } from '@money-plant/db-schema';
+import { accounts, fundTransactions, holdings, navs, postings, transactions, type LocalHolding } from '@money-plant/db-schema';
 import type { LedgerPosting, LedgerTransaction } from '@money-plant/matcher';
 import { rebaseOpening } from '@money-plant/matcher';
 import { getDb } from './db';
@@ -69,6 +70,8 @@ export interface CasHolding {
   asOf: DateKey;
   sip: { amount: Paise; day: number } | null;
   flows: ReturnType<typeof casFlows>;
+  /** The statement's transactions for the scheme, kept for its chart and history. */
+  transactions: CasTransaction[];
 }
 
 /** The schemes still held, with units, cost and value as of the statement's end. Closed folios are left out. */
@@ -101,6 +104,7 @@ export function casHoldings(statement: CasStatement): CasHolding[] {
         asOf,
         sip: detectSip(scheme.transactions, asOf),
         flows: casFlows(scheme.transactions),
+        transactions: scheme.transactions,
       });
     }
   }
@@ -234,6 +238,18 @@ export async function importCas(statement: CasStatement): Promise<CasImportResul
       .values({ id, ...values, createdAt: now() })
       .onConflictDoUpdate({ target: holdings.id, set: { ...values, rev: sql`${holdings.rev} + 1` } })
       .run();
+    // Decision 0015: the statement's transactions, for the fund's chart and history. A newer statement replaces them.
+    const kept = item.transactions
+      .map((t) => ({ ...t, on: casDate(t.date) }))
+      .filter((t): t is CasTransaction & { on: DateKey; type: string } => t.on !== null && !!t.type);
+    db.transaction((t) => {
+      t.delete(fundTransactions).where(eq(fundTransactions.accountId, accountId)).run();
+      for (const row of kept) {
+        t.insert(fundTransactions)
+          .values({ id: Crypto.randomUUID(), accountId, date: row.on, type: row.type.slice(0, 40), amount: row.amount, units: row.units, nav: row.nav })
+          .run();
+      }
+    });
   }
 
   // A scheme in a folio this statement covers, but no longer listed with units, was sold in full.
