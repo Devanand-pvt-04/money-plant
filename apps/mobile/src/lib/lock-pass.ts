@@ -8,7 +8,7 @@ import * as SecureStore from 'expo-secure-store';
 export const LOCK_AFTER_MS = 60_000;
 
 /** A restart the app makes itself (a theme change, an update) carries the unlock over for this long. */
-const PASS_MS = 15_000;
+const PASS_MS = 30_000;
 const KEY = 'lock.restart_pass';
 
 // Kept here, outside React, so a restart decided in the same moment the app
@@ -43,8 +43,8 @@ export function passUnlockToRestart(): void {
   }
 }
 
-/** Whether this start follows a restart made from an unlocked app a moment ago. Works once. */
-export function takeRestartPass(): boolean {
+// Read once as the JavaScript starts, before the session and consent load, so a slow start doesn't use up the window.
+const startedFromRestart = (() => {
   try {
     const value = SecureStore.getItem(KEY);
     if (value === null) return false;
@@ -54,4 +54,12 @@ export function takeRestartPass(): boolean {
   } catch {
     return false;
   }
+})();
+let passTaken = false;
+
+/** Whether this start follows a restart made from an unlocked app a moment ago. True at most once. */
+export function takeRestartPass(): boolean {
+  if (passTaken) return false;
+  passTaken = true;
+  return startedFromRestart;
 }

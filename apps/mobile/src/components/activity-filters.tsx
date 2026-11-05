@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { parseRupees, type DateKey, type Paise } from '@money-plant/core';
 import type { SourceKind } from '@money-plant/matcher';
@@ -8,6 +8,7 @@ import { AccountPicker, accountLabel } from './account-picker';
 import { CategoryPicker } from './category-picker';
 import { DateField } from './date-fields';
 import { formatAmount } from './format';
+import { FormScroll } from './keyboard';
 import { Sheet } from './sheet';
 import { Button, colors, radius } from './ui';
 
@@ -129,7 +130,7 @@ export function FilterSheet(props: { visible: boolean; value: ActivityFilters; c
           <Text style={styles.clear}>Clear all</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <FormScroll inSheet contentContainerStyle={styles.body}>
         <Text style={styles.label}>Type</Text>
         <View style={styles.segment}>
           {KINDS.map((k) => (
@@ -182,7 +183,7 @@ export function FilterSheet(props: { visible: boolean; value: ActivityFilters; c
           <Text style={styles.toggleText}>Only entries to review</Text>
           <Switch value={f.reviewOnly} onValueChange={(reviewOnly) => set({ reviewOnly })} />
         </View>
-      </ScrollView>
+      </FormScroll>
       <Button title={`Show ${props.count(next)} entries`} onPress={() => props.onApply(next)} />
 
       <AccountPicker
