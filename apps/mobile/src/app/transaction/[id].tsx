@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatRupees, paise } from '@money-plant/core';
 import { describePattern, type Rule } from '@money-plant/categoriser';
 import { REVIEW_REASON_LABELS, USER_SET_FIELDS, type LedgerSource, type UserSetField } from '@money-plant/matcher';
-import { Button, Card, Initial, colors, radius } from '@/components/ui';
-import { formatDateTime, formatDay, formatTime } from '@/components/format';
+import { AccountPicker } from '@/components/account-picker';
+import { EditFieldSheet, ownLeg, type EditField } from '@/components/edit-field-sheet';
+import { CategoryIcon, Sheet } from '@/components/sheet';
+import { Button, Card, Initial, MoneyCard, colors, figures, radius } from '@/components/ui';
+import { formatAmount, formatDateTime, formatDay, formatTime } from '@/components/format';
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { useCategoryChange } from '@/components/use-category-change';
 import { whyLabel } from '@/components/why';
-import { confirmEntry } from '@/lib/entries';
+import { confirmEntry, editEntry } from '@/lib/entries';
 import { deleteTransaction, getTransaction, splitTransfer, type TransactionRow } from '@/lib/ledger';
 import { getRule } from '@/lib/rules-store';
 import { useLedger } from '@/lib/use-ledger';
@@ -27,11 +30,28 @@ const FIELD_LABELS: Record<UserSetField, string> = {
   kind: 'type',
 };
 
-/** LED-2: an entry with its postings, sources and confidence. CAT-6: why it has its category. */
+const SOURCE_BADGES: Record<string, string> = {
+  sms: 'Bank SMS',
+  shortcut: 'Bank SMS',
+  notification: 'UPI app',
+  app_payment: 'Paid in app',
+  statement: 'Statement',
+  manual: 'Added by you',
+};
+
+/**
+ * LED-2, LED-8, CAT-6 (decision 0015): an entry on a money card, then one line
+ * per field (each opens a sheet for just that field), the things to do with
+ * it, and a short history of where it came from and who changed what.
+ */
 export default function TransactionDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: row } = useLedger(() => getTransaction(id), null as TransactionRow | null, 'entry');
   const [rule, setRule] = useState<Rule | null>(null);
+  const [editing, setEditing] = useState<EditField | null>(null);
+  const [pickingAccount, setPickingAccount] = useState(false);
+  const [more, setMore] = useState(false);
+  const [details, setDetails] = useState(false);
   const { picker, change } = useCategoryChange();
   // A refund keeps the entry it gives money back for in categoryRuleId (LED-5).
   const refundOf = row?.tx.categoryReason === 'refund' ? row.tx.categoryRuleId : null;
@@ -60,18 +80,65 @@ export default function TransactionDetail() {
   const accounts = [...row.legs].sort((a, b) => a.amount - b.amount).map((leg) => leg.accountName).join(' → ') || 'Paid by someone else';
   // SPL-1: a split has legs for people besides the category; its category is changed in the split editor.
   const split = tx.postings.length > 2 && tx.kind === 'expense';
+  const twoLegs = tx.postings.length === 2;
+  const own = ownLeg(row);
+  const firstSource = [...tx.sources].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))[0];
+  const badge = firstSource ? (SOURCE_BADGES[firstSource.kind] ?? 'Added') : null;
+  const canSplit = tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0;
+  const canLend = (tx.kind === 'expense' || tx.kind === 'income') && !split && row.legs.length === 1 && twoLegs;
+  const canRecur = tx.kind === 'expense' && row.legs.length === 1;
+  const editCategory = () => (split ? router.push(`/expense?from=${tx.id}`) : change(tx.id, flow, tx.counterparty));
+
+  function remove() {
+    setMore(false);
+    Alert.alert('Remove this entry?', 'It disappears from balances on all your devices. The message will not be imported again.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id).then(() => router.back()) },
+    ]);
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      <Stack.Screen
+        options={{
+          title: '',
+          headerRight: () => (
+            <Pressable accessibilityRole="button" accessibilityLabel="More" hitSlop={8} onPress={() => setMore(true)} style={styles.moreButton}>
+              <Feather name="more-vertical" size={20} color={colors.text} />
+            </Pressable>
+          ),
+        }}
+      />
       {picker}
-      <View style={styles.hero}>
-        <Initial name={transactionTitle(row)} size={56} />
-        <Text style={styles.title}>{transactionTitle(row)}</Text>
-        <Text style={[styles.heroAmount, { color: isTransfer ? colors.text : amount.color }]}>{amount.text}</Text>
-        <Text style={styles.meta}>
-          {KIND_LABELS[tx.kind]} · {formatDay(tx.occurredAt)}, {formatTime(tx.occurredAt)}
-        </Text>
-      </View>
+
+      <Pressable accessibilityRole="button" accessibilityLabel="Change the payee" disabled={isTransfer} onPress={() => setEditing('payee')}>
+        <MoneyCard style={styles.hero}>
+          <View style={styles.heroTop}>
+            {isTransfer ? (
+              <View style={styles.transferIcon}>
+                <Feather name="repeat" size={20} color={colors.heroText} />
+              </View>
+            ) : row.category ? (
+              <CategoryIcon category={row.category.look} size={44} />
+            ) : (
+              <Initial name={transactionTitle(row)} size={44} />
+            )}
+            <View style={styles.grow}>
+              <Text style={styles.heroTitle} numberOfLines={2}>
+                {transactionTitle(row)}
+              </Text>
+              <Text style={styles.heroMuted} numberOfLines={1}>
+                {isTransfer ? accounts : own ? `${own.amount < 0 ? 'From' : 'Into'} ${own.accountName}` : accounts}
+              </Text>
+            </View>
+            {badge && <Text style={styles.badge}>{badge}</Text>}
+          </View>
+          <Text style={[styles.heroAmount, amount.color === colors.primary && { color: colors.heroAccent }]}>{amount.text}</Text>
+          <Text style={styles.heroMuted}>
+            {KIND_LABELS[tx.kind]} · {formatDay(tx.occurredAt)}, {formatTime(tx.occurredAt)}
+          </Text>
+        </MoneyCard>
+      </Pressable>
 
       {tx.status === 'pending' && (
         <View style={styles.banner}>
@@ -81,150 +148,247 @@ export default function TransactionDetail() {
       )}
 
       <Card>
-        {row.category && (
-          <Row
+        {!isTransfer && (
+          <Line
             label="Category"
-            value={row.category.name}
-            note={why ? `Why: ${why.charAt(0).toLowerCase()}${why.slice(1)}${ruleText ? `, ${ruleText}` : ''}` : undefined}
-            onPress={() => (split ? router.push(`/expense?from=${tx.id}`) : change(tx.id, flow, tx.counterparty))}
+            value={row.category?.name ?? 'Pick a category'}
+            warn={!row.category}
+            note={row.category && why ? `${why}${ruleText ? `: ${ruleText}` : ''}` : undefined}
+            onPress={editCategory}
             first
           />
         )}
-        {refundOf && <Row label="Refund of" value="The earlier payment" onPress={() => router.push(`/transaction/${refundOf}`)} />}
-        <Row label={isTransfer ? 'Accounts' : 'Account'} value={accounts} first={!row.category} onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
-        <Row label="Note" value={tx.note ?? 'Add a note'} muted={!tx.note} onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
-      </Card>
-      {userSet.length > 0 && <Text style={styles.small}>You set the {userSet.join(', ')}; automation won't change it.</Text>}
-
-      {tx.sources.map((s) => (
-        <SourceCard key={s.id} source={s} />
-      ))}
-
-      <Text style={styles.section}>Postings · confidence {Math.round(tx.confidence * 100)}%</Text>
-      <Card style={styles.postings}>
-        {tx.postings.map((p) => (
-          <View key={p.id} style={styles.line}>
-            <Text style={styles.lineText}>{row.accountNames[p.accountId]}</Text>
-            <Text style={styles.lineAmount}>{formatRupees(p.amount)}</Text>
-          </View>
-        ))}
+        {refundOf && <Line label="Refund of" value="The earlier payment" icon="chevron-right" onPress={() => router.push(`/transaction/${refundOf}`)} />}
+        {!isTransfer && <Line label="Payee" value={tx.counterparty?.trim() || transactionTitle(row)} onPress={() => setEditing('payee')} />}
+        <Line
+          label={isTransfer ? 'From account' : 'Account'}
+          value={isTransfer ? accounts : (own?.accountName ?? accounts)}
+          first={isTransfer}
+          onPress={twoLegs ? () => setPickingAccount(true) : undefined}
+        />
+        <Line label="When" value={`${formatDay(tx.occurredAt)} · ${formatTime(tx.occurredAt)}`} onPress={() => setEditing('when')} />
+        <Line label="Note" value={tx.note ?? 'Add a note'} muted={!tx.note} onPress={() => setEditing('note')} />
+        {twoLegs && <Line label="Amount" value={formatAmount(Math.abs(own?.amount ?? 0))} onPress={() => setEditing('amount')} />}
       </Card>
 
-      <View style={styles.actions}>
-        <Button title="Edit entry" variant="secondary" onPress={() => router.push(`/transaction/edit?id=${tx.id}`)} />
-        {tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0 && (
-          <Button title={split ? 'Change the split' : 'Split with people'} variant="secondary" onPress={() => router.push(`/expense?from=${tx.id}`)} />
-        )}
-        {(tx.kind === 'expense' || tx.kind === 'income') && !split && row.legs.length === 1 && tx.postings.length === 2 && (
-          <Button
-            title={row.legs[0]!.amount < 0 ? 'I lent this to someone' : 'I borrowed this from someone'}
-            variant="secondary"
-            onPress={() => router.push(`/iou/new?from=${tx.id}`)}
-          />
-        )}
-        {tx.kind === 'expense' && row.legs.length === 1 && (
-          <Button title="Track as a recurring payment" variant="secondary" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />
-        )}
-        {isTransfer && (
-          <Button
-            title="Not a transfer: split it"
-            variant="secondary"
-            onPress={() => splitTransfer(tx.id).then(() => router.back(), (e) => Alert.alert("Couldn't split", String(e?.message ?? e)))}
-          />
-        )}
-        <Pressable
-          accessibilityRole="button"
-          style={styles.remove}
-          onPress={() =>
-            Alert.alert('Remove this entry?', 'It disappears from balances on all your devices. The message will not be imported again.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id).then(() => router.back()) },
-            ])
-          }
-        >
-          <Text style={styles.removeText}>Remove entry</Text>
-        </Pressable>
+      {(canSplit || split || canRecur || canLend) && (
+        <View style={styles.actions}>
+          {(canSplit || split) && <Action icon="users" title={split ? 'Change split' : 'Split'} onPress={() => router.push(`/expense?from=${tx.id}`)} />}
+          {canRecur && <Action icon="repeat" title="Recurring" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />}
+          {canLend && <Action icon="corner-up-right" title={row.legs[0]!.amount < 0 ? 'I lent it' : 'I borrowed it'} onPress={() => router.push(`/iou/new?from=${tx.id}`)} />}
+        </View>
+      )}
+
+      <Text style={styles.section}>HISTORY</Text>
+      <View style={styles.timeline}>
+        {[...tx.sources]
+          .sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))
+          .map((s) => (
+            <SourceStep key={s.id} source={s} />
+          ))}
+        {why && !isTransfer && <Step icon="tag" title={`Category: ${why.charAt(0).toLowerCase()}${why.slice(1)}`} detail={ruleText || undefined} />}
+        {userSet.length > 0 && <Step icon="edit-3" title={`You set the ${userSet.join(', ')}`} detail="Automation won't change what you set" last />}
       </View>
+
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: details }} onPress={() => setDetails(!details)} style={styles.detailsToggle}>
+        <Text style={styles.detailsText}>{details ? 'Hide' : 'Show'} postings · confidence {Math.round(tx.confidence * 100)}%</Text>
+        <Feather name={details ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted} />
+      </Pressable>
+      {details && (
+        <Card style={styles.postings}>
+          {tx.postings.map((p) => (
+            <View key={p.id} style={styles.posting}>
+              <Text style={styles.postingText}>{row.accountNames[p.accountId]}</Text>
+              <Text style={styles.postingAmount}>{formatRupees(p.amount)}</Text>
+            </View>
+          ))}
+        </Card>
+      )}
+
+      <EditFieldSheet row={row} field={editing} onClose={() => setEditing(null)} />
+      <AccountPicker
+        visible={pickingAccount}
+        title={isTransfer ? 'From account' : 'Account'}
+        onPick={(picked) => {
+          setPickingAccount(false);
+          editEntry(tx.id, { accountId: picked.account.id }).catch((e) => Alert.alert("Couldn't change the account", String(e?.message ?? e)));
+        }}
+        onClose={() => setPickingAccount(false)}
+      />
+      <Sheet visible={more} onClose={() => setMore(false)}>
+        {isTransfer && (
+          <MenuItem
+            icon="git-branch"
+            title="Not a transfer: split it"
+            onPress={() => {
+              setMore(false);
+              splitTransfer(tx.id).then(() => router.back(), (e) => Alert.alert("Couldn't split", String(e?.message ?? e)));
+            }}
+          />
+        )}
+        <MenuItem icon="trash-2" title="Remove entry" danger onPress={remove} />
+      </Sheet>
     </ScrollView>
   );
 }
 
-function Row(props: { label: string; value: string; note?: string; muted?: boolean; first?: boolean; onPress: () => void }) {
+type FeatherName = React.ComponentProps<typeof Feather>['name'];
+
+function Line(props: { label: string; value: string; note?: string; muted?: boolean; warn?: boolean; first?: boolean; icon?: FeatherName; onPress?: () => void }) {
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={props.onPress ? 'button' : undefined}
+      accessibilityLabel={props.onPress ? `${props.label}: ${props.value}. Change` : undefined}
+      disabled={!props.onPress}
       onPress={props.onPress}
       style={({ pressed }) => [styles.row, !props.first && styles.divided, pressed && styles.pressed]}
     >
+      <Text style={styles.lineLabel}>{props.label}</Text>
       <View style={styles.grow}>
-        <Text style={styles.small}>{props.label}</Text>
-        <Text style={[styles.rowValue, props.muted && styles.mutedValue]}>{props.value}</Text>
+        <Text style={[styles.rowValue, props.muted && styles.mutedValue, props.warn && styles.warnValue]}>{props.value}</Text>
         {props.note && <Text style={styles.small}>{props.note}</Text>}
       </View>
-      <Feather name="chevron-right" size={18} color={colors.muted} />
+      {props.onPress && <Feather name={props.icon ?? 'edit-2'} size={15} color={colors.muted} />}
     </Pressable>
   );
 }
 
-function SourceCard({ source }: { source: LedgerSource }) {
-  const fields = source.parsedFields as { template?: string; reference?: string | null; accountLast?: string | null; amount?: number; counterparty?: string | null };
-  const what = source.kind === 'sms' ? 'an SMS' : source.kind === 'notification' ? 'an app notification' : source.kind === 'manual' ? 'your quick add' : `a ${source.kind}`;
+function Action({ icon, title, onPress }: { icon: FeatherName; title: string; onPress: () => void }) {
   return (
-    <View style={styles.source}>
-      <Feather name={source.kind === 'manual' ? 'edit-3' : 'message-circle'} size={18} color={colors.secondary} style={styles.sourceIcon} />
-      <View style={styles.grow}>
-        <Text style={styles.sourceTitle}>
-          From {what}
-          {source.sender ? ` by ${source.sender}` : ''}
-        </Text>
-        <Text style={styles.small}>
-          {formatDateTime(source.receivedAt)}
-          {source.kind !== 'manual' ? ` · read by ${fields.template ?? 'app'} · ${Math.round(source.confidence * 100)}%` : ''}
-          {fields.reference ? ` · ref ${fields.reference}` : ''}
-        </Text>
-        {/* LED-8: what the message said, even after the user edited the entry. */}
-        {source.kind !== 'manual' && (
-          <Text style={styles.small}>
-            Read as {typeof fields.amount === 'number' ? formatRupees(paise(fields.amount)) : '?'}
-            {fields.counterparty ? ` · ${fields.counterparty}` : ''}
-          </Text>
-        )}
-        {source.rawText && (
-          <Text selectable style={styles.raw}>
-            {source.rawText}
-          </Text>
-        )}
-        {source.kind === 'sms' && <Text style={styles.small}>The SMS text stays on this phone.</Text>}
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
+      <Feather name={icon} size={16} color={colors.text} />
+      <Text style={styles.actionText} numberOfLines={1}>
+        {title}
+      </Text>
+    </Pressable>
+  );
+}
+
+function MenuItem({ icon, title, danger, onPress }: { icon: FeatherName; title: string; danger?: boolean; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}>
+      <Feather name={icon} size={20} color={danger ? colors.danger : colors.text} />
+      <Text style={[styles.menuText, danger && { color: colors.danger }]}>{title}</Text>
+    </Pressable>
+  );
+}
+
+function Step({ icon, title, detail, last, children }: { icon: FeatherName; title: string; detail?: string; last?: boolean; children?: React.ReactNode }) {
+  return (
+    <View style={styles.step}>
+      <View style={styles.stepRail}>
+        <View style={styles.stepDot}>
+          <Feather name={icon} size={12} color={colors.primary} />
+        </View>
+        {!last && <View style={styles.stepLine} />}
+      </View>
+      <View style={[styles.grow, styles.stepBody]}>
+        <Text style={styles.stepTitle}>{title}</Text>
+        {detail && <Text style={styles.small}>{detail}</Text>}
+        {children}
       </View>
     </View>
   );
 }
 
+/** Where the entry came from. Tapping an SMS shows what it said; its text never leaves the phone. */
+function SourceStep({ source }: { source: LedgerSource }) {
+  const [open, setOpen] = useState(false);
+  const fields = source.parsedFields as { template?: string; reference?: string | null; amount?: number; counterparty?: string | null };
+  const title =
+    source.kind === 'sms' || source.kind === 'shortcut'
+      ? `${source.sender ? `${source.sender} ` : 'Bank '}SMS read`
+      : source.kind === 'notification'
+        ? `${source.sender ?? 'App'} notification read`
+        : source.kind === 'manual'
+          ? 'You added it'
+          : source.kind === 'statement'
+            ? 'From a bank statement'
+            : `From ${source.kind.replace(/_/g, ' ')}`;
+  const detail = [
+    formatDateTime(source.receivedAt),
+    source.kind === 'sms' ? 'the text stays on this phone' : null,
+    source.kind !== 'manual' ? `${Math.round(source.confidence * 100)}% sure` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const expandable = source.kind !== 'manual';
+  return (
+    <Pressable accessibilityRole={expandable ? 'button' : undefined} accessibilityState={expandable ? { expanded: open } : undefined} disabled={!expandable} onPress={() => setOpen(!open)}>
+      <Step icon={source.kind === 'manual' ? 'plus' : 'message-circle'} title={title} detail={detail}>
+        {open && (
+          <View style={styles.sourceMore}>
+            {/* LED-8: what the message said, even after the user edited the entry. */}
+            <Text style={styles.small}>
+              Read as {typeof fields.amount === 'number' ? formatRupees(paise(fields.amount)) : '?'}
+              {fields.counterparty ? ` · ${fields.counterparty}` : ''}
+              {fields.template ? ` · by ${fields.template}` : ''}
+              {fields.reference ? ` · ref ${fields.reference}` : ''}
+            </Text>
+            {source.rawText && (
+              <Text selectable style={styles.raw}>
+                {source.rawText}
+              </Text>
+            )}
+          </View>
+        )}
+      </Step>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 20, paddingBottom: 48, gap: 12 },
-  hero: { alignItems: 'center', gap: 4, paddingBottom: 12 },
-  title: { fontSize: 17, fontWeight: '600', color: colors.text, marginTop: 10, textAlign: 'center' },
-  heroAmount: { fontSize: 40, fontWeight: '700', letterSpacing: -1, fontVariant: ['tabular-nums'] },
-  meta: { fontSize: 13, color: colors.muted },
+  container: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 48, gap: 14 },
+  moreButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  hero: { gap: 10 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  transferIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: colors.heroTrack, alignItems: 'center', justifyContent: 'center' },
+  heroTitle: { fontSize: 17, fontWeight: '600', color: colors.heroText },
+  heroMuted: { fontSize: 13, color: colors.heroMuted, marginTop: 2 },
+  badge: { fontSize: 11, fontWeight: '600', color: colors.heroAccent, backgroundColor: colors.heroPill, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, overflow: 'hidden' },
+  heroAmount: { fontSize: 40, fontWeight: '700', letterSpacing: -1, color: colors.heroText, ...figures },
   small: { fontSize: 12, color: colors.muted, marginTop: 2, lineHeight: 17 },
   banner: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.warningSurface, gap: 12 },
   bannerText: { fontSize: 14, fontWeight: '500', color: colors.text },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 16, paddingVertical: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 12 },
   divided: { borderTopWidth: 1, borderTopColor: colors.divider },
   pressed: { backgroundColor: colors.pressed },
   grow: { flex: 1, minWidth: 0 },
-  rowValue: { fontSize: 15, fontWeight: '600', color: colors.text, marginTop: 2 },
+  lineLabel: { width: 76, fontSize: 13, color: colors.muted },
+  rowValue: { fontSize: 15, fontWeight: '500', color: colors.text },
   mutedValue: { fontWeight: '400', color: colors.muted },
-  source: { flexDirection: 'row', gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: colors.subtle },
-  sourceIcon: { marginTop: 1 },
-  sourceTitle: { fontSize: 13, fontWeight: '600', color: colors.text },
-  raw: { fontSize: 13, color: colors.text, marginTop: 6, lineHeight: 19 },
-  section: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 8 },
+  warnValue: { color: colors.warning, fontWeight: '600' },
+  actions: { flexDirection: 'row', gap: 8 },
+  action: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 8,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  actionText: { fontSize: 13, fontWeight: '600', color: colors.text },
+  section: { fontSize: 13, fontWeight: '700', color: colors.muted, letterSpacing: 0.3, marginTop: 4 },
+  timeline: { paddingLeft: 2 },
+  step: { flexDirection: 'row', gap: 12 },
+  stepRail: { alignItems: 'center', width: 24 },
+  stepDot: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
+  stepLine: { flex: 1, width: 2, minHeight: 12, backgroundColor: colors.divider, marginVertical: 2 },
+  stepBody: { paddingBottom: 14 },
+  stepTitle: { fontSize: 14, fontWeight: '500', color: colors.text, marginTop: 2 },
+  sourceMore: { marginTop: 6, gap: 6 },
+  raw: { fontSize: 13, color: colors.text, lineHeight: 19, padding: 10, borderRadius: radius.sm, backgroundColor: colors.subtle },
+  detailsToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44 },
+  detailsText: { fontSize: 13, color: colors.muted },
   postings: { padding: 16, gap: 8 },
-  line: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  lineText: { fontSize: 14, color: colors.text, flex: 1 },
-  lineAmount: { fontSize: 14, color: colors.text, fontVariant: ['tabular-nums'] },
-  actions: { marginTop: 12, gap: 10 },
-  remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },
-  removeText: { fontSize: 14, fontWeight: '600', color: colors.danger },
+  posting: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  postingText: { fontSize: 14, color: colors.text, flex: 1 },
+  postingAmount: { fontSize: 14, color: colors.text, ...figures },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 52, paddingHorizontal: 4 },
+  menuText: { fontSize: 15, fontWeight: '500', color: colors.text },
 });
