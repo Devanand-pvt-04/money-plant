@@ -1,56 +1,78 @@
 import { useEffect, type ReactNode } from 'react';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { scheme } from '@/lib/theme';
+import { BACKGROUND, scheme } from '@/lib/theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 
 /**
- * Design tokens. Minimal: a plain ground, near-black (or near-white) ink, and
- * one green that only marks money coming in or being on track.
+ * Design tokens: "Charcoal and sage" (decision 0015). A soft grey ground with
+ * white cards, charcoal ink, and one sage green that marks money coming in or
+ * being on track. Each tab's main number sits on a charcoal money card (hero).
  */
 const light = {
-  background: '#FFFFFF',
+  background: BACKGROUND.light,
   surface: '#FFFFFF',
-  /** Tinted panels: the month card, search field, icon tiles. */
-  subtle: '#F3F6F4',
-  text: '#111412',
+  /** Tinted panels: the search field, chips, icon tiles. */
+  subtle: '#EBEEEB',
+  text: '#1D1F1E',
   /** Body text on tinted panels. */
-  secondary: '#3E4440',
-  muted: '#5C625E',
-  placeholder: '#9AA19C',
-  border: '#E6E8E5',
-  divider: '#EEF0ED',
-  track: '#DCE3DE',
+  secondary: '#3E4441',
+  muted: '#5C625F',
+  placeholder: '#959C98',
+  border: '#E1E4E1',
+  divider: '#E9ECE9',
+  track: '#DDE2DE',
   /** Main buttons and selected chips, and the text on them. */
-  ink: '#111412',
-  onInk: '#FFFFFF',
+  ink: '#1D1F1E',
+  onInk: '#F2F4F2',
   /** Money in, on track, the active tab. */
-  primary: '#0B7A55',
-  primarySurface: '#DDEFE6',
-  pressed: '#EEF2EF',
+  primary: '#2C7656',
+  primarySurface: '#E1EEE7',
+  pressed: '#E9ECE9',
   danger: '#B3261E',
-  warning: '#B45309',
-  warningSurface: '#FDF1E3',
+  dangerSurface: '#FBE4E1',
+  warning: '#A14A05',
+  warningSurface: '#FBEEDD',
+  /** The charcoal money card and what sits on it, the same in both schemes. */
+  hero: '#1D1F1E',
+  heroText: '#F2F4F2',
+  heroMuted: '#A9B3AD',
+  heroAccent: '#8FD1AE',
+  heroWarning: '#F0A35E',
+  heroDanger: '#F2827A',
+  heroTrack: 'rgba(255,255,255,0.14)',
+  heroPill: 'rgba(143,209,174,0.16)',
+  heroLine: 'rgba(255,255,255,0.12)',
 };
 
 const dark: typeof light = {
-  background: '#0F1211',
-  surface: '#161A18',
-  subtle: '#1C211F',
-  text: '#ECEFED',
-  secondary: '#C2C8C4',
-  muted: '#9AA39E',
+  background: BACKGROUND.dark,
+  surface: '#1D1F1E',
+  subtle: '#262A28',
+  text: '#EEF1EF',
+  secondary: '#C5CCC8',
+  muted: '#9CA59F',
   placeholder: '#6B736F',
-  border: '#2A302D',
-  divider: '#222826',
-  track: '#2A302D',
-  ink: '#ECEFED',
-  onInk: '#0F1211',
-  primary: '#3DBE8B',
-  primarySurface: '#16382A',
-  pressed: '#1F2522',
+  border: '#2C302E',
+  divider: '#262A28',
+  track: '#2C302E',
+  ink: '#EEF1EF',
+  onInk: '#121413',
+  primary: '#8FD1AE',
+  primarySurface: '#22382D',
+  pressed: '#262A28',
   danger: '#F2827A',
+  dangerSurface: '#3A1F1D',
   warning: '#F0A35E',
-  warningSurface: '#3A2A17',
+  warningSurface: '#36291A',
+  hero: '#232826',
+  heroText: '#F2F4F2',
+  heroMuted: '#A9B3AD',
+  heroAccent: '#8FD1AE',
+  heroWarning: '#F0A35E',
+  heroDanger: '#F2827A',
+  heroTrack: 'rgba(255,255,255,0.12)',
+  heroPill: 'rgba(143,209,174,0.16)',
+  heroLine: 'rgba(255,255,255,0.1)',
 };
 
 export const colors = scheme === 'dark' ? dark : light;
@@ -121,13 +143,16 @@ export function Chips({ children }: { children: ReactNode }) {
 }
 
 /**
- * Share of a budget used. Turns amber on pace to overspend and red when over.
- * `marker` draws a tick where an even pace would be.
+ * Share of a budget used, filling to `value` (0 to 1) when it appears and
+ * whenever the value changes. Turns amber on pace to overspend and red when
+ * over. `marker` draws a tick where an even pace would be. `onHero` is for a
+ * bar on the charcoal money card.
  */
-/** A bar that fills to `value` (0 to 1) when it appears and whenever the value changes. */
-export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'over'; marker?: number; color?: string }) {
-  const { value, status = 'ok', marker } = props;
-  const color = status === 'over' ? colors.danger : status === 'pace' ? colors.warning : (props.color ?? colors.primary);
+export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'over'; marker?: number; color?: string; onHero?: boolean }) {
+  const { value, status = 'ok', marker, onHero } = props;
+  const color = onHero
+    ? status === 'over' ? colors.heroDanger : status === 'pace' ? colors.heroWarning : (props.color ?? colors.heroAccent)
+    : status === 'over' ? colors.danger : status === 'pace' ? colors.warning : (props.color ?? colors.primary);
   const clamp = (n: number) => Math.min(100, Math.max(0, n * 100));
   const pct = (n: number) => `${clamp(n)}%` as const;
   const width = useSharedValue(0);
@@ -136,11 +161,16 @@ export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'ov
   }, [value, width]);
   const fill = useAnimatedStyle(() => ({ width: `${width.value}%` }));
   return (
-    <View style={styles.track}>
-      <Animated.View style={[styles.fill, fill, { backgroundColor: color }]} />
-      {marker !== undefined && marker > 0 && marker < 1 && <View style={[styles.marker, { left: pct(marker) }]} />}
+    <View style={[styles.track, onHero && styles.heroTrack]}>
+      <Animated.View style={[styles.fill, onHero && styles.heroFill, fill, { backgroundColor: color }]} />
+      {marker !== undefined && marker > 0 && marker < 1 && <View style={[styles.marker, onHero && styles.heroMarker, { left: pct(marker) }]} />}
     </View>
   );
+}
+
+/** The charcoal money card that holds a screen's main number (decision 0015). */
+export function MoneyCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <View style={[styles.money, style]}>{children}</View>;
 }
 
 /** A bordered panel. */
@@ -160,6 +190,9 @@ export function Initial({ name, size = 40 }: { name: string; size?: number }) {
 export function SectionTitle({ children }: { children: ReactNode }) {
   return <Text style={styles.section}>{children}</Text>;
 }
+
+/** Every amount uses tabular figures, so columns of money line up. */
+export const figures = { fontVariant: ['tabular-nums'] } as const;
 
 const styles = StyleSheet.create({
   button: {
@@ -203,6 +236,10 @@ const styles = StyleSheet.create({
   track: { height: 8, borderRadius: 4, backgroundColor: colors.track },
   fill: { height: 8, borderRadius: 4 },
   marker: { position: 'absolute', top: -4, width: 2, height: 16, marginLeft: -1, borderRadius: 1, backgroundColor: colors.ink },
+  heroTrack: { height: 10, borderRadius: 5, backgroundColor: colors.heroTrack },
+  heroFill: { height: 10, borderRadius: 5 },
+  heroMarker: { height: 18, backgroundColor: colors.heroText },
+  money: { padding: 20, borderRadius: 24, backgroundColor: colors.hero, gap: 14 },
   section: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 20, marginBottom: 4 },
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: 'hidden' },
   initial: { backgroundColor: colors.subtle, alignItems: 'center', justifyContent: 'center' },

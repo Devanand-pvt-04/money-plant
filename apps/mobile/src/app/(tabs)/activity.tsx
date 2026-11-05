@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { addMonths, dateOf, monthOf, type MonthKey } from '@money-plant/core';
 import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } from '@/components/activity-filters';
 import { formatAmount, formatDay, formatMonth, formatWholeRupees } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
-import { ErrorText, colors, radius } from '@/components/ui';
+import { ErrorText, colors, figures, radius } from '@/components/ui';
 import { useAiWaiting } from '@/lib/ai-settings';
 import { flatten, listCategories } from '@/lib/categories';
 import { listTransactions, type TransactionRow } from '@/lib/ledger';
@@ -38,13 +39,38 @@ function flows(rows: readonly TransactionRow[]) {
   return { moneyIn, moneyOut };
 }
 
-/** HOME-2: a month of entries, grouped by day, with search and filters. */
+/** The longest name among this month's money in, and how many others: "Salary and 2 more". */
+function incomeSources(rows: readonly TransactionRow[]): string | null {
+  const byName = new Map<string, number>();
+  for (const row of rows) {
+    const amount = row.legs[0]?.amount ?? 0;
+    if (row.tx.kind !== 'income' || amount <= 0) continue;
+    const name = row.category?.name ?? transactionTitle(row);
+    byName.set(name, (byName.get(name) ?? 0) + amount);
+  }
+  const names = [...byName].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  if (names.length === 0) return null;
+  return names.length === 1 ? names[0]! : `${names[0]} and ${names.length - 1} more`;
+}
+
+/** Days of the month counted so far: all of a past month, up to today for this one. */
+function daysSoFar(month: MonthKey, thisMonth: MonthKey): number {
+  const [year, m] = month.split('-').map(Number) as [number, number];
+  if (month === thisMonth) return new Date().getDate();
+  return new Date(year, m, 0).getDate();
+}
+
+type Quick = 'all' | 'expense' | 'income' | 'review';
+
+/** HOME-2: a month of entries in day cards, with search, quick chips and filters (decision 0015). */
 export default function Activity() {
+  const insets = useSafeAreaInsets();
   const { data, reload } = useLedger(load, { rows: [] as TransactionRow[], parents: new Map<string, string | null>() }, 'activity');
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
   const [month, setMonth] = useState<MonthKey>(() => monthOf(new Date()));
   const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
   const [filtering, setFiltering] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const waiting = useAiWaiting();
   const thisMonth = monthOf(new Date());
@@ -57,7 +83,7 @@ export default function Activity() {
   };
   const count = (f: ActivityFilters) => data.rows.filter((r) => inRange(r, f) && passes(r, f, data.parents)).length;
 
-  const { sections, totals } = useMemo(() => {
+  const { sections, totals, sources, toReview } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const shown = data.rows.filter((r) => inRange(r, filters) && passes(r, filters, data.parents) && matchesQuery(r, q));
     const days = new Map<string, TransactionRow[]>();
@@ -67,25 +93,77 @@ export default function Activity() {
     }
     return {
       totals: flows(shown),
+      sources: incomeSources(shown),
+      toReview: data.rows.filter((r) => inRange(r, filters) && r.tx.status === 'pending').length,
       sections: [...days].map(([title, rows]) => ({ title, ...flows(rows), data: rows })),
     };
     // inRange reads month and filters, both listed here.
   }, [data, filters, query, month]);
 
-  const chips = activeChips(filters);
-  const net = totals.moneyIn - totals.moneyOut;
+  // Kind and "to review" have their own chips; the rest of the filters show as removable chips.
+  const chips = activeChips(filters).filter((chip) => !('kind' in chip.clear) && !('reviewOnly' in chip.clear));
+  const filtersOn = activeChips(filters).length > 0;
+  const quick: Quick = filters.reviewOnly ? 'review' : filters.kind === 'expense' || filters.kind === 'income' ? filters.kind : 'all';
+  const pickQuick = (q: Quick) =>
+    setFilters({
+      ...filters,
+      kind: q === 'expense' || q === 'income' ? q : 'all',
+      reviewOnly: q === 'review' ? !filters.reviewOnly : false,
+    });
+  const perDay = custom ? null : Math.round(totals.moneyOut / daysSoFar(month, thisMonth));
 
   return (
     <>
       <SectionList
         sections={sections}
         keyExtractor={(row) => row.tx.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingTop: insets.top + 12 }]}
         keyboardShouldPersistTaps="handled"
         stickySectionHeadersEnabled={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={insets.top} />}
         ListHeaderComponent={
           <View style={styles.header}>
+            <View style={styles.titleRow}>
+              <Text style={styles.title} accessibilityRole="header">
+                Activity
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Search"
+                accessibilityState={{ expanded: searching }}
+                onPress={() => {
+                  if (searching) setQuery('');
+                  setSearching(!searching);
+                }}
+                style={[styles.roundButton, searching && styles.roundOn]}
+              >
+                <Feather name={searching ? 'x' : 'search'} size={18} color={searching ? colors.onInk : colors.text} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={filtersOn ? `Filters, ${activeChips(filters).length} on` : 'Filters'}
+                onPress={() => setFiltering(true)}
+                style={[styles.roundButton, filtersOn && styles.roundOn]}
+              >
+                <Feather name="sliders" size={18} color={filtersOn ? colors.onInk : colors.text} />
+              </Pressable>
+            </View>
+            {searching && (
+              <View style={styles.search}>
+                <Feather name="search" size={18} color={colors.muted} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search merchant, category or amount"
+                  placeholderTextColor={colors.muted}
+                  accessibilityLabel="Search"
+                  style={styles.searchInput}
+                  autoFocus
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+              </View>
+            )}
             {error && <ErrorText>{error}</ErrorText>}
             {waiting > 0 && (
               // Decision 0012: so a PC that's off reads as waiting, not as a bug.
@@ -101,7 +179,7 @@ export default function Activity() {
                 <Pressable accessibilityRole="button" accessibilityLabel="Previous month" hitSlop={8} onPress={() => setMonth(addMonths(month, -1))} style={styles.arrow}>
                   <Feather name="chevron-left" size={22} color={colors.text} />
                 </Pressable>
-                <Text style={styles.month}>{month === thisMonth ? formatMonth(month).split(' ')[0] : formatMonth(month)}</Text>
+                <Text style={styles.month}>{formatMonth(month)}</Text>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Next month"
@@ -115,33 +193,43 @@ export default function Activity() {
               </View>
             )}
             <View style={styles.summary}>
-              <Total label="In" value={formatWholeRupees(totals.moneyIn)} color={totals.moneyIn > 0 ? colors.primary : undefined} />
-              <Total label="Out" value={formatWholeRupees(totals.moneyOut)} />
-              <Total label="Net" value={`${net > 0 ? '+' : ''}${formatWholeRupees(net)}`} color={net < 0 ? colors.danger : undefined} />
+              <Total label="Spent" value={formatWholeRupees(totals.moneyOut)} note={perDay !== null && totals.moneyOut > 0 ? `${formatWholeRupees(perDay)} a day` : null} />
+              <Total
+                label="Money in"
+                value={formatWholeRupees(totals.moneyIn)}
+                color={totals.moneyIn > 0 ? colors.primary : undefined}
+                note={sources}
+              />
             </View>
-            <View style={styles.searchRow}>
-              <View style={styles.search}>
-                <Feather name="search" size={18} color={colors.muted} />
-                <TextInput
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder="Search merchant, category or amount"
-                  placeholderTextColor={colors.muted}
-                  accessibilityLabel="Search"
-                  style={styles.searchInput}
-                  autoCorrect={false}
-                  returnKeyType="search"
-                />
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={chips.length > 0 ? `Filters, ${chips.length} on` : 'Filters'}
-                onPress={() => setFiltering(true)}
-                style={[styles.filterButton, chips.length > 0 && styles.filterOn]}
-              >
-                <Feather name="sliders" size={18} color={chips.length > 0 ? colors.onInk : colors.text} />
-              </Pressable>
-            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll} contentContainerStyle={styles.quick} keyboardShouldPersistTaps="handled">
+              {(
+                [
+                  { key: 'all', label: 'All' },
+                  { key: 'expense', label: 'Spends' },
+                  { key: 'income', label: 'Money in' },
+                ] as const
+              ).map((chip) => (
+                <Pressable
+                  key={chip.key}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: quick === chip.key }}
+                  onPress={() => pickQuick(chip.key)}
+                  style={[styles.quickChip, quick === chip.key && styles.quickOn]}
+                >
+                  <Text style={[styles.quickText, quick === chip.key && styles.quickTextOn]}>{chip.label}</Text>
+                </Pressable>
+              ))}
+              {(toReview > 0 || quick === 'review') && (
+                <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: quick === 'review' }}
+                  onPress={() => pickQuick('review')}
+                  style={[styles.quickChip, styles.reviewChip, quick === 'review' && styles.reviewOn]}
+                >
+                  <Text style={[styles.quickText, styles.reviewText, quick === 'review' && styles.reviewTextOn]}>To review · {toReview}</Text>
+                </Pressable>
+              )}
+            </ScrollView>
             {chips.length > 0 && (
               <View style={styles.chips}>
                 {chips.map((chip) => (
@@ -162,15 +250,25 @@ export default function Activity() {
         }
         renderSectionHeader={({ section }) => (
           <View style={styles.day}>
-            <Text style={styles.dayText}>{section.title}</Text>
-            <Text style={styles.dayText}>
-              {section.moneyIn > 0 && <Text style={{ color: colors.primary }}>+{formatAmount(section.moneyIn)}</Text>}
+            <Text style={styles.dayText}>{section.title.toUpperCase()}</Text>
+            <Text style={styles.dayTotal}>
+              {section.moneyOut > 0 ? `−${formatWholeRupees(section.moneyOut)}` : ''}
               {section.moneyIn > 0 && section.moneyOut > 0 ? ' · ' : ''}
-              {section.moneyOut > 0 ? `−${formatAmount(section.moneyOut)}` : ''}
+              {section.moneyIn > 0 && <Text style={{ color: colors.primary }}>+{formatWholeRupees(section.moneyIn)}</Text>}
             </Text>
           </View>
         )}
-        renderItem={({ item }) => <TransactionItem row={item} showTime />}
+        renderItem={({ item, index, section }) => {
+          const first = index === 0;
+          const last = index === section.data.length - 1;
+          return (
+            <View style={[styles.cardRow, first && styles.cardFirst, last && styles.cardLast]}>
+              <View style={[styles.cardInner, !last && styles.cardDivider]}>
+                <TransactionItem row={item} showTime />
+              </View>
+            </View>
+          );
+        }}
         ListEmptyComponent={<Text style={styles.empty}>{data.rows.length === 0 ? 'No entries yet.' : 'Nothing matches.'}</Text>}
       />
       <FilterSheet
@@ -187,47 +285,97 @@ export default function Activity() {
   );
 }
 
-function Total({ label, value, color }: { label: string; value: string; color?: string }) {
+function Total({ label, value, color, note }: { label: string; value: string; color?: string; note?: string | null }) {
   return (
     <View style={styles.total}>
       <Text style={styles.totalLabel}>{label}</Text>
       <Text style={[styles.totalValue, color ? { color } : null]} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
+      {note ? (
+        <Text style={styles.totalLabel} numberOfLines={1}>
+          {note}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  list: { paddingHorizontal: 20, paddingBottom: 32 },
-  header: { gap: 12, paddingBottom: 4 },
-  months: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  list: { paddingHorizontal: 16, paddingBottom: 32 },
+  header: { gap: 14, paddingBottom: 4 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  title: { flex: 1, fontSize: 24, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
+  roundButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roundOn: { borderColor: colors.ink, backgroundColor: colors.ink },
+  months: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.3 },
-  month: { fontSize: 16, fontWeight: '600', color: colors.text, minWidth: 120, textAlign: 'center' },
-  summary: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: radius.lg, backgroundColor: colors.subtle },
-  total: { flex: 1, gap: 4 },
-  totalLabel: { fontSize: 12, color: colors.muted },
-  totalValue: { fontSize: 17, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
-  searchRow: { flexDirection: 'row', gap: 8 },
-  search: {
+  month: { fontSize: 16, fontWeight: '600', color: colors.text, textAlign: 'center' },
+  summary: { flexDirection: 'row', gap: 10 },
+  total: {
     flex: 1,
+    gap: 4,
+    padding: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  totalLabel: { fontSize: 12, color: colors.muted },
+  totalValue: { fontSize: 20, fontWeight: '700', color: colors.text, ...figures },
+  search: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     minHeight: 46,
     paddingHorizontal: 14,
     borderRadius: radius.md,
-    backgroundColor: colors.subtle,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
   searchInput: { flex: 1, fontSize: 15, color: colors.text, paddingVertical: 10 },
-  filterButton: { width: 46, height: 46, borderRadius: radius.md, backgroundColor: colors.subtle, alignItems: 'center', justifyContent: 'center' },
-  filterOn: { backgroundColor: colors.ink },
+  // The chips run to the screen's edges while scrolling.
+  quickScroll: { marginHorizontal: -16 },
+  quick: { gap: 8, paddingHorizontal: 16 },
+  quickChip: {
+    height: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  quickOn: { borderColor: colors.ink, backgroundColor: colors.ink },
+  quickText: { fontSize: 13, fontWeight: '500', color: colors.text },
+  quickTextOn: { color: colors.onInk, fontWeight: '600' },
+  reviewChip: { borderColor: colors.warningSurface, backgroundColor: colors.warningSurface },
+  reviewOn: { borderColor: colors.warning, backgroundColor: colors.warning },
+  reviewText: { color: colors.warning, fontWeight: '600' },
+  reviewTextOn: { color: colors.onInk },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.primarySurface },
   chipText: { fontSize: 13, fontWeight: '600', color: colors.primary },
-  day: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 16, paddingBottom: 4 },
-  dayText: { fontSize: 12, fontWeight: '600', color: colors.muted, letterSpacing: 0.3 },
+  day: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, paddingTop: 18, paddingBottom: 6 },
+  dayText: { fontSize: 13, fontWeight: '700', color: colors.muted, letterSpacing: 0.3 },
+  dayTotal: { fontSize: 13, fontWeight: '600', color: colors.muted, ...figures },
+  // Each day's entries sit in one card.
+  cardRow: { paddingHorizontal: 14, backgroundColor: colors.surface, borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.border },
+  cardFirst: { borderTopWidth: 1, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: 2 },
+  cardLast: { borderBottomWidth: 1, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg, paddingBottom: 2 },
+  cardInner: {},
+  cardDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   waiting: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   waitingText: { fontSize: 13, color: colors.muted },
   empty: { textAlign: 'center', color: colors.muted, fontSize: 15, marginTop: 48 },

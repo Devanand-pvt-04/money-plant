@@ -1,6 +1,7 @@
 import * as Updates from 'expo-updates';
 import { formatDay, formatTime } from '@/components/format';
 import { passUnlockToRestart } from './lock-pass';
+import { restartScreenColor } from './theme';
 
 /** Over-the-air updates only run in release builds that have expo-updates turned on. */
 export const updatesOn = Updates.isEnabled && !__DEV__;
@@ -39,7 +40,8 @@ export function fetchLatestUpdate(force = false): Promise<UpdateCheck> {
 /** Restarts the app on the downloaded update. */
 export function restartToUpdate(): Promise<void> {
   passUnlockToRestart();
-  return Updates.reloadAsync();
+  // The reload screen is white unless told otherwise.
+  return Updates.reloadAsync({ reloadScreenOptions: { backgroundColor: restartScreenColor(), fade: true, spinner: { enabled: false } } });
 }
 
 /** What is running, for Settings: "0.8.0 · production · updated Mon, 3 Nov, 10:30 am". */
