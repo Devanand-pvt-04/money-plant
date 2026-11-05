@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { AccountClass, AccountType, Cadence, DepositKind, DepositPayout } from '@money-plant/core';
 
 /**
@@ -335,6 +335,46 @@ export const navs = sqliteTable('navs', {
   /** "2026-10-24", the NAV's own date. */
   date: text('date').notNull(),
 });
+
+/**
+ * Local only, never synced (NW-3, decision 0015): each held scheme's NAV at
+ * the end of past months, from AMFI's NAV history. Past NAVs never change, so
+ * the phone asks only for months it doesn't have.
+ */
+export const navHistory = sqliteTable(
+  'nav_history',
+  {
+    /** The holding's AMFI code, or its ISIN when the statement gave no code. */
+    amfiCode: text('amfi_code').notNull(),
+    /** "2026-10". */
+    month: text('month').notNull(),
+    navE4: integer('nav_e4').notNull(),
+    /** The NAV's own date, the month's last working day. */
+    date: text('date').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.amfiCode, table.month] })],
+);
+
+/**
+ * Local only, never synced (NW-3, decision 0015): the purchases, redemptions
+ * and charges a CAS listed for each fund, kept as the statement wrote them, for
+ * the fund's chart and history. Replaced on each import; another phone fills
+ * its own on its next import.
+ */
+export const fundTransactions = sqliteTable(
+  'fund_transactions',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    /** "2026-10-10". */
+    date: text('date').notNull(),
+    type: text('type').notNull(),
+    amount: text('amount'),
+    units: text('units'),
+    nav: text('nav'),
+  },
+  (table) => [index('fund_transactions_account_idx').on(table.accountId)],
+);
 
 /**
  * Local only, never synced (NW-5, NW-6): the latest closing price of each
@@ -764,4 +804,22 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     price_e4 INTEGER NOT NULL,
     date TEXT NOT NULL
   );`,
+  // UI revamp: fund charts and history (NW-3, decision 0015).
+  `CREATE TABLE nav_history (
+    amfi_code TEXT NOT NULL,
+    month TEXT NOT NULL,
+    nav_e4 INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    PRIMARY KEY (amfi_code, month)
+  );
+  CREATE TABLE fund_transactions (
+    id TEXT PRIMARY KEY NOT NULL,
+    account_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    type TEXT NOT NULL,
+    amount TEXT,
+    units TEXT,
+    nav TEXT
+  );
+  CREATE INDEX fund_transactions_account_idx ON fund_transactions (account_id);`,
 ];

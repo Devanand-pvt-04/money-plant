@@ -301,3 +301,95 @@ export function costFromTransactions(transactions: readonly CasTransaction[], un
   if (Math.abs(totalE4 - unitsHeldE4) > 100) return null;
   return paise(Number(lots.reduce((sum, lot) => sum + lot.cost, 0n)));
 }
+
+/** The last day of a month: "2026-10" gives "2026-10-31". */
+export function monthEnd(month: string): DateKey {
+  const [year, m] = month.split('-').map(Number) as [number, number];
+  const days = new Date(Date.UTC(year, m, 0)).getUTCDate();
+  return `${month}-${String(days).padStart(2, '0')}` as DateKey;
+}
+
+/** The last weekday of a month, when AMFI most likely published a NAV. Holidays move it back further. */
+export function lastWorkingDay(month: string): DateKey {
+  let date = monthEnd(month);
+  for (;;) {
+    const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) return date;
+    date = addDays(date, -1);
+  }
+}
+
+export interface FundChartInput {
+  /** The CAS transactions behind the holding, as the statement listed them. */
+  transactions: readonly CasTransaction[];
+  /** Units and cost on the statement's date. */
+  unitsE4: number;
+  cost: Paise;
+  asOf: DateKey;
+  /** Money paid into the fund after the statement, from the ledger. */
+  paidSince: readonly { on: DateKey; amount: Paise }[];
+  /** NAVs the SIPs after the statement are estimated between (see navOn). */
+  statementNav: NavPoint | null;
+  latestNav: NavPoint | null;
+  /** Each past month, "2026-10", with the fund's NAV at its end if known. */
+  months: readonly { month: string; navE4: number | null }[];
+}
+
+export interface FundChartPoint {
+  month: string;
+  /** Units held at the month's end × that day's NAV. */
+  value: Paise;
+  /** Money put in up to then: the cost of the units held then. */
+  invested: Paise;
+}
+
+/**
+ * NW-3 (decision 0015): a fund's value against what went in, at the end of
+ * each month. Units at a month end are the statement's units less those the
+ * statement shows bought after it (or plus those sold), or, after the
+ * statement, plus units estimated for the money paid in since. What went in is
+ * the cost of those units, worked out from the statement's lots where they
+ * cover every unit. Months with no units held, or no NAV, are left out.
+ */
+export function fundChart(input: FundChartInput): FundChartPoint[] {
+  const dated = input.transactions
+    .map((t) => ({ t, on: casDate(t.date), unitsE4: scaleDecimal(t.units, 4) ?? 0 }))
+    .filter((x): x is { t: CasTransaction; on: DateKey; unitsE4: number } => x.on !== null && x.on <= input.asOf)
+    .sort((a, b) => a.on.localeCompare(b.on));
+  const since = input.paidSince.filter((f) => f.on > input.asOf && f.amount > 0);
+  const points: FundChartPoint[] = [];
+  for (const { month, navE4 } of input.months) {
+    if (navE4 === null || navE4 <= 0) continue;
+    const end = monthEnd(month);
+    let unitsE4: number;
+    let invested: number;
+    if (end < input.asOf) {
+      const later = dated.filter((x) => x.on > end);
+      unitsE4 = input.unitsE4 - later.reduce((sum, x) => sum + x.unitsE4, 0);
+      if (unitsE4 <= 100) continue;
+      const lots = costFromTransactions(
+        dated.filter((x) => x.on <= end).map((x) => x.t),
+        unitsE4,
+      );
+      // Without the full history, the cost falls by what the later purchases cost.
+      invested =
+        lots ??
+        input.cost -
+          later.filter((x) => x.unitsE4 > 0).reduce((sum, x) => sum + Math.abs(rupeesToPaise(x.t.amount) ?? 0), 0);
+    } else {
+      unitsE4 = input.unitsE4;
+      invested = input.cost;
+      for (const flow of since) {
+        if (flow.on > end) continue;
+        const nav = navOn(flow.on, input.statementNav, input.latestNav);
+        if (nav === null) continue;
+        unitsE4 += unitsBought(flow.amount, nav);
+        invested += flow.amount;
+      }
+      if (unitsE4 <= 100) continue;
+    }
+    points.push({ month, value: fundValue(unitsE4, navE4), invested: paise(Math.max(0, invested)) });
+  }
+  return points;
+}

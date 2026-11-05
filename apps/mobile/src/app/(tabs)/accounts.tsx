@@ -1,131 +1,208 @@
-import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import type { AccountType } from '@money-plant/core';
-import { accountIcon, accountLabel } from '@/components/account-picker';
 import { formatAmount, formatWholeRupees } from '@/components/format';
-import { ErrorText, Card, colors, radius } from '@/components/ui';
+import { ErrorText, MoneyCard, colors, figures, radius } from '@/components/ui';
+import { GROUPS, SLICE_COLOURS, SLICE_LABELS, type AccountGroup } from '@/lib/account-groups';
+import { marketValues } from '@/lib/demat';
+import { fundValues } from '@/lib/funds';
 import { listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
 import { netWorthHistory, type NetWorthPoint } from '@/lib/networth';
 import { recurringOverview, type UpcomingPayment } from '@/lib/recurring';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
-type Segment = 'cash' | 'investments';
-
-/** The groups in each segment, in order. Custom types (ACC-6) go by their class. */
-const GROUPS: Record<Segment, { title: string; has: (b: AccountBalance) => boolean }[]> = {
-  cash: [
-    { title: 'Bank accounts', has: (b) => b.account.type === 'bank' },
-    { title: 'Cash and wallets', has: (b) => b.account.type === 'cash' || b.account.type === 'wallet' },
-    { title: 'Credit cards', has: (b) => b.account.type === 'credit_card' },
-    { title: 'Loans and dues', has: (b) => b.account.type === 'loan' || (b.account.type === 'custom' && b.liability) },
-  ],
-  investments: [
-    { title: 'Deposits', has: (b) => b.account.type === 'fd' || b.account.type === 'rd' },
-    { title: 'Funds and stocks', has: (b) => b.account.type === 'mutual_fund' || b.account.type === 'stock' },
-    { title: 'Retirement and savings schemes', has: (b) => b.account.type === 'nps' || b.account.type === 'savings_scheme' },
-    { title: 'Other investments', has: (b) => b.account.type === 'custom' && !b.liability },
-  ],
-};
-const INVESTMENT_TYPES: ReadonlySet<AccountType> = new Set(['fd', 'rd', 'mutual_fund', 'stock', 'nps', 'savings_scheme']);
-const inSegment = (b: AccountBalance): Segment =>
-  INVESTMENT_TYPES.has(b.account.type) || (b.account.type === 'custom' && !b.liability) ? 'investments' : 'cash';
-
-async function load() {
-  const [balances, recurring] = await Promise.all([listAccountBalances(), recurringOverview()]);
-  return { balances, upcoming: recurring.upcoming, history: await netWorthHistory(balances) };
+/** Gain on what was put in, for funds and stocks, so each group's line can say how it's doing. */
+async function gains(balances: readonly AccountBalance[]) {
+  const map = new Map(balances.map((b) => [b.account.id, b.balance]));
+  const [funds, market] = await Promise.all([fundValues(map), marketValues(map)]);
+  const total = (values: Iterable<{ gain: number | null; invested: number }>) => {
+    let gain = 0;
+    let invested = 0;
+    for (const v of values) {
+      if (v.gain === null) continue;
+      gain += v.gain;
+      invested += v.invested;
+    }
+    return invested > 0 ? { gain, invested } : null;
+  };
+  return {
+    funds: total([...funds.values()].map((v) => ({ gain: v.gain, invested: v.value - v.gain }))),
+    stocks: total([...market.values()]),
+  };
 }
 
-/** NAV-1, NW-1: net worth explained by its groups, and the recurring payments the accounts carry. */
+async function load() {
+  const balances = await listAccountBalances();
+  const [recurring, history, gain] = await Promise.all([recurringOverview(), netWorthHistory(balances), gains(balances)]);
+  return { balances, upcoming: recurring.upcoming, history, gain };
+}
+
+const percent = (gain: number, invested: number) => {
+  const tenths = Math.round((gain * 1000) / invested);
+  return `${tenths >= 0 ? '+' : '−'}${(Math.abs(tenths) / 10).toFixed(1)}%`;
+};
+
+/** NAV-1, NW-1, NW-4 (decision 0015): net worth, where it sits, and one row per group. */
 export default function Accounts() {
-  const { data, reload } = useLedger(load, { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[] }, 'accounts');
+  const insets = useSafeAreaInsets();
+  const { data, reload } = useLedger(
+    load,
+    { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[], gain: { funds: null, stocks: null } as Awaited<ReturnType<typeof gains>> },
+    'accounts',
+  );
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
-  const [segment, setSegment] = useState<Segment>('cash');
   const counted = data.balances.filter((b) => b.inNetWorth);
-  const assets = counted.filter((b) => b.value > 0).reduce((s, b) => s + b.value, 0);
-  const liabilities = counted.filter((b) => b.value < 0).reduce((s, b) => s - b.value, 0);
-  const shown = data.balances.filter((b) => inSegment(b) === segment);
+  const own = counted.filter((b) => b.value > 0).reduce((s, b) => s + b.value, 0);
+  const owe = counted.filter((b) => b.value < 0).reduce((s, b) => s - b.value, 0);
+  const worth = netWorth(data.balances);
+  const previous = data.history.length >= 2 ? data.history[data.history.length - 2]!.value : null;
+  const change = previous === null ? null : worth - previous;
   const next = data.upcoming[0];
 
+  // Where the money sits: what each slice owns, of everything owned.
+  const slices = new Map<AccountGroup['slice'], number>();
+  for (const b of counted) {
+    if (b.value <= 0) continue;
+    const slice = GROUPS.find((g) => g.has(b))?.slice ?? 'rest';
+    slices.set(slice, (slices.get(slice) ?? 0) + b.value);
+  }
+  const parts = (['funds', 'bank', 'stocks', 'deposits', 'rest'] as const)
+    .map((slice) => ({ slice, value: slices.get(slice) ?? 0 }))
+    .filter((p) => p.value > 0);
+
+  const groups = GROUPS.map((group) => {
+    const rows = data.balances.filter(group.has);
+    return { group, rows, total: rows.reduce((s, b) => s + b.value, 0) };
+  }).filter((g) => g.rows.length > 0);
+
+  const status = (group: AccountGroup, rows: AccountBalance[]): { text: string; tone: 'in' | 'warn' | 'muted' } => {
+    if (group.key === 'funds' && data.gain.funds) return { text: `${percent(data.gain.funds.gain, data.gain.funds.invested)} overall`, tone: data.gain.funds.gain >= 0 ? 'in' : 'warn' };
+    if (group.key === 'stocks' && data.gain.stocks) return { text: `${percent(data.gain.stocks.gain, data.gain.stocks.invested)} overall`, tone: data.gain.stocks.gain >= 0 ? 'in' : 'warn' };
+    const flagged = rows.find((b) => b.reconciliation?.flagged);
+    if (flagged) {
+      return { text: `${flagged.account.institution ?? flagged.account.name} off by ${formatWholeRupees(Math.abs(flagged.reconciliation!.latest.gap))}`, tone: 'warn' };
+    }
+    if (group.key === 'debts') {
+      const due = data.upcoming.find((u) => rows.some((b) => b.account.id === u.item.accountId));
+      if (due) return { text: `${due.item.name} due ${due.overdue ? 'now' : formatDue(due.days)}`, tone: due.overdue ? 'warn' : 'muted' };
+    }
+    if (group.key === 'bank' && rows.some((b) => b.reconciliation)) return { text: rows.length === 1 ? 'Matches the bank' : `${rows.length} accounts, all match the bank`, tone: 'muted' };
+    return { text: rows.length === 1 ? rows[0]!.account.name : `${rows.length} accounts`, tone: 'muted' };
+  };
+
   return (
-    <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-      {error && <ErrorText>{error}</ErrorText>}
-      <View style={styles.hero}>
-        <Text style={styles.meta}>Net worth</Text>
-        <Text style={styles.heroAmount}>{formatWholeRupees(netWorth(data.balances))}</Text>
-        <View style={styles.split}>
-          <View style={styles.grow}>
-            <Text style={styles.meta}>Assets</Text>
-            <Text style={[styles.splitAmount, { color: colors.primary }]}>{formatWholeRupees(assets)}</Text>
-          </View>
-          <View style={styles.grow}>
-            <Text style={styles.meta}>Liabilities</Text>
-            <Text style={[styles.splitAmount, liabilities > 0 && { color: colors.danger }]}>{formatWholeRupees(liabilities)}</Text>
-          </View>
-        </View>
-        {data.history.length >= 2 && <History points={data.history} />}
-      </View>
-
-      <View style={styles.segment}>
-        {(['cash', 'investments'] as const).map((s) => (
-          <Pressable
-            key={s}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: segment === s }}
-            onPress={() => setSegment(s)}
-            style={[styles.segmentItem, segment === s && styles.segmentOn]}
-          >
-            <Text style={[styles.segmentText, segment === s && styles.segmentTextOn]}>{s === 'cash' ? 'Cash and cards' : 'Investments'}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {shown.length === 0 ? (
-        <Text style={styles.empty}>
-          {segment === 'cash'
-            ? 'No accounts yet. Read your bank SMS, or add accounts, cards and cash by hand.'
-            : 'Add FDs, your own types like PF and gold, or import your mutual funds from a CAS.'}
+    <ScrollView
+      contentContainerStyle={[styles.container, { paddingTop: insets.top + 12 }]}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={insets.top} />}
+    >
+      <View style={styles.titleRow}>
+        <Text style={styles.title} accessibilityRole="header">
+          Accounts
         </Text>
-      ) : (
-        GROUPS[segment].map((group) => {
-          const rows = shown.filter(group.has);
-          if (rows.length === 0) return null;
-          const total = rows.reduce((s, b) => s + b.value, 0);
-          return (
-            <View key={group.title} style={styles.group}>
-              <View style={styles.groupHead}>
-                <Text style={styles.groupTitle}>{group.title}</Text>
-                <Text style={[styles.groupTotal, total < 0 && { color: colors.danger }]}>{formatAmount(total)}</Text>
-              </View>
-              <Card>
-                {rows.map((item, i) => (
-                  <AccountRow key={item.account.id} item={item} first={i === 0} />
-                ))}
-              </Card>
-            </View>
-          );
-        })
-      )}
-
-      {segment === 'investments' && (
-        <Pressable accessibilityRole="button" onPress={() => router.push('/cas-import')} style={({ pressed }) => [styles.recurring, pressed && styles.pressed]}>
-          <Feather name="trending-up" size={18} color={colors.muted} />
-          <View style={styles.grow}>
-            <Text style={styles.name}>Import investments</Text>
-            <Text style={styles.meta}>Funds from a CAS, shares and NPS from an NSDL or CDSL statement</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={colors.muted} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Add account" onPress={() => router.push('/add-account')} style={styles.roundButton}>
+          <Feather name="plus" size={20} color={colors.text} />
         </Pressable>
+      </View>
+      {error && <ErrorText>{error}</ErrorText>}
+
+      <MoneyCard style={styles.hero}>
+        <View style={styles.between}>
+          <Text style={styles.heroMuted}>Net worth</Text>
+          {change !== null && change !== 0 && (
+            <Text style={[styles.heroChange, change < 0 && { color: colors.heroDanger }]}>
+              {change > 0 ? '+' : '−'}
+              {formatWholeRupees(Math.abs(change))} this month
+            </Text>
+          )}
+        </View>
+        <Text style={styles.heroAmount} numberOfLines={1} adjustsFontSizeToFit>
+          {formatWholeRupees(worth)}
+        </Text>
+        {own > 0 && parts.length > 0 && (
+          <>
+            <View style={styles.bar} accessible accessibilityLabel={`Where it sits: ${parts.map((p) => `${SLICE_LABELS[p.slice]} ${Math.round((p.value * 100) / own)}%`).join(', ')}`}>
+              {parts.map((p) => (
+                <View key={p.slice} style={{ flex: p.value, backgroundColor: SLICE_COLOURS[p.slice] }} />
+              ))}
+            </View>
+            <View style={styles.legend}>
+              {parts.map((p) => (
+                <View key={p.slice} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: SLICE_COLOURS[p.slice] }]} />
+                  <Text style={styles.legendText} numberOfLines={1}>
+                    {SLICE_LABELS[p.slice]} {Math.round((p.value * 100) / own)}%
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+      </MoneyCard>
+
+      <View style={styles.pair}>
+        <View style={styles.tile}>
+          <Text style={styles.meta}>You own</Text>
+          <Text style={styles.tileValue}>{formatWholeRupees(own)}</Text>
+        </View>
+        <View style={styles.tile}>
+          <Text style={styles.meta}>You owe</Text>
+          <Text style={styles.tileValue}>{formatWholeRupees(owe)}</Text>
+        </View>
+      </View>
+
+      {groups.length === 0 ? (
+        <Text style={styles.empty}>No accounts yet. Read your bank SMS, or add accounts, cards and cash by hand. Import your mutual funds from a CAS.</Text>
+      ) : (
+        <View style={styles.card}>
+          {groups.map(({ group, rows, total }, i) => {
+            const line = status(group, rows);
+            return (
+              <Pressable
+                key={group.key}
+                accessibilityRole="button"
+                onPress={() => router.push(rows.length === 1 && group.key !== 'funds' ? `/account/${rows[0]!.account.id}` : `/money/${group.key}`)}
+                style={({ pressed }) => [styles.row, i > 0 && styles.divided, pressed && styles.pressed]}
+              >
+                <View
+                  style={[
+                    styles.dot,
+                    group.key === 'debts' ? styles.dotHollow : { backgroundColor: group.slice === 'rest' ? colors.track : SLICE_COLOURS[group.slice] },
+                  ]}
+                />
+                <View style={styles.grow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {group.title}
+                  </Text>
+                  <Text style={[styles.status, line.tone === 'in' && styles.statusIn, line.tone === 'warn' && styles.statusWarn]} numberOfLines={1}>
+                    {line.text}
+                  </Text>
+                </View>
+                <Text style={styles.amount}>{total < 0 ? `−${formatWholeRupees(-total)}` : formatWholeRupees(total)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       )}
 
-      <Pressable accessibilityRole="button" onPress={() => router.push('/add-account')} style={({ pressed }) => [styles.add, pressed && styles.pressed]}>
-        <Feather name="plus" size={18} color={colors.primary} />
-        <Text style={styles.addText}>Add account</Text>
+      {data.history.length >= 2 && (
+        <View style={styles.tileWide}>
+          <Text style={styles.sectionTitle}>Net worth by month</Text>
+          <History points={data.history} />
+        </View>
+      )}
+
+      <Pressable accessibilityRole="button" onPress={() => router.push('/cas-import')} style={({ pressed }) => [styles.link, pressed && styles.pressed]}>
+        <Feather name="trending-up" size={18} color={colors.muted} />
+        <View style={styles.grow}>
+          <Text style={styles.name}>Import investments</Text>
+          <Text style={styles.meta}>Funds from a CAS, shares and NPS from an NSDL or CDSL statement</Text>
+        </View>
+        <Feather name="chevron-right" size={18} color={colors.muted} />
       </Pressable>
 
-      <Pressable accessibilityRole="button" onPress={() => router.push('/recurring')} style={({ pressed }) => [styles.recurring, pressed && styles.pressed]}>
+      <Pressable accessibilityRole="button" onPress={() => router.push('/recurring')} style={({ pressed }) => [styles.link, pressed && styles.pressed]}>
         <Feather name="repeat" size={18} color={colors.muted} />
         <View style={styles.grow}>
           <Text style={styles.name}>Recurring payments</Text>
@@ -137,6 +214,14 @@ export default function Accounts() {
       </Pressable>
     </ScrollView>
   );
+}
+
+function formatDue(days: number): string {
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -158,7 +243,7 @@ function History({ points }: { points: NetWorthPoint[] }) {
                 style={[
                   styles.historyBar,
                   { height: `${Math.max(4, ((p.value - low) / span) * 100)}%` },
-                  { backgroundColor: p.value < 0 ? colors.danger : last ? colors.primary : colors.border },
+                  { backgroundColor: p.value < 0 ? colors.danger : last ? colors.primary : colors.track },
                 ]}
               />
             </View>
@@ -170,74 +255,56 @@ function History({ points }: { points: NetWorthPoint[] }) {
   );
 }
 
-function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
-  const { account, value, reconciliation, typeLabel } = item;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => router.push(`/account/${account.id}`)}
-      style={({ pressed }) => [styles.row, !first && styles.divided, pressed && styles.pressed]}
-    >
-      <View style={styles.icon}>
-        <Feather name={accountIcon(account.type)} size={16} color={colors.secondary} />
-      </View>
-      <View style={styles.grow}>
-        <Text style={styles.name}>{accountLabel(account)}</Text>
-        <Text style={styles.meta}>
-          {typeLabel}
-          {account.institution ? ` · ${account.institution}` : ''}
-        </Text>
-        {reconciliation?.flagged && <Text style={styles.warn}>Off from the bank by {formatAmount(Math.abs(reconciliation.latest.gap))}</Text>}
-      </View>
-      <Text style={[styles.amount, value < 0 && { color: colors.danger }]}>{formatAmount(value)}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 20, paddingBottom: 48, gap: 12 },
-  hero: { padding: 16, borderRadius: 20, backgroundColor: colors.subtle, gap: 6 },
-  heroAmount: { fontSize: 30, fontWeight: '700', color: colors.text, letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
-  split: { flexDirection: 'row', gap: 10, marginTop: 6 },
-  splitAmount: { fontSize: 16, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'], marginTop: 2 },
-  history: { flexDirection: 'row', gap: 8, height: 72, marginTop: 10 },
+  container: { paddingHorizontal: 16, paddingBottom: 48, gap: 14 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  title: { flex: 1, fontSize: 24, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
+  roundButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hero: { gap: 12, paddingVertical: 18 },
+  between: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
+  heroMuted: { fontSize: 13, color: colors.heroMuted },
+  heroChange: { fontSize: 13, fontWeight: '600', color: colors.heroAccent, ...figures },
+  heroAmount: { fontSize: 36, fontWeight: '700', color: colors.heroText, letterSpacing: -1, ...figures },
+  bar: { flexDirection: 'row', height: 14, borderRadius: 7, overflow: 'hidden', gap: 2 },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 6 },
+  legendItem: { width: '50%', flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 8 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 12, color: colors.heroMuted, ...figures },
+  pair: { flexDirection: 'row', gap: 10 },
+  tile: { flex: 1, paddingVertical: 12, paddingHorizontal: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  tileValue: { fontSize: 17, fontWeight: '700', color: colors.text, marginTop: 2, ...figures },
+  tileWide: { padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 10 },
+  sectionTitle: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  card: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingVertical: 10 },
+  divided: { borderTopWidth: 1, borderTopColor: colors.divider },
+  pressed: { opacity: 0.7 },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  dotHollow: { borderWidth: 2, borderColor: colors.muted },
+  grow: { flex: 1, minWidth: 0 },
+  name: { fontSize: 15, fontWeight: '500', color: colors.text },
+  status: { fontSize: 12, color: colors.muted, marginTop: 2 },
+  statusIn: { color: colors.primary, fontWeight: '500' },
+  statusWarn: { color: colors.warning, fontWeight: '500' },
+  meta: { fontSize: 12, color: colors.muted, marginTop: 2 },
+  amount: { fontSize: 15, fontWeight: '600', color: colors.text, ...figures },
+  empty: { fontSize: 14, color: colors.muted, lineHeight: 20, marginVertical: 8 },
+  history: { flexDirection: 'row', gap: 8, height: 72 },
   historyColumn: { flex: 1, alignItems: 'center', gap: 4 },
   historyTrack: { flex: 1, width: '100%', justifyContent: 'flex-end' },
   historyBar: { width: '100%', borderRadius: 4 },
   historyLabel: { fontSize: 11, color: colors.muted },
   historyLabelOn: { color: colors.text, fontWeight: '600' },
-  segment: { flexDirection: 'row', backgroundColor: colors.subtle, borderRadius: radius.sm, padding: 3 },
-  segmentItem: { flex: 1, minHeight: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  segmentOn: { backgroundColor: colors.ink },
-  segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
-  segmentTextOn: { color: colors.onInk },
-  empty: { fontSize: 14, color: colors.muted, lineHeight: 20, marginVertical: 8 },
-  group: { gap: 8 },
-  groupHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 },
-  groupTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
-  groupTotal: { fontSize: 14, color: colors.secondary, fontVariant: ['tabular-nums'] },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingHorizontal: 14, paddingVertical: 10 },
-  divided: { borderTopWidth: 1, borderTopColor: colors.divider },
-  pressed: { backgroundColor: colors.pressed },
-  icon: { width: 34, height: 34, borderRadius: 10, backgroundColor: colors.subtle, alignItems: 'center', justifyContent: 'center' },
-  grow: { flex: 1, minWidth: 0 },
-  name: { fontSize: 15, fontWeight: '500', color: colors.text },
-  meta: { fontSize: 12, color: colors.muted, marginTop: 2 },
-  warn: { fontSize: 12, color: colors.warning, marginTop: 4 },
-  amount: { fontSize: 15, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
-  add: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    minHeight: 48,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.primary,
-  },
-  addText: { fontSize: 15, fontWeight: '600', color: colors.primary },
-  recurring: {
+  link: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,

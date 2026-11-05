@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { BUDGET_SORTS, addMonths, combineBudgets, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
+import { BUDGET_SORTS, addMonths, combineBudgets, paise, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
 import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatWholeRupees } from '@/components/format';
 import { CategoryIcon, Sheet } from '@/components/sheet';
-import { ErrorText, Button, ProgressBar, colors, radius } from '@/components/ui';
+import { ErrorText, Button, MoneyCard, ProgressBar, colors, figures, radius } from '@/components/ui';
 import {
   currentMonth,
   daysLeft,
@@ -233,26 +233,55 @@ export default function Budgets() {
   );
 }
 
+/**
+ * BUD-2: what is left divided by the days left, today included. Only for this
+ * month while under budget. Whole paise, rounded down so it never overstates.
+ */
+function perDay(line: BudgetLine, month: MonthKey): Paise | null {
+  const days = daysLeft(month);
+  if (days === null || line.limit === null || line.spent >= line.limit) return null;
+  return paise(Math.floor((line.limit - line.spent) / days));
+}
+
+/** BUD-1 and BUD-2 on the money card: the total budget, its pace and what's left a day (decision 0015). */
 function Overall({ line, outside, month, elapsed }: { line: BudgetLine; outside: Paise; month: MonthKey; elapsed: number }) {
-  const left = daysLeft(month);
+  const days = daysLeft(month);
   const status = line.pace?.status ?? 'ok';
+  const budgeted = line.limit !== null;
+  const daily = perDay(line, month);
+  const left = budgeted ? line.limit! - line.spent : 0;
+  const pill = status === 'over' ? 'Over budget' : status === 'pace' ? 'Spending fast' : 'On track';
   return (
-    <Pressable accessibilityRole="button" onPress={() => router.push(budgetHref('overall', month))} style={({ pressed }) => [styles.overall, pressed && styles.pressed]}>
-      <View style={styles.row}>
-        <Text style={[styles.meta, styles.grow]}>{line.limit === null ? 'All spending' : 'Spent in your budgets'}</Text>
-        {left !== null && <Text style={styles.days}>{left === 1 ? 'Last day' : `${left} days left`}</Text>}
-      </View>
-      <View style={styles.big}>
-        <Text style={[styles.bigAmount, status === 'over' && { color: colors.danger }]}>{rupees(line.spent)}</Text>
-        {line.limit !== null && <Text style={styles.meta}>of {rupees(line.limit)}</Text>}
-      </View>
-      {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} marker={elapsed} />}
-      <PaceNote line={line} />
-      {line.limit === null ? (
-        <Text style={styles.meta}>Set budgets on the categories you want to track. Your total budget is their sum.</Text>
-      ) : (
-        outside > 0 && <Text style={styles.meta}>{rupees(outside)} spent outside your budgets</Text>
-      )}
+    <Pressable accessibilityRole="button" onPress={() => router.push(budgetHref('overall', month))} style={({ pressed }) => pressed && styles.pressed}>
+      <MoneyCard style={styles.overall}>
+        <View style={styles.row}>
+          <Text style={[styles.heroMuted, styles.grow]}>{budgeted ? 'Spent in your budgets' : 'All spending'}</Text>
+          {budgeted && <Text style={[styles.pill, status === 'ok' ? styles.pillOk : styles.pillWarn]}>{pill}</Text>}
+        </View>
+        <View style={styles.big}>
+          <Text style={[styles.bigAmount, status === 'over' && { color: colors.heroDanger }]}>{rupees(line.spent)}</Text>
+          {budgeted && <Text style={styles.heroMuted}>of {rupees(line.limit!)}</Text>}
+        </View>
+        {budgeted && <ProgressBar value={line.spent / line.limit!} status={status} marker={elapsed} onHero />}
+        {budgeted && (
+          <View style={styles.row}>
+            <Text style={[styles.heroMuted, styles.grow]}>
+              {status === 'over'
+                ? `Over by ${rupees(-left)}`
+                : status === 'pace'
+                  ? `On pace for ${rupees(line.pace!.projected)}`
+                  : `${rupees(left)} left`}
+              {days !== null ? ` · ${days === 1 ? 'last day' : `${days} days`}` : ''}
+            </Text>
+            {daily !== null && <Text style={styles.heroDaily}>≈ {rupees(daily)} a day</Text>}
+          </View>
+        )}
+        {!budgeted ? (
+          <Text style={styles.heroMuted}>Set budgets on the categories you want to track. Your total budget is their sum.</Text>
+        ) : (
+          outside > 0 && <Text style={styles.heroMuted}>{rupees(outside)} spent outside your budgets</Text>
+        )}
+      </MoneyCard>
     </Pressable>
   );
 }
@@ -268,10 +297,22 @@ function ReviewLink({ month }: { month: MonthKey }) {
   );
 }
 
-function PaceNote({ line }: { line: BudgetLine }) {
-  if (line.pace?.status === 'over') return <Text style={styles.over}>Over by {rupees(line.spent - line.limit!)}</Text>;
-  if (line.pace?.status === 'pace') return <Text style={styles.warn}>On pace for {rupees(line.pace.projected)} by month end</Text>;
-  return null;
+/** "Over by", "On pace for", and while under budget this month, what's left a day (BUD-2). */
+function PaceNote({ line, month }: { line: BudgetLine; month: MonthKey }) {
+  const daily = perDay(line, month);
+  const note =
+    line.pace?.status === 'over' ? (
+      <Text style={styles.over}>Over by {rupees(line.spent - line.limit!)}</Text>
+    ) : line.pace?.status === 'pace' ? (
+      <Text style={styles.warn}>On pace for {rupees(line.pace.projected)}</Text>
+    ) : null;
+  if (!note && daily === null) return null;
+  return (
+    <View style={styles.paceRow}>
+      <View style={styles.grow}>{note}</View>
+      {daily !== null && <Text style={styles.daily}>{rupees(daily)} a day</Text>}
+    </View>
+  );
 }
 
 function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; elapsed: number; childBudgets: boolean; open: boolean; onToggle: () => void; onSet: () => void }) {
@@ -286,7 +327,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
         <Text style={[styles.name, styles.grow]} numberOfLines={1}>
           {category.name}
         </Text>
-        <Text style={[styles.amount, status === 'over' && { color: colors.warning }]}>
+        <Text style={[styles.amount, status === 'over' && { color: colors.danger }]}>
           {rupees(line.spent)}
           {line.limit !== null && <Text style={styles.of}> of {rupees(line.limit)}</Text>}
         </Text>
@@ -302,7 +343,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
         )}
       </View>
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} marker={props.elapsed} />}
-      <PaceNote line={line} />
+      <PaceNote line={line} month={month} />
       {props.childBudgets && <Text style={styles.meta}>Budgets are on its sub-categories</Text>}
       {props.open && (
         <View style={styles.children}>
@@ -317,7 +358,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
                 <Text style={[styles.childText, styles.grow]} numberOfLines={1}>
                   {child.category!.name}
                 </Text>
-                <Text style={[styles.childText, child.pace?.status === 'over' && { color: colors.warning }]}>
+                <Text style={[styles.childText, child.pace?.status === 'over' && { color: colors.danger }]}>
                   {rupees(child.spent)}
                   {child.limit !== null ? ` of ${rupees(child.limit)}` : ''}
                 </Text>
@@ -337,10 +378,10 @@ function IncomeList({ month, income }: { month: MonthKey; income: { category: Ca
   const total = income.reduce((sum, line) => sum + line.amount, 0);
   return (
     <>
-      <View style={styles.overall}>
-        <Text style={styles.meta}>Money in</Text>
-        <Text style={[styles.bigAmount, total > 0 && { color: colors.primary }]}>{rupees(total)}</Text>
-      </View>
+      <MoneyCard style={styles.overall}>
+        <Text style={styles.heroMuted}>Money in</Text>
+        <Text style={[styles.bigAmount, total > 0 && { color: colors.heroAccent }]}>{rupees(total)}</Text>
+      </MoneyCard>
       {income.length === 0 && <Text style={styles.meta}>No income this month yet.</Text>}
       {income.map(({ category, amount }) => (
         <Pressable
@@ -366,7 +407,7 @@ function IncomeList({ month, income }: { month: MonthKey; income: { category: Ca
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 20, paddingBottom: 48, gap: 10 },
+  container: { paddingHorizontal: 16, paddingBottom: 48, gap: 10 },
   months: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.3 },
@@ -376,10 +417,16 @@ const styles = StyleSheet.create({
   segmentOn: { backgroundColor: colors.ink },
   segmentText: { fontSize: 14, fontWeight: '600', color: colors.muted },
   segmentTextOn: { color: colors.onInk },
-  overall: { padding: 16, borderRadius: 20, backgroundColor: colors.subtle, gap: 10 },
+  overall: { gap: 10, paddingVertical: 18 },
   big: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  bigAmount: { fontSize: 28, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
-  days: { fontSize: 12, fontWeight: '600', color: colors.primary },
+  bigAmount: { fontSize: 32, fontWeight: '700', color: colors.heroText, letterSpacing: -0.5, ...figures },
+  heroMuted: { fontSize: 13, color: colors.heroMuted, lineHeight: 19, ...figures },
+  heroDaily: { fontSize: 13, fontWeight: '600', color: colors.heroText, ...figures },
+  pill: { fontSize: 12, fontWeight: '600', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' },
+  pillOk: { color: colors.heroAccent, backgroundColor: colors.heroPill },
+  pillWarn: { color: colors.heroWarning, backgroundColor: 'rgba(240,163,94,0.16)' },
+  paceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  daily: { fontSize: 12, color: colors.muted, ...figures },
   sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginTop: 6 },
   sortButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   sortText: { fontSize: 13, fontWeight: '600', color: colors.muted },
@@ -398,8 +445,8 @@ const styles = StyleSheet.create({
   childItem: { gap: 6, paddingBottom: 6 },
   child: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 },
   childText: { fontSize: 13, color: colors.secondary, fontVariant: ['tabular-nums'] },
-  warn: { fontSize: 12, color: colors.warning },
-  over: { fontSize: 12, color: colors.warning },
+  warn: { fontSize: 12, fontWeight: '500', color: colors.warning },
+  over: { fontSize: 12, fontWeight: '500', color: colors.danger },
   meta: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   more: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   actions: { marginTop: 8 },

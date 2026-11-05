@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { casDate, casFlows, costFromTransactions, detectSip, fundValue, isFundPayee, matchesFlow, navOn, pairFlows, rupeesToPaise, scaleDecimal, unitsBought, type CasTransaction } from './fund';
+import { casDate, casFlows, costFromTransactions, detectSip, fundChart, fundValue, isFundPayee, lastWorkingDay, matchesFlow, monthEnd, navOn, pairFlows, rupeesToPaise, scaleDecimal, unitsBought, type CasTransaction } from './fund';
 import { paise } from './money';
 
 const tx = (date: string, type: string, amount: string | null, units: string | null = null): CasTransaction => ({ date, type, amount, units, nav: null });
@@ -145,5 +145,64 @@ describe('costFromTransactions', () => {
   });
   it('gives up when the statement starts after the first purchase', () => {
     expect(costFromTransactions([t('2026-10-15', 'PURCHASE_SIP', '2500', '49')], 1_515_000)).toBeNull();
+  });
+});
+
+describe('fund chart', () => {
+  const t = (date: string, type: string, amount: string, units: string): CasTransaction => ({ date, type, amount, units, nav: null });
+  const transactions = [
+    t('2026-08-10', 'PURCHASE_SIP', '5000', '100.0000'),
+    t('2026-09-10', 'PURCHASE_SIP', '5000', '90.0000'),
+    t('2026-10-10', 'PURCHASE_SIP', '5000', '80.0000'),
+  ];
+  const base = {
+    transactions,
+    unitsE4: 2_700_000,
+    cost: paise(1_500_000),
+    asOf: '2026-10-31',
+    paidSince: [{ on: '2026-11-10', amount: paise(500_000) }],
+    statementNav: { navE4: 650_000, date: '2026-10-31' },
+    latestNav: { navE4: 650_000, date: '2026-11-20' },
+  } as const;
+
+  it('works back from the statement and forward with the SIPs since', () => {
+    const points = fundChart({
+      ...base,
+      months: [
+        { month: '2026-07', navE4: 500_000 },
+        { month: '2026-08', navE4: 550_000 },
+        { month: '2026-09', navE4: 600_000 },
+        { month: '2026-10', navE4: 650_000 },
+        { month: '2026-11', navE4: 700_000 },
+      ],
+    });
+    // July: nothing held yet.
+    expect(points.map((p) => p.month)).toEqual(['2026-08', '2026-09', '2026-10', '2026-11']);
+    expect(points[0]).toEqual({ month: '2026-08', value: fundValue(1_000_000, 550_000), invested: 500_000 });
+    expect(points[1]).toEqual({ month: '2026-09', value: fundValue(1_900_000, 600_000), invested: 1_000_000 });
+    expect(points[2]).toEqual({ month: '2026-10', value: fundValue(2_700_000, 650_000), invested: 1_500_000 });
+    // November: 5000 at an estimated 65.00 buys 76.9231 units.
+    expect(points[3]).toEqual({ month: '2026-11', value: fundValue(2_700_000 + unitsBought(paise(500_000), 650_000), 700_000), invested: 2_000_000 });
+  });
+
+  it('falls back to the cost less later purchases when the statement starts late, and skips months with no NAV', () => {
+    const points = fundChart({
+      ...base,
+      unitsE4: 3_700_000,
+      cost: paise(2_000_000),
+      months: [
+        { month: '2026-07', navE4: 500_000 },
+        { month: '2026-08', navE4: null },
+      ],
+    });
+    expect(points).toEqual([{ month: '2026-07', value: fundValue(1_000_000, 500_000), invested: 500_000 }]);
+  });
+
+  it('finds month ends and their last weekday', () => {
+    expect(monthEnd('2026-02')).toBe('2026-02-28');
+    expect(monthEnd('2028-02')).toBe('2028-02-29');
+    // 31 Jan 2027 is a Sunday.
+    expect(lastWorkingDay('2027-01')).toBe('2027-01-29');
+    expect(lastWorkingDay('2026-10')).toBe('2026-10-30');
   });
 });

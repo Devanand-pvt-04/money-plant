@@ -49,7 +49,7 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen name="budgets" options={{ title: 'Budgets', tabBarIcon: icon('pie-chart') }} />
-      <Tabs.Screen name="accounts" options={{ title: 'Accounts', tabBarIcon: icon('credit-card') }} />
+      <Tabs.Screen name="accounts" options={{ title: 'Accounts', headerShown: false, tabBarIcon: icon('credit-card') }} />
       <Tabs.Screen name="people" options={{ title: 'People', tabBarIcon: icon('users') }} />
     </Tabs>
   );
