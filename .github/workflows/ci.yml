@@ -18,6 +18,29 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # Security pass (decision 0016): fail on high or critical advisories in shipped dependencies.
+      - run: pnpm audit --prod --audit-level high
+
+  # Row-level security tests: one user can't read or change another's rows (decision 0016).
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase db start
+      - run: supabase test db
+      - run: supabase db advisors --fail-on warn
+
+  # Fails if a key, token or password is committed anywhere in history.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 git /repo --no-banner --redact
 
   cas-parser:
     runs-on: ubuntu-latest

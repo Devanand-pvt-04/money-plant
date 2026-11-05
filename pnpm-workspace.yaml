@@ -9,3 +9,9 @@ allowBuilds:
 
 # React Native native builds are more reliable with a flat node_modules.
 nodeLinker: hoisted
+
+# Security pass (decision 0016): node-forge comes in through Expo's CLI (build
+# tooling, not the app) and has known flaws before 1.4.1. Drop this once Expo
+# ships a fixed version.
+overrides:
+  node-forge: ^1.4.1

@@ -3,7 +3,7 @@
     "name": "Money Plant",
     "slug": "money-plant",
     "scheme": "moneyplant",
-    "version": "0.9.0",
+    "version": "0.10.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -19,6 +19,7 @@
     },
     "android": {
       "package": "in.moneyplant.app",
+      "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#1D1F1E",
         "foregroundImage": "./assets/android-icon-foreground.png",

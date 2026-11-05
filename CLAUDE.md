@@ -23,7 +23,7 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 - Every transaction has at least one source row. No entry exists without a source.
 - Raw SMS text never leaves the device. Don't log it, sync it or put it in an AI job. Only parsed fields leave the parser.
 - Secrets (AI worker token, SMTP, MSG91) live only in Supabase edge function secrets. Never put them in the app or the repo.
-- Every new table needs `updated_at`, `deleted_at` and a client-generated UUID primary key, plus row-level security policies.
+- Every new table needs `updated_at`, `deleted_at` and a client-generated UUID primary key, plus row-level security policies and a case in `supabase/tests/database/rls.test.sql` proving another user can't read or change it. See `docs/security.md`.
 - Free tiers only. Don't add a paid service without asking.
 - Support these banks first: ICICI, HDFC, HSBC, SBI. Adding a bank format needs anonymised fixtures in `packages/parser/fixtures/<bank>/`.
 - Never add code that moves money. UPI links only hand off to the user's own UPI app.
@@ -32,6 +32,7 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 
 - `pnpm install`: install the workspace (pnpm 12, Node 22)
 - `pnpm typecheck` and `pnpm test`: run both before every PR; CI runs the same commands
+- `npx supabase db start` then `npx supabase test db`: database access tests (needs Docker); CI runs them with `supabase db advisors`, `pnpm audit` and gitleaks
 - `cd apps/mobile && npx expo install <pkg>`: add Expo or React Native packages so versions match the SDK. Use `pnpm --filter <pkg> add` for everything else
 - `cd apps/mobile && npx expo run:android`: local development build (needs Android Studio), or `npx eas-cli@latest build --profile development --platform android` for a cloud build
 - `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`: the production APK Deva uses daily. JS fixes ship with `npx eas-cli@latest update --channel preview`, then `--channel production` once tried (decision 0011)
