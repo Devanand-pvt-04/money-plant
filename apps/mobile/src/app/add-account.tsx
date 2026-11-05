@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, USER_ACCOUNT_TYPES, paise, parseRupees, type AccountType } from '@money-plant/core';
 import type { LocalAccountType } from '@money-plant/db-schema';
+import { FormScroll } from '@/components/keyboard';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { listAccountTypes } from '@/lib/account-types';
 import { createAccount } from '@/lib/accounts';
@@ -49,7 +50,7 @@ export default function AddAccount() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.label}>Type</Text>
       <Chips>
         {USER_ACCOUNT_TYPES.map((option) => (
@@ -104,7 +105,7 @@ export default function AddAccount() {
       <View style={styles.actions}>
         <Button title={deposit ? 'Next' : 'Save'} onPress={save} loading={saving} disabled={name.trim() === ''} />
       </View>
-    </ScrollView>
+    </FormScroll>
   );
 }
 

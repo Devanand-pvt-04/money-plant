@@ -8,6 +8,7 @@ import { AccountPicker, accountIcon, accountLabel } from '@/components/account-p
 import { CategoryPicker } from '@/components/category-picker';
 import { formatWhen, pickDateTime } from '@/components/date-fields';
 import { formatWholeRupees } from '@/components/format';
+import { KeyboardGap, useKeyboard } from '@/components/keyboard';
 import { CategoryIcon } from '@/components/sheet';
 import { Button, colors, radius } from '@/components/ui';
 import { categoryNames, type CategoryNode } from '@/lib/categories';
@@ -50,6 +51,8 @@ const MODE_LABELS: Record<Mode, string> = { debit: 'Spent', credit: 'Received', 
  */
 export default function QuickAdd() {
   const insets = useSafeAreaInsets();
+  // While the note is typed, the phone's keyboard takes the keypad's place.
+  const typing = useKeyboard().height > 0;
   const [defaults, setDefaults] = useState<QuickAddDefaults | null>(null);
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [mode, setMode] = useState<Mode>('debit');
@@ -228,6 +231,7 @@ export default function QuickAdd() {
         {transfer && whenTile}
       </View>
 
+      {!typing && (
       <View style={styles.keys}>
         {KEYS.map((k) => (
           <Pressable
@@ -242,10 +246,12 @@ export default function QuickAdd() {
           </Pressable>
         ))}
       </View>
+      )}
 
       <View style={styles.save}>
         <Button title={amount > 0 ? `Save ${display(text)}` : 'Save'} onPress={save} disabled={!ready} loading={saving} />
       </View>
+      <KeyboardGap />
 
       <CategoryPicker
         visible={picking === 'category'}

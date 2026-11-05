@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { File } from 'expo-file-system';
 import { dematGroups, paise, type CasStatement, type DematGroup, type DematStatement } from '@money-plant/core';
+import { FormScroll } from '@/components/keyboard';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
 import { Button, Card, ErrorText, Field, colors, radius } from '@/components/ui';
 import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
@@ -84,7 +85,7 @@ export default function CasImport() {
     const value = items.reduce((sum, item) => sum + item.value, 0);
     const end = demat[0]?.asOf;
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <FormScroll contentContainerStyle={styles.container}>
         <View style={styles.summary}>
           <Text style={styles.meta}>{end ? `Worth on ${formatDay(`${end}T12:00:00`)}` : 'Worth'}</Text>
           <Text style={styles.total}>{rupees(paise(value))}</Text>
@@ -130,7 +131,7 @@ export default function CasImport() {
           <Button title={demat.length === 1 ? 'Add the account' : `Add ${demat.length} accounts`} onPress={save} loading={saving} disabled={demat.length === 0} />
           <Button title="Choose another statement" variant="secondary" onPress={() => setStatement(null)} disabled={saving} />
         </View>
-      </ScrollView>
+      </FormScroll>
     );
   }
 
@@ -140,7 +141,7 @@ export default function CasImport() {
     const payments = funds.reduce((sum, f) => sum + f.flows.length, 0);
     const end = funds[0]?.asOf;
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <FormScroll contentContainerStyle={styles.container}>
         <View style={styles.summary}>
           <Text style={styles.meta}>{end ? `Worth on ${formatDay(`${end}T12:00:00`)}` : 'Worth'}</Text>
           <Text style={styles.total}>{rupees(paise(value))}</Text>
@@ -178,12 +179,12 @@ export default function CasImport() {
           <Button title={funds.length === 1 ? 'Add the fund' : `Add ${funds.length} funds`} onPress={save} loading={saving} disabled={funds.length === 0} />
           <Button title="Choose another statement" variant="secondary" onPress={() => setStatement(null)} disabled={saving} />
         </View>
-      </ScrollView>
+      </FormScroll>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.intro}>
         A Consolidated Account Statement (CAS) lists every mutual fund you hold, across all apps and fund houses. Ask KFinTech for the detailed statement for all folios (CAMS sends the same one); it arrives by email as a PDF with the password you choose.
       </Text>
@@ -209,7 +210,7 @@ export default function CasImport() {
       <View style={styles.actions}>
         <Button title="Read statement" onPress={read} loading={reading} disabled={!file || password === ''} />
       </View>
-    </ScrollView>
+    </FormScroll>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { FormScroll } from '@/components/keyboard';
 import { PersonPicker } from '@/components/person-picker';
 import { Button, ErrorText, Field, colors } from '@/components/ui';
 import { listPeople, type Person } from '@/lib/people';
@@ -45,7 +46,7 @@ export default function GroupEdit() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Field label="Name" value={name} onChangeText={setName} placeholder="Goa trip, Flat 4B" maxLength={60} />
       <Text style={styles.label}>People</Text>
       <PersonPicker people={people} selected={members} onToggle={toggle} onCreated={(pid) => reloadPeople().then(() => toggle(pid))} />
@@ -67,7 +68,7 @@ export default function GroupEdit() {
           </Pressable>
         )}
       </View>
-    </ScrollView>
+    </FormScroll>
   );
 }
 

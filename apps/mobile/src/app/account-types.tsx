@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
 import type { AccountClass } from '@money-plant/core';
 import type { LocalAccountType } from '@money-plant/db-schema';
+import { FormScroll } from '@/components/keyboard';
 import { Button, Chip, Chips, ErrorText, Field, SectionTitle, colors } from '@/components/ui';
 import { createAccountType, deleteAccountType, listAccountTypes, updateAccountType } from '@/lib/account-types';
 import { useLedger } from '@/lib/use-ledger';
@@ -22,7 +23,7 @@ export default function AccountTypes() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.body}>
         Add types the app doesn't have, like Chit fund, PF or Gold. They work as manual accounts: you set the balance and add entries by hand.
       </Text>
@@ -56,7 +57,7 @@ export default function AccountTypes() {
           />
         </View>
       ))}
-    </ScrollView>
+    </FormScroll>
   );
 }
 

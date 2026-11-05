@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { formatRupees, parseRupees, type Paise } from '@money-plant/core';
 import { normaliseMerchant, type PatternMatch, type Rule, type RuleMatch } from '@money-plant/categoriser';
+import { FormScroll } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { categoryNames, recategoriseHistory } from '@/lib/categories';
@@ -86,7 +87,7 @@ export default function RuleDetail() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       {match.kind === 'rule' ? (
         <Field
           label={usesKeyword ? 'Merchant name contains' : 'Merchant name or UPI ID'}
@@ -158,7 +159,7 @@ export default function RuleDetail() {
         }}
         onClose={() => setPicking(false)}
       />
-    </ScrollView>
+    </FormScroll>
   );
 }
 

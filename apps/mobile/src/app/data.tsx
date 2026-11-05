@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
+import { FormScroll } from '@/components/keyboard';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, ErrorText, Field, SectionTitle, colors, radius } from '@/components/ui';
 import { clearMyData, deleteAccount } from '@/lib/account';
@@ -54,7 +55,7 @@ export default function YourData() {
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.container}>
+      <FormScroll contentContainerStyle={styles.container}>
         <SectionTitle>Export</SectionTitle>
         <Card style={styles.card}>
           <Text style={styles.body}>
@@ -75,7 +76,7 @@ export default function YourData() {
           <DangerRow icon="refresh-ccw" title="Clear all my data" meta="Keep the account, remove everything in it" onPress={() => setDanger('clear')} first />
           <DangerRow icon="user-x" title="Delete my account" meta="Remove the account and all its data" onPress={() => setDanger('delete')} />
         </Card>
-      </ScrollView>
+      </FormScroll>
 
       <Sheet visible={danger !== null} onClose={() => setDanger(null)} title={danger ? DANGER[danger].title : undefined}>
         {danger && (

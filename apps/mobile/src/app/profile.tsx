@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { FormScroll } from '@/components/keyboard';
 import { Button, ErrorText, Field, colors } from '@/components/ui';
 import { getMe, updateMe, type Me } from '@/lib/me';
 
@@ -32,7 +33,7 @@ export default function Profile() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       {me?.email && <Text style={styles.meta}>Signed in as {me.email}</Text>}
       <Field label="Your name" value={name} onChangeText={setName} placeholder="Deva" maxLength={80} />
       <Text style={styles.hint}>Friends see this on IOUs you share with them.</Text>
@@ -42,7 +43,7 @@ export default function Profile() {
       <View style={styles.actions}>
         <Button title="Save" onPress={save} loading={saving} />
       </View>
-    </ScrollView>
+    </FormScroll>
   );
 }
 

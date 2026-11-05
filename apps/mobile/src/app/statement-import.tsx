@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { File } from 'expo-file-system';
+import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
 import { Button, ErrorText, Field, colors, radius } from '@/components/ui';
@@ -90,7 +91,7 @@ export default function StatementImport() {
 
   if (result) {
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <FormScroll contentContainerStyle={styles.container}>
         <View style={styles.summary}>
           <Text style={styles.total}>{result.added === 0 ? 'Nothing was missing' : `${result.added} ${result.added === 1 ? 'payment' : 'payments'} added`}</Text>
           <Text style={styles.meta}>
@@ -104,7 +105,7 @@ export default function StatementImport() {
         <View style={styles.actions}>
           <Button title="Done" onPress={() => router.back()} />
         </View>
-      </ScrollView>
+      </FormScroll>
     );
   }
 
@@ -113,7 +114,7 @@ export default function StatementImport() {
     const to = preview.to ? formatDay(`${preview.to}T12:00:00`) : null;
     return (
       <>
-        <ScrollView contentContainerStyle={styles.container}>
+        <FormScroll contentContainerStyle={styles.container}>
           <View style={styles.summary}>
             <Text style={styles.meta}>{from && to ? `${from} to ${to}` : 'Statement'}</Text>
             <Text style={styles.total}>{preview.rows.length} entries</Text>
@@ -136,7 +137,7 @@ export default function StatementImport() {
             <Button title="Import" onPress={save} loading={saving} disabled={!target} />
             <Button title="Choose another statement" variant="secondary" onPress={() => setPreview(null)} disabled={saving} />
           </View>
-        </ScrollView>
+        </FormScroll>
         <AccountPicker
           visible={picking}
           title="Statement for"
@@ -151,7 +152,7 @@ export default function StatementImport() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.intro}>
         A statement fills in what the SMS missed: payments from before you installed the app, or messages that never arrived. Download it as a PDF from your bank's app or net banking. ICICI statements work now; HDFC, HSBC and SBI follow.
       </Text>
@@ -170,7 +171,7 @@ export default function StatementImport() {
       <View style={styles.actions}>
         <Button title="Read statement" onPress={read} loading={reading} disabled={!file} />
       </View>
-    </ScrollView>
+    </FormScroll>
   );
 }
 

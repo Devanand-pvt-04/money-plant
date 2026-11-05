@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import {
@@ -19,6 +19,7 @@ import {
   type DepositTerms,
   type SchemeKind,
 } from '@money-plant/core';
+import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { DateField } from '@/components/date-fields';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
@@ -154,7 +155,7 @@ export default function DepositTermsScreen() {
   const preview = terms && !balanceScheme && previewOf(terms);
   return (
     <>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <FormScroll contentContainerStyle={styles.container}>
         {scheme && (
           <>
             <Text style={styles.label}>Scheme</Text>
@@ -235,7 +236,7 @@ export default function DepositTermsScreen() {
         <View style={styles.actions}>
           <Button title="Save" onPress={save} loading={saving} disabled={(!balanceScheme && amount.trim() === '') || rate.trim() === ''} />
         </View>
-      </ScrollView>
+      </FormScroll>
       <AccountPicker
         visible={picking}
         title={rd ? 'Instalments paid from' : 'Paid from'}

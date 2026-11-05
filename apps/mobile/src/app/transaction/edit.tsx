@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { router, useLocalSearchParams } from 'expo-router';
 import { formatRupees, paise, parseRupees } from '@money-plant/core';
+import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountIcon, accountLabel } from '@/components/account-picker';
 import { DateTimeField } from '@/components/date-fields';
 import { Button, ErrorText, Field, colors, radius } from '@/components/ui';
@@ -62,7 +63,7 @@ export default function EditEntry() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.body}>Fields you change here stay as you set them. The original message stays visible under Sources.</Text>
       {row.tx.kind !== 'transfer' && <Field label="Payee" value={payee} onChangeText={setPayee} maxLength={120} />}
       {twoLegs && <Field label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />}
@@ -92,7 +93,7 @@ export default function EditEntry() {
         }}
         onClose={() => setPicking(false)}
       />
-    </ScrollView>
+    </FormScroll>
   );
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, BackHandler, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { LOCK_AFTER_MS, lockAvailable, lockEnabled, unlock } from '@/lib/lock';
+import { setUnlocked, takeRestartPass } from '@/lib/lock-pass';
 import { Button, colors } from './ui';
 
 /** Whether the lock applies right now: switched on, and the phone has something to unlock with. */
@@ -40,13 +41,21 @@ export function AppLock({ active }: { active: boolean }) {
     void ask();
   }, [ask]);
 
-  // Locks when the app starts signed in. Signing in just now proved who it is, so that doesn't lock.
+  // Locks when the app starts signed in. Signing in just now proved who it is, so that doesn't lock,
+  // and neither does a restart the unlocked app made itself, such as switching to dark mode.
   const startedActive = useRef(active);
+  const [restartPass] = useState(takeRestartPass);
+  const passUsed = useRef(false);
   useEffect(() => {
     if (!active) return;
-    if (startedActive.current) void lockIfNeeded();
+    const pass = restartPass && !passUsed.current;
+    passUsed.current = true;
+    if (startedActive.current && !pass) void lockIfNeeded();
     else setLocked(false);
-  }, [active, lockIfNeeded]);
+  }, [active, lockIfNeeded, restartPass]);
+
+  // Shared outside React, so a restart knows whether the app is unlocked right now.
+  useEffect(() => setUnlocked(active && locked === false), [active, locked]);
 
   useEffect(() => {
     if (!active) return;
