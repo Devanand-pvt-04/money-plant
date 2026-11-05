@@ -61,6 +61,7 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
   const title = note ?? payee;
   const { text, color } = displayAmount(row);
   const detail = tx.kind === 'transfer' ? 'Transfer' : (row.category?.name ?? 'No category');
+  const pick = tx.kind !== 'transfer' && tx.status === 'pending' && !row.category;
   const where = showTime ? formatTime(tx.occurredAt) : tx.kind !== 'transfer' ? legs[0]?.accountName : undefined;
   return (
     <Pressable
@@ -83,9 +84,10 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
           {note ? `${payee} · ` : ''}
-          {detail}
+          {/* HOME-2: an entry still waiting for a category says so in amber. */}
+          {pick ? <Text style={styles.pick}>Pick a category</Text> : detail}
           {where ? ` · ${where}` : ''}
-          {tx.status === 'pending' ? ' · to review' : ''}
+          {tx.status === 'pending' && !pick ? ' · to review' : ''}
         </Text>
       </View>
       <Text style={[styles.amount, { color }]}>{text}</Text>
@@ -101,4 +103,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 15, fontWeight: '500', color: colors.text },
   meta: { fontSize: 13, color: colors.muted, marginTop: 2 },
   amount: { fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  pick: { color: colors.warning, fontWeight: '600' },
 });

@@ -1,5 +1,6 @@
 import { AppState, Appearance, DevSettings } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import * as SystemUI from 'expo-system-ui';
 import * as Updates from 'expo-updates';
 import { passUnlockToRestart } from './lock-pass';
 
@@ -35,11 +36,29 @@ export function themePreference(): ThemePreference {
   return preference;
 }
 
-function restart() {
+/** The ground of each scheme. components/ui builds its palette on these, and the restart paints them. */
+export const BACKGROUND: Record<Scheme, string> = { light: '#F3F4F2', dark: '#121413' };
+
+/**
+ * Restarts the JS on the scheme it will come back in. The window behind the
+ * app and expo-updates' reload screen (white unless told otherwise) both take
+ * that scheme's ground first, so the switch doesn't flash white.
+ */
+function restart(next: Scheme = current()) {
   // Changing the look is not leaving the app, so it doesn't ask for the fingerprint again.
   passUnlockToRestart();
-  if (__DEV__) DevSettings.reload();
-  else Updates.reloadAsync().catch(() => {});
+  const backgroundColor = BACKGROUND[next];
+  SystemUI.setBackgroundColorAsync(backgroundColor)
+    .catch(() => {})
+    .then(() => {
+      if (__DEV__) DevSettings.reload();
+      else Updates.reloadAsync({ reloadScreenOptions: { backgroundColor, fade: true, spinner: { enabled: false } } }).catch(() => {});
+    });
+}
+
+/** The ground of the scheme now running, for a restart that keeps it (an update). */
+export function restartScreenColor(): string {
+  return BACKGROUND[scheme];
 }
 
 export function setThemePreference(next: ThemePreference): void {
@@ -48,7 +67,7 @@ export function setThemePreference(next: ThemePreference): void {
   SecureStore.setItem(KEY, next);
   Appearance.setColorScheme(next === 'system' ? 'auto' : next);
   // Always restart: right after the override changes, the phone may still report the old scheme.
-  restart();
+  restart(next === 'system' ? (Appearance.getColorScheme() === 'dark' ? 'dark' : 'light') : next);
 }
 
 /**
