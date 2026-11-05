@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Dimensions, Keyboard, ScrollView, TextInput, View, type HostInstance, type KeyboardEvent, type ScrollViewInstance, type ScrollViewProps } from 'react-native';
+import { Dimensions, Keyboard, ScrollView, TextInput, View, type HostInstance, type KeyboardEvent, type ScrollViewInstance, type ScrollViewProps, type StyleProp, type ViewStyle } from 'react-native';
 import { useNavigation } from 'expo-router';
 
 /** Space between a focused field and the top of the keyboard. */
@@ -37,8 +37,9 @@ export function useKeyboard(): KeyboardState {
  * it adds room below the content and scrolls the focused field into view, so
  * a field is never typed into blind.
  */
-export const FormScroll = forwardRef<ScrollViewInstance, ScrollViewProps>(function FormScroll(props, forwardedRef) {
-  const { onScroll, onTouchEnd, children, ...rest } = props;
+export const FormScroll = forwardRef<ScrollViewInstance, ScrollViewProps & { inSheet?: boolean }>(function FormScroll(props, forwardedRef) {
+  // A Sheet already moves up above the keyboard, so inside one only the scrolling is needed.
+  const { onScroll, onTouchEnd, children, inSheet, ...rest } = props;
   const ref = useRef<ScrollViewInstance>(null);
   useImperativeHandle(forwardedRef, () => ref.current as ScrollViewInstance);
   const offset = useRef(0);
@@ -79,7 +80,7 @@ export const FormScroll = forwardRef<ScrollViewInstance, ScrollViewProps>(functi
       }}
     >
       {children}
-      {keyboard.height > 0 && <View style={{ height: keyboard.height }} />}
+      {keyboard.height > 0 && !inSheet && <View style={{ height: keyboard.height }} />}
     </ScrollView>
   );
 });
@@ -88,7 +89,7 @@ export const FormScroll = forwardRef<ScrollViewInstance, ScrollViewProps>(functi
  * For screens laid out to fill the window instead of scrolling: an empty
  * block as tall as the keyboard, placed last so everything above moves up.
  */
-export function KeyboardGap() {
+export function KeyboardGap({ style }: { style?: StyleProp<ViewStyle> }) {
   const { height } = useKeyboard();
-  return height > 0 ? <View style={{ height }} /> : null;
+  return height > 0 ? <View style={[style, { height }]} /> : null;
 }

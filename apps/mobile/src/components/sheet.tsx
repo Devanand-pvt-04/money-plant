@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { KeyboardGap } from './keyboard';
 import { categoryStyle, type CategoryLike } from './category-style';
 import { colors, radius } from './ui';
 
@@ -14,14 +15,16 @@ export function Sheet(props: { visible: boolean; onClose: () => void; title?: st
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={props.visible} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={props.onClose}>
-      <KeyboardAvoidingView behavior="padding" style={styles.root}>
+      <View style={styles.root}>
         <Pressable accessibilityLabel="Close" style={styles.backdrop} onPress={props.onClose} />
         <View style={[styles.sheet, props.tall && styles.tall, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.handle} />
           {props.title && <Text style={styles.title}>{props.title}</Text>}
           {props.children}
         </View>
-      </KeyboardAvoidingView>
+        {/* Android draws edge to edge, so the sheet moves up above the keyboard itself. */}
+        <KeyboardGap style={styles.keyboard} />
+      </View>
     </Modal>
   );
 }
@@ -48,7 +51,8 @@ const styles = StyleSheet.create({
     gap: 12,
     maxHeight: '92%',
   },
-  tall: { height: '88%' },
+  tall: { height: '88%', flexShrink: 1 },
+  keyboard: { backgroundColor: colors.surface },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: radius.pill, backgroundColor: colors.border },
   title: { fontSize: 19, fontWeight: '700', color: colors.text, marginHorizontal: 4 },
   icon: { alignItems: 'center', justifyContent: 'center' },
