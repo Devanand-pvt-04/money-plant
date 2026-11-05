@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { FormScroll } from '@/components/keyboard';
 import { formatAmount } from '@/components/format';
 import { IouRow } from '@/components/people-rows';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, colors } from '@/components/ui';
@@ -75,7 +76,7 @@ export default function PersonDetail() {
   const closed = data.ious.filter((v) => !open.includes(v));
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       {person && (
         <View style={styles.hero}>
           <Initial name={person.account.name} size={56} />
@@ -132,7 +133,7 @@ export default function PersonDetail() {
           </Card>
         </>
       )}
-    </ScrollView>
+    </FormScroll>
   );
 }
 

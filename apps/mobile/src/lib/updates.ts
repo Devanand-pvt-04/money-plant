@@ -1,5 +1,6 @@
 import * as Updates from 'expo-updates';
 import { formatDay, formatTime } from '@/components/format';
+import { passUnlockToRestart } from './lock-pass';
 
 /** Over-the-air updates only run in release builds that have expo-updates turned on. */
 export const updatesOn = Updates.isEnabled && !__DEV__;
@@ -37,6 +38,7 @@ export function fetchLatestUpdate(force = false): Promise<UpdateCheck> {
 
 /** Restarts the app on the downloaded update. */
 export function restartToUpdate(): Promise<void> {
+  passUnlockToRestart();
   return Updates.reloadAsync();
 }
 

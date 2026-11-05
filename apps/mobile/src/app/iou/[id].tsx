@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { formatRupees, isDateKey, parseRupees } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
+import { FormScroll } from '@/components/keyboard';
 import { DateField } from '@/components/date-fields';
 import { formatAmount, formatDate, formatDateTime } from '@/components/format';
 import { dueText } from '@/components/people-rows';
@@ -58,7 +59,7 @@ export default function IouDetail() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <View style={styles.hero}>
         <Initial name={view.otherName} size={56} />
         <Text style={styles.title}>{view.direction === 'lent' ? `${view.otherName} owes you` : `You owe ${view.otherName}`}</Text>
@@ -141,7 +142,7 @@ export default function IouDetail() {
       </Card>
 
       {view.role === 'owner' && <OwnerEdit view={view} onError={fail} />}
-    </ScrollView>
+    </FormScroll>
   );
 }
 

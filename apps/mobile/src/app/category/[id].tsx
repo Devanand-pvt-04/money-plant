@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ICON_CHOICES, searchIcons } from '@money-plant/categoriser';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { FormScroll } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { categoryStyle, type IconName } from '@/components/category-style';
 import { CategoryIcon } from '@/components/sheet';
@@ -44,7 +45,7 @@ export default function CategoryDetail() {
     );
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Stack.Screen options={{ title: category.name }} />
       <View style={styles.nameRow}>
         <CategoryIcon category={typed} size={48} />
@@ -136,7 +137,7 @@ export default function CategoryDetail() {
         }}
         onClose={() => setPicking(null)}
       />
-    </ScrollView>
+    </FormScroll>
   );
 }
 

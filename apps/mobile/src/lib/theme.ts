@@ -1,6 +1,7 @@
 import { AppState, Appearance, DevSettings } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Updates from 'expo-updates';
+import { passUnlockToRestart } from './lock-pass';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type Scheme = 'light' | 'dark';
@@ -35,6 +36,8 @@ export function themePreference(): ThemePreference {
 }
 
 function restart() {
+  // Changing the look is not leaving the app, so it doesn't ask for the fingerprint again.
+  passUnlockToRestart();
   if (__DEV__) DevSettings.reload();
   else Updates.reloadAsync().catch(() => {});
 }

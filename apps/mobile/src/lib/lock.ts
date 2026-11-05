@@ -1,10 +1,9 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import { kvGet, kvSet } from './kv';
 
-const LOCK_KEY = 'lock.enabled';
+export { LOCK_AFTER_MS } from './lock-pass';
 
-/** Back from the background after this long, the app locks again. Paying in a UPI app or picking a file usually takes less. */
-export const LOCK_AFTER_MS = 60_000;
+const LOCK_KEY = 'lock.enabled';
 
 /** ACC-2: the lock is on unless the user turned it off. */
 export async function lockEnabled(): Promise<boolean> {

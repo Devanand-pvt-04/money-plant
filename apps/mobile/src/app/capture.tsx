@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react';
-import { PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { formatRupees } from '@money-plant/core';
 import { BANKS, BANK_NAMES, parseBankText, type BankId, type SmsParseResult } from '@money-plant/parser';
 import { addMonthsToDate, dateKey, type DateKey } from '@money-plant/core';
+import { FormScroll } from '@/components/keyboard';
 import { DateField } from '@/components/date-fields';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { formatDateTime } from '@/components/format';
@@ -93,7 +94,7 @@ export default function Capture() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.body}>
         Money Plant reads messages only from ICICI, HDFC, HSBC, SBI and slice. The message text stays on this phone in the
         encrypted database. Only the amount, account digits, payee and reference are synced.
@@ -191,7 +192,7 @@ export default function Capture() {
       )}
 
       <TestMessage />
-    </ScrollView>
+    </FormScroll>
   );
 }
 

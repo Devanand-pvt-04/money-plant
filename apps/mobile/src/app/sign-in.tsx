@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardGap } from '@/components/keyboard';
 import { Button, ErrorText, Field, colors } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 
@@ -42,7 +43,7 @@ export default function SignIn() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
+      <View style={styles.container}>
         <Text style={styles.title}>Money Plant</Text>
         <Text style={styles.subtitle}>
           {codeSent ? `Enter the code we emailed to ${trimmedEmail}.` : 'Sign in with your email. We will send you a code.'}
@@ -83,7 +84,8 @@ export default function SignIn() {
         )}
 
         {error && <ErrorText>{error}</ErrorText>}
-      </KeyboardAvoidingView>
+        <KeyboardGap />
+      </View>
     </SafeAreaView>
   );
 }

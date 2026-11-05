@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { dateOf, formatRupees, isDateKey, paise, parseRupees, type Paise } from '@money-plant/core';
 import type { IouDirection, LedgerTransaction } from '@money-plant/matcher';
+import { FormScroll } from '@/components/keyboard';
 import { DateField } from '@/components/date-fields';
 import { formatDate } from '@/components/format';
 import { PersonPicker } from '@/components/person-picker';
@@ -84,7 +85,7 @@ export default function NewIou() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.label}>With</Text>
       <PersonPicker
         people={people}
@@ -145,7 +146,7 @@ export default function NewIou() {
       <View style={styles.actions}>
         <Button title="Save" onPress={save} loading={saving} />
       </View>
-    </ScrollView>
+    </FormScroll>
   );
 }
 

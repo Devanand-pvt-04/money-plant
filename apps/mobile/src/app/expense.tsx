@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { SPLIT_METHOD_LABELS, formatRupees, parseRupees, splitAmount, type Paise, type SplitMethod, type SplitPart } from '@money-plant/core';
+import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount } from '@/components/format';
@@ -182,7 +183,7 @@ export default function Expense() {
 
   const account = accounts.find((b) => b.account.id === accountId);
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       <View style={styles.amountRow}>
         {fixedTotal !== null ? (
           <Text style={styles.amount}>{short(fixedTotal)}</Text>
@@ -383,7 +384,7 @@ export default function Expense() {
         }}
         onClose={() => setPicking(null)}
       />
-    </ScrollView>
+    </FormScroll>
   );
 }
 

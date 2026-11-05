@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { CategoryFlow } from '@money-plant/categoriser';
+import { FormScroll } from '@/components/keyboard';
 import { NewCategory } from '@/components/category-picker';
 import { CategoryIcon, Sheet } from '@/components/sheet';
 import { colors, radius } from '@/components/ui';
@@ -27,7 +28,7 @@ export default function Categories() {
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.container}>
+      <FormScroll contentContainerStyle={styles.container}>
         <View style={styles.segment}>
           {(['expense', 'income'] as const).map((f) => (
             <Pressable
@@ -81,7 +82,7 @@ export default function Categories() {
             </Text>
           </Pressable>
         )}
-      </ScrollView>
+      </FormScroll>
       <Sheet visible={creating} onClose={() => setCreating(false)} title={flow === 'expense' ? 'New spending category' : 'New income category'}>
         <NewCategory
           initialName={query.trim()}

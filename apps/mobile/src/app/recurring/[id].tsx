@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import {
   CADENCES,
@@ -14,6 +14,7 @@ import {
   type Cadence,
 } from '@money-plant/core';
 import type { RecurringPayment } from '@money-plant/matcher';
+import { FormScroll } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { DateField } from '@/components/date-fields';
 import { formatDate, formatDateTime } from '@/components/format';
@@ -108,7 +109,7 @@ export default function RecurringDetail() {
   const act = (work: () => Promise<void>) => () => work().then(() => router.back(), (e) => setError(String(e?.message ?? e)));
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScroll contentContainerStyle={styles.container}>
       {item && (
         <View style={styles.status}>
           <Text style={styles.statusTitle}>
@@ -204,7 +205,7 @@ export default function RecurringDetail() {
         }}
         onClose={() => setPicking(false)}
       />
-    </ScrollView>
+    </FormScroll>
   );
 }
 

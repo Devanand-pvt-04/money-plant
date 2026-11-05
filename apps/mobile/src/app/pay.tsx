@@ -8,6 +8,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTim
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { parseRupees, parseUpiUri, type Paise, type UpiPayment, type UpiStatus } from '@money-plant/core';
 import { accountLabel } from '@/components/account-picker';
+import { KeyboardGap, useKeyboard } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount, formatTime } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
@@ -196,6 +197,7 @@ function Scan({ onPayee }: { onPayee: (payment: UpiPayment) => void }) {
           </View>
         )}
       </View>
+      <KeyboardGap />
     </View>
   );
 }
@@ -238,6 +240,8 @@ function Amount(props: { payment: UpiPayment; guess: PayeeGuess | null; onBack: 
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  // While the note is typed, the phone's keyboard takes the keypad's place.
+  const typing = useKeyboard().height > 0;
   const name = payment.payeeName ?? payment.payeeVpa;
   const amount = fixed ? payment.amount! : parseRupees(text || '0');
 
@@ -319,7 +323,7 @@ function Amount(props: { payment: UpiPayment; guess: PayeeGuess | null; onBack: 
             </Text>
           </View>
         )}
-        {!fixed && (
+        {!fixed && !typing && (
           <View style={styles.keys}>
             {KEYS.map((key) => (
               <Pressable
@@ -339,6 +343,7 @@ function Amount(props: { payment: UpiPayment; guess: PayeeGuess | null; onBack: 
         <Button title={amount ? `Pay ${formatAmount(amount).replace(/\.00$/, '')}` : 'Pay'} onPress={pay} loading={paying} disabled={!amount} />
         <Text style={[styles.small, styles.centerText]}>Android asks which UPI app to open. Money Plant never moves money itself.</Text>
       </View>
+      <KeyboardGap />
     </View>
   );
 }
@@ -487,6 +492,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
         }}
         onClose={() => setPicking(false)}
       />
+      <KeyboardGap />
     </View>
   );
 }
