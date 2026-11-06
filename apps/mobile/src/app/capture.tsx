@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { PermissionsAndroid, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { formatRupees } from '@money-plant/core';
-import { BANKS, BANK_NAMES, parseBankText, type BankId, type SmsParseResult } from '@money-plant/parser';
+import { BANKS, BANK_NAMES, anonymiseSms, parseBankText, type BankId, type SmsParseResult } from '@money-plant/parser';
 import { addMonthsToDate, dateKey, type DateKey } from '@money-plant/core';
 import { FormScroll } from '@/components/keyboard';
 import { DateField } from '@/components/date-fields';
@@ -99,6 +99,10 @@ export default function Capture() {
         Money Plant reads messages only from ICICI, HDFC, HSBC, SBI and slice. The message text stays on this phone in the
         encrypted database. Only the amount, account digits, payee and reference are synced.
       </Text>
+      <Text style={styles.hint}>
+        HDFC, HSBC and SBI are new and haven't been checked against many real messages yet. If an entry looks wrong, or a
+        message shows up below as unread, share it so it gets fixed.
+      </Text>
 
       <Section title="1. SMS permission">
         {data.smsPermission ? (
@@ -176,15 +180,15 @@ export default function Capture() {
       {data.failures.length > 0 && (
         <Section title="Messages the app couldn't read">
           <Text style={styles.body}>
-            Tap one to see it. To help support it, copy it, replace your name, account digits and references, and share it
-            with Deva.
+            These never became entries, so nothing was guessed. Tap one to share an anonymised copy with Deva, so the app learns
+            to read it.
           </Text>
           {data.failures.map((f) => (
             <Pressable key={f.fingerprint} onPress={() => setExpanded(expanded === f.fingerprint ? null : f.fingerprint)} style={styles.failure}>
               <Text style={styles.statSender}>
                 {f.sender} · {formatDateTime(f.receivedAt)}
               </Text>
-              {expanded === f.fingerprint && <Text selectable style={styles.raw}>{f.rawText}</Text>}
+              {expanded === f.fingerprint && f.rawText && <ShareSample sender={f.sender} rawText={f.rawText} />}
             </Pressable>
           ))}
           <Button title="Try these again" variant="secondary" onPress={retry} loading={busy} />
@@ -193,6 +197,26 @@ export default function Capture() {
 
       <TestMessage />
     </FormScroll>
+  );
+}
+
+/**
+ * CAP-9: the one way message text leaves the phone. The phone replaces digits,
+ * names, UPI IDs and emails, shows the result for the user to check and edit,
+ * and opens the share sheet only when they tap Share. Nothing is sent on its own.
+ */
+function ShareSample({ sender, rawText }: { sender: string; rawText: string }) {
+  const [text, setText] = useState(() => anonymiseSms(rawText));
+  return (
+    <View style={styles.sample}>
+      <Text style={styles.hint}>Check it before sharing: names, account digits, amounts and references are replaced. Edit anything that still looks personal.</Text>
+      <TextInput value={text} onChangeText={setText} multiline style={styles.sampleInput} />
+      <Button
+        title="Share with Deva"
+        variant="secondary"
+        onPress={() => void Share.share({ message: `Money Plant sample (anonymised)\nSender: ${sender}\n\n${text}` })}
+      />
+    </View>
   );
 }
 
@@ -272,6 +296,18 @@ const styles = StyleSheet.create({
   statText: { fontSize: 14, color: colors.muted },
   failure: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border },
   raw: { fontSize: 13, color: colors.text, fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo', marginTop: 4 },
+  sample: { gap: 8, marginTop: 8 },
+  sampleInput: {
+    fontSize: 13,
+    color: colors.text,
+    fontFamily: Platform.OS === 'android' ? 'monospace' : 'Menlo',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: 10,
+    minHeight: 96,
+    textAlignVertical: 'top',
+  },
   input: { minHeight: 96, textAlignVertical: 'top', paddingVertical: 8 },
   actions: { marginTop: 8 },
   dates: { flexDirection: 'row', gap: 8 },
