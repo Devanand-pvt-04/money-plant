@@ -113,6 +113,11 @@ export default function Settings() {
         <Link icon="layers" title="Account types" href="/account-types" />
       </Card>
 
+      <SectionTitle>Friends</SectionTitle>
+      <Card>
+        <Link icon="user-plus" title="Invite friends" href="/friends" first />
+      </Card>
+
       <SectionTitle>Your data</SectionTitle>
       <Card>
         <Link icon="download" title="Export, clear or delete" href="/data" first />
