@@ -433,6 +433,13 @@ function applyDecision(tx: LedgerTransaction, decision: CategoryDecision): void 
   categoryLeg.accountId = decision.categoryId;
   tx.categoryReason = decision.reason;
   tx.categoryRuleId = decision.ruleId;
+  tx.note = noteFor(tx, decision);
+}
+
+/** CAT-7: a rule's or pattern's default note goes on an entry that has no note of its own. */
+export function noteFor(tx: Pick<LedgerTransaction, 'note' | 'userSetFields'>, decision: Pick<CategoryDecision, 'note'>): string | null {
+  if (tx.note || tx.userSetFields.includes('note')) return tx.note;
+  return decision.note?.trim() || tx.note;
 }
 
 /** A confident decision needs no review; a pattern match or an unsure answer waits as a suggestion. */

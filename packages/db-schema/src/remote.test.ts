@@ -192,14 +192,16 @@ describe('rule mapping', () => {
       autoConfirm: 0,
       hits: 2,
       misses: 0,
+      note: 'Office lunch',
       createdAt: '2026-10-22T10:00:00.000Z',
       updatedAt: null,
       deletedAt: null,
       dirty: 1,
       rev: 0,
     });
-    expect(remote).toMatchObject({ match: { kind: 'pattern', minAmount: 1500 }, auto_confirm: false });
+    expect(remote).toMatchObject({ match: { kind: 'pattern', minAmount: 1500 }, auto_confirm: false, note: 'Office lunch' });
     expect(fromRemoteRule({ ...remote, user_id: 'u', updated_at: 'x' }).match).toBe('{"kind":"pattern","minAmount":1500}');
+    expect(fromRemoteRule({ ...remote, user_id: 'u', updated_at: 'x' }).note).toBe('Office lunch');
   });
 });
 

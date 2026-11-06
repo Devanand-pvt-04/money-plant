@@ -19,6 +19,7 @@ import { accounts, budgets, merchantCache, postings, rules, transactions } from 
 import {
   SYSTEM_ACCOUNT_NAMES,
   decisionReview,
+  noteFor,
   looksLikePerson,
   type CategoriseRequest,
   type LedgerTransaction,
@@ -382,6 +383,7 @@ export async function recategoriseHistory(options: { only?: (tx: LedgerTransacti
       ...tx,
       categoryReason: decision.reason,
       categoryRuleId: decision.ruleId,
+      note: noteFor(tx, decision),
       postings: tx.postings.map((p, i) => (i === features.categoryPostingIndex ? { ...p, accountId: decision.categoryId } : p)),
     };
     const wasUncategorised = system.has(leg.accountId);

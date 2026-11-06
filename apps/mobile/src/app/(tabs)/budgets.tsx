@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { BUDGET_SORTS, addMonths, combineBudgets, paise, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
+import { BUDGET_SORTS, addMonths, budgetPace, combineBudgets, paise, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
 import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
@@ -316,7 +316,13 @@ function PaceNote({ line, month }: { line: BudgetLine; month: MonthKey }) {
 }
 
 function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; elapsed: number; childBudgets: boolean; open: boolean; onToggle: () => void; onSet: () => void }) {
-  const { line, month, sub } = props;
+  const { month, sub } = props;
+  // BUD-2: a category budgeted through its sub-categories paces against their budgets added up.
+  const childLimit = props.childBudgets ? sub.reduce((sum, c) => sum + (c.limit ?? 0), 0) : 0;
+  const line: BudgetLine =
+    props.childBudgets && props.line.limit === null && childLimit > 0
+      ? { ...props.line, limit: paise(childLimit), pace: budgetPace(props.line.spent, paise(childLimit), props.elapsed) }
+      : props.line;
   const category = line.category!;
   const style = categoryStyle(category);
   const status = line.pace?.status ?? 'ok';
@@ -344,7 +350,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
       </View>
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} marker={props.elapsed} />}
       <PaceNote line={line} month={month} />
-      {props.childBudgets && <Text style={styles.meta}>Budgets are on its sub-categories</Text>}
+      {props.childBudgets && <Text style={styles.meta}>Its sub-category budgets added up</Text>}
       {props.open && (
         <View style={styles.children}>
           {sub.map((child) => (

@@ -4,10 +4,13 @@ import Swipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-g
 import Feather from '@expo/vector-icons/Feather';
 import { colors, radius } from './ui';
 
+/** How far a finger must move sideways before the row moves, so a slightly slanted scroll stays a scroll. */
+const DRAG_START = 24;
+
 /**
  * LED-6: swipe right to accept an entry, and optionally left for a second
- * action such as changing its category. The buttons inside stay for anyone
- * who doesn't swipe.
+ * action such as removing it. The buttons inside stay for anyone who doesn't
+ * swipe.
  */
 export function SwipeRow(props: {
   children: ReactNode;
@@ -15,6 +18,8 @@ export function SwipeRow(props: {
   onAccept: () => void;
   otherLabel?: string;
   onOther?: () => void;
+  /** Shows the second action in red with a bin, for one that removes something (it should still ask first). */
+  otherDestructive?: boolean;
 }) {
   const { onOther, otherLabel } = props;
   const ref = useRef<SwipeableMethods>(null);
@@ -22,6 +27,8 @@ export function SwipeRow(props: {
     <Swipeable
       ref={ref}
       friction={1.5}
+      dragOffsetFromLeft={DRAG_START}
+      dragOffsetFromRight={-DRAG_START}
       leftThreshold={96}
       rightThreshold={96}
       overshootLeft={false}
@@ -35,15 +42,15 @@ export function SwipeRow(props: {
       renderRightActions={
         onOther
           ? () => (
-              <View style={[styles.action, styles.other]}>
-                <Text style={styles.otherText}>{otherLabel}</Text>
-                <Feather name="tag" size={20} color={colors.text} />
+              <View style={[styles.action, styles.other, props.otherDestructive && styles.destructive]}>
+                <Text style={[styles.otherText, props.otherDestructive && styles.destructiveText]}>{otherLabel}</Text>
+                <Feather name={props.otherDestructive ? 'trash-2' : 'tag'} size={20} color={props.otherDestructive ? colors.onInk : colors.text} />
               </View>
             )
           : undefined
       }
       onSwipeableOpen={(direction) => {
-        // An accepted entry leaves the list; the other action opens a picker, so the row closes behind it.
+        // An accepted entry leaves the list; the other action asks or opens something first, so the row closes behind it.
         if (direction === SwipeDirection.RIGHT) return props.onAccept();
         ref.current?.close();
         onOther?.();
@@ -60,4 +67,6 @@ const styles = StyleSheet.create({
   acceptText: { fontSize: 15, fontWeight: '600', color: colors.onInk },
   other: { backgroundColor: colors.subtle, justifyContent: 'flex-end' },
   otherText: { fontSize: 15, fontWeight: '600', color: colors.text },
+  destructive: { backgroundColor: colors.danger },
+  destructiveText: { color: colors.onInk },
 });
