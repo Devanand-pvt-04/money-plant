@@ -23,7 +23,6 @@ import {
   type AccountBalance,
   type TransactionRow,
 } from '@/lib/ledger';
-import { repaymentGuesses, type RepaymentGuess } from '@/lib/ious';
 import { listRecurring } from '@/lib/recurring';
 import { listRules } from '@/lib/rules-store';
 import type { RecurringPayment } from '@money-plant/matcher';
@@ -53,8 +52,7 @@ async function load() {
       category: names.get(rule.categoryId) ?? 'a category',
     }));
   const suggested = recurring.filter((r) => r.status === 'proposed');
-  const guesses = await repaymentGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, RepaymentGuess>());
-  return { pending, gaps: balances.filter((b) => b.reconciliation?.flagged), proposals, suggested, guesses };
+  return { pending, gaps: balances.filter((b) => b.reconciliation?.flagged), proposals, suggested };
 }
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
@@ -67,7 +65,6 @@ export default function Review() {
       gaps: [] as AccountBalance[],
       proposals: [] as Proposal[],
       suggested: [] as RecurringPayment[],
-      guesses: new Map<string, RepaymentGuess>(),
     },
     'review',
   );
@@ -109,22 +106,13 @@ export default function Review() {
             </View>
           ) : undefined
         }
-        renderItem={({ item }) => <ReviewCard row={item} guess={data.guesses.get(item.tx.id) ?? null} onChangeCategory={change} />}
+        renderItem={({ item }) => <ReviewCard row={item} onChangeCategory={change} />}
       />
     </>
   );
 }
 
-function ReviewCard({
-  row,
-  guess,
-  onChangeCategory,
-}: {
-  row: TransactionRow;
-  /** IOU-4: someone with an open loan of exactly this amount. */
-  guess: RepaymentGuess | null;
-  onChangeCategory: (id: string, flow: 'expense' | 'income', merchant: string | null) => void;
-}) {
+function ReviewCard({ row, onChangeCategory }: { row: TransactionRow; onChangeCategory: (id: string, flow: 'expense' | 'income', merchant: string | null) => void }) {
   const { tx, legs } = row;
   const isTransfer = tx.kind === 'transfer';
   const amount = displayAmount(row);
@@ -179,27 +167,12 @@ function ReviewCard({
             <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={accept} />
           </View>
         </View>
-        {guess && legs[0] && (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push(`/iou/repay?from=${tx.id}&person=${guess.personId}`)}
-            style={({ pressed }) => [styles.guess, pressed && styles.guessPressed]}
-          >
-            <Feather name="corner-down-left" size={16} color={colors.primary} />
-            <Text style={styles.guessText}>{legs[0].amount > 0 ? `Is this ${guess.name} paying you back?` : `Is this you paying ${guess.name} back?`}</Text>
-          </Pressable>
-        )}
-        {/* IOU-1, IOU-4, SPL-1: a payment to or from a person is often a loan, a repayment or a shared bill. */}
+        {/* IOU-1, SPL-1: a payment to or from a person is often a loan or a shared bill. */}
         {tx.reviewReason === 'person' && legs[0] && (
           <View style={styles.links}>
             <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/new?from=${tx.id}`)}>
               <Text style={styles.link}>{legs[0].amount < 0 ? 'I lent this' : 'I borrowed this'}</Text>
             </Pressable>
-            {!guess && (
-              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/repay?from=${tx.id}`)}>
-                <Text style={styles.link}>{legs[0].amount > 0 ? 'Paid me back' : 'I paid back'}</Text>
-              </Pressable>
-            )}
             {tx.kind === 'expense' && (
               <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/expense?from=${tx.id}`)}>
                 <Text style={styles.link}>Split it</Text>
@@ -413,9 +386,6 @@ const styles = StyleSheet.create({
   action: { flex: 1 },
   links: { flexDirection: 'row', justifyContent: 'center', gap: 24 },
   link: { fontSize: 14, fontWeight: '600', color: colors.primary, paddingVertical: 4 },
-  guess: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: colors.subtle },
-  guessPressed: { backgroundColor: colors.pressed },
-  guessText: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.primary },
   quiet: { alignSelf: 'center', paddingVertical: 4 },
   quietText: { fontSize: 13, fontWeight: '500', color: colors.muted },
   done: { alignItems: 'center', gap: 10, marginTop: 96, paddingHorizontal: 40 },

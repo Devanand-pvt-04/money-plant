@@ -14,7 +14,6 @@ import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { useCategoryChange } from '@/components/use-category-change';
 import { whyLabel } from '@/components/why';
 import { confirmEntry, editEntry } from '@/lib/entries';
-import { repaymentOptions } from '@/lib/ious';
 import { deleteTransaction, getTransaction, splitTransfer, type TransactionRow } from '@/lib/ledger';
 import { getRule } from '@/lib/rules-store';
 import { useLedger } from '@/lib/use-ledger';
@@ -62,21 +61,6 @@ export default function TransactionDetail() {
     if (ruleId) getRule(ruleId).then(setRule);
     else setRule(null);
   }, [ruleId]);
-
-  // IOU-4: offer "Paid me back" when someone has an open loan this entry could settle.
-  const [repayable, setRepayable] = useState(false);
-  const plain = row !== null && (row.tx.kind === 'expense' || row.tx.kind === 'income') && row.tx.postings.length === 2;
-  useEffect(() => {
-    if (!plain) return setRepayable(false);
-    let live = true;
-    repaymentOptions(id).then(
-      (r) => live && setRepayable(r.options.length > 0),
-      () => live && setRepayable(false),
-    );
-    return () => {
-      live = false;
-    };
-  }, [id, plain]);
 
   if (!row) return null;
   const { tx } = row;
@@ -192,9 +176,6 @@ export default function TransactionDetail() {
           {(canSplit || split) && <Action icon="users" title={split ? 'Change split' : 'Split'} onPress={() => router.push(`/expense?from=${tx.id}`)} />}
           {canRecur && <Action icon="repeat" title="Recurring" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />}
           {canLend && <Action icon="corner-up-right" title={row.legs[0]!.amount < 0 ? 'I lent it' : 'I borrowed it'} onPress={() => router.push(`/iou/new?from=${tx.id}`)} />}
-          {canLend && repayable && (
-            <Action icon="corner-down-left" title={row.legs[0]!.amount > 0 ? 'Paid me back' : 'I paid back'} onPress={() => router.push(`/iou/repay?from=${tx.id}`)} />
-          )}
         </View>
       )}
 

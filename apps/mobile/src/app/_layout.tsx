@@ -122,7 +122,6 @@ export default function RootLayout() {
             <Stack.Screen name="person/[id]" options={{ title: 'Person' }} />
             <Stack.Screen name="iou/new" options={{ title: 'Record a loan', presentation: 'modal' }} />
             <Stack.Screen name="iou/[id]" options={{ title: 'IOU' }} />
-            <Stack.Screen name="iou/repay" options={{ title: 'Repayment', presentation: 'modal' }} />
             <Stack.Screen name="expense" options={{ title: 'Add expense', presentation: 'modal' }} />
             <Stack.Screen name="group/[id]" options={{ title: 'Group' }} />
             <Stack.Screen name="group/edit" options={{ title: 'Group', presentation: 'modal' }} />

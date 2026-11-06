@@ -1,10 +1,9 @@
 import * as Crypto from 'expo-crypto';
-import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { paise, type Paise } from '@money-plant/core';
-import { accounts, ious, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
-import { findPerson, payeeKey } from '@money-plant/matcher';
+import { accounts, ious, personContacts, postings, transactions, type LocalAccount } from '@money-plant/db-schema';
+import { findPerson } from '@money-plant/matcher';
 import { getDb } from './db';
-import { kvGet, kvSet } from './kv';
 import { notifyLedgerChange } from './events';
 import { isVpa } from './me';
 
@@ -104,106 +103,18 @@ export async function updatePerson(id: string, input: PersonInput): Promise<void
   notifyLedgerChange();
 }
 
-const ALIASES_KEY = 'people.aliases';
-
-/**
- * IOU-4: payee names the user linked to a person (payeeKey to person id), so
- * "GOBAL NAIR" on a bank SMS is recognised as Gobal next time. Kept on this
- * phone only, like contact links (SPL-4).
- */
-export async function payeeAliases(): Promise<Map<string, string>> {
-  try {
-    const raw = await kvGet(ALIASES_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
-    if (!parsed || typeof parsed !== 'object') return new Map();
-    return new Map(Object.entries(parsed as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'));
-  } catch {
-    return new Map();
-  }
-}
-
-async function saveAliases(aliases: ReadonlyMap<string, string>): Promise<void> {
-  await kvSet(ALIASES_KEY, JSON.stringify(Object.fromEntries(aliases)));
-}
-
-/** The person a payee is, by UPI ID, a name linked before, or the exact name. Null when no one matches; nothing is created. */
-export async function findPersonForPayee(payee: { name: string | null; vpa: string | null }): Promise<string | null> {
-  const [people, aliases] = await Promise.all([listPeople(), payeeAliases()]);
+/** The person a payee is, by UPI ID or exact name, or a new one. */
+export async function personForPayee(payee: { name: string; vpa: string | null }): Promise<string> {
+  const people = await listPeople();
   const found = findPerson(
     people.map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa })),
     payee,
-    aliases,
   );
-  return found?.id ?? null;
-}
-
-/**
- * The user said a payment was to or from this person: remember the payee's
- * name and UPI ID for them, so the next payment is recognised (IOU-4). A UPI
- * ID already on someone else is left alone.
- */
-export async function rememberPayee(personId: string, payee: { name: string | null; vpa: string | null }): Promise<void> {
-  const people = await listPeople();
-  const person = people.find((p) => p.account.id === personId);
-  if (!person) return;
-  const key = payee.name ? payeeKey(payee.name) : '';
-  if (key && key !== payeeKey(person.account.name)) {
-    const aliases = await payeeAliases();
-    if (aliases.get(key) !== personId) {
-      aliases.set(key, personId);
-      await saveAliases(aliases);
-    }
+  if (found) {
+    const person = people.find((p) => p.account.id === found.id)!;
+    // Learn their UPI ID from the payment, so the next one is recognised and pay links work.
+    if (!person.account.vpa && payee.vpa) await updatePerson(found.id, { name: person.account.name, vpa: payee.vpa, email: person.account.email });
+    return found.id;
   }
-  const vpa = payee.vpa?.trim().toLowerCase();
-  if (vpa && isVpa(vpa) && !person.account.vpa && !people.some((p) => p.account.vpa?.toLowerCase() === vpa)) {
-    await updatePerson(personId, { name: person.account.name, vpa, email: person.account.email });
-  }
-}
-
-/** Whether anything refers to this person: an entry, an IOU, a split group or a friend link. */
-export async function personInUse(id: string): Promise<boolean> {
-  const db = await getDb();
-  const account = db.select().from(accounts).where(eq(accounts.id, id)).get();
-  if (!account || account.email || account.openingBalancePaise !== 0) return true;
-  const posting = db
-    .select({ id: postings.id })
-    .from(postings)
-    .innerJoin(transactions, eq(transactions.id, postings.transactionId))
-    .where(and(eq(postings.accountId, id), isNull(transactions.deletedAt)))
-    .get();
-  if (posting) return true;
-  const iou = db
-    .select({ id: ious.id })
-    .from(ious)
-    .where(and(isNull(ious.deletedAt), or(eq(ious.personAccountId, id), eq(ious.counterpartyPersonAccountId, id))))
-    .get();
-  if (iou) return true;
-  return db
-    .select({ members: splitGroups.memberAccountIds })
-    .from(splitGroups)
-    .where(isNull(splitGroups.deletedAt))
-    .all()
-    .some((g) => {
-      try {
-        return (JSON.parse(g.members) as unknown[]).includes(id);
-      } catch {
-        return false;
-      }
-    });
-}
-
-/** Removes a person nothing refers to, such as one added by mistake. */
-export async function removePerson(id: string): Promise<void> {
-  if (await personInUse(id)) throw new Error('They still have entries, IOUs, groups or a friend link, so they stay');
-  const db = await getDb();
-  db.update(accounts)
-    .set({ deletedAt: new Date().toISOString(), dirty: 1, rev: sql`${accounts.rev} + 1` })
-    .where(eq(accounts.id, id))
-    .run();
-  db.delete(personContacts).where(eq(personContacts.personAccountId, id)).run();
-  const aliases = await payeeAliases();
-  let changed = false;
-  for (const [key, personId] of aliases) if (personId === id && aliases.delete(key)) changed = true;
-  if (changed) await saveAliases(aliases);
-  notifyLedgerChange();
+  return createPerson({ name: payee.name, vpa: payee.vpa && isVpa(payee.vpa) ? payee.vpa : null });
 }

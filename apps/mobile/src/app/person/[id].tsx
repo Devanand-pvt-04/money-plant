@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, Share, StyleSheet, Text, View } from 'react-native';
+import { Platform, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
 import { formatAmount } from '@/components/format';
@@ -10,7 +10,7 @@ import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/li
 import { getMe } from '@/lib/me';
 import { markInvited } from '@/lib/setup';
 import { listIous, type IouView } from '@/lib/ious';
-import { createPerson, getPerson, personInUse, removePerson, updatePerson, type Person } from '@/lib/people';
+import { createPerson, getPerson, updatePerson, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -20,11 +20,11 @@ export default function PersonDetail() {
   const navigation = useNavigation();
   const isNew = id === 'new';
   const load = useCallback(async () => {
-    if (isNew) return { person: null, ious: [] as IouView[], inUse: true };
-    const [person, all, inUse] = await Promise.all([getPerson(id), listIous(), personInUse(id)]);
-    return { person, ious: all.filter((v) => v.personId === id), inUse };
+    if (isNew) return { person: null, ious: [] as IouView[] };
+    const [person, all] = await Promise.all([getPerson(id), listIous()]);
+    return { person, ious: all.filter((v) => v.personId === id) };
   }, [id, isNew]);
-  const { data } = useLedger(load, { person: null as Person | null, ious: [] as IouView[], inUse: true });
+  const { data } = useLedger(load, { person: null as Person | null, ious: [] as IouView[] });
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
   const [email, setEmail] = useState('');
@@ -41,22 +41,6 @@ export default function PersonDetail() {
     if (!savedEmail) return setLink(undefined);
     linkForEmail(savedEmail).then(setLink, () => setLink(undefined));
   }, [savedEmail]);
-
-  function confirmRemove() {
-    if (!data.person) return;
-    Alert.alert(`Remove ${data.person.account.name}?`, 'Use this for someone added by mistake.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () =>
-          removePerson(id).then(
-            () => router.back(),
-            (e) => setError(e instanceof Error ? e.message : String(e)),
-          ),
-      },
-    ]);
-  }
 
   async function invite() {
     if (!savedEmail) return;
@@ -185,13 +169,6 @@ export default function PersonDetail() {
             ))}
           </Card>
         </>
-      )}
-
-      {person && !data.inUse && (
-        <View style={styles.actions}>
-          <Button title="Remove person" variant="secondary" onPress={confirmRemove} />
-          <Text style={styles.hint}>They have no entries, IOUs or groups, so removing them changes nothing else.</Text>
-        </View>
       )}
     </FormScroll>
   );
