@@ -217,7 +217,19 @@ export function importRange(from: DateKey, to: DateKey, onProgress?: (progress: 
 }
 
 export async function hasImportedInbox(): Promise<boolean> {
-  return (await kvGet(INBOX_CURSOR_KEY)) !== null;
+  if ((await kvGet(INBOX_CURSOR_KEY)) !== null) return true;
+  // The cursor goes when the phone's data is cleared, but bank SMS read live since then still
+  // count: start catch-up from the newest one instead of asking for a first import again.
+  const db = await getDb();
+  const newest = db
+    .select({ at: sql<string | null>`max(${sources.receivedAt})` })
+    .from(sources)
+    .where(eq(sources.kind, 'sms'))
+    .get()?.at;
+  const millis = newest ? Date.parse(newest) : NaN;
+  if (!Number.isFinite(millis)) return false;
+  await kvSet(INBOX_CURSOR_KEY, String(millis));
+  return true;
 }
 
 /** Bump when a parser change can find payees it missed before, so entries get them on the next start. */
