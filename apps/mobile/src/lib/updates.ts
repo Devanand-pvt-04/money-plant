@@ -1,3 +1,4 @@
+import { DevSettings } from 'react-native';
 import * as Updates from 'expo-updates';
 import { formatDay, formatTime } from '@/components/format';
 import { passUnlockToRestart } from './lock-pass';
@@ -42,6 +43,15 @@ export function restartToUpdate(): Promise<void> {
   passUnlockToRestart();
   // The reload screen is white unless told otherwise.
   return Updates.reloadAsync({ reloadScreenOptions: { backgroundColor: restartScreenColor(), fade: true, spinner: { enabled: false } } });
+}
+
+/** Restarts the JavaScript on whatever update is newest, for a start that seems stuck. */
+export function restartApp(): Promise<void> {
+  if (__DEV__ || !Updates.isEnabled) {
+    DevSettings.reload();
+    return Promise.resolve();
+  }
+  return Updates.reloadAsync({ reloadScreenOptions: { backgroundColor: restartScreenColor(), spinner: { enabled: true } } });
 }
 
 /** What is running, for Settings: "0.8.0 · production · updated Mon, 3 Nov, 10:30 am". */
