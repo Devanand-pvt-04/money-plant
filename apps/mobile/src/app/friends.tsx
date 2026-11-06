@@ -16,6 +16,7 @@ import {
   type Invite,
 } from '@/lib/friends';
 import { getMe } from '@/lib/me';
+import { markInvited } from '@/lib/setup';
 import { supabase } from '@/lib/supabase';
 
 /** ACC-8 and ACC-9: invite friends by email, answer friend requests, and see who you're linked with. */
@@ -62,6 +63,7 @@ export default function Friends() {
     try {
       const result = await inviteFriend(to);
       setEmail('');
+      void markInvited();
       if (result === 'invited') {
         await share(to);
         setNote(`Invited ${to}. They can sign in once they install the app.`);
