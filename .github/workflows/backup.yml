@@ -1,0 +1,58 @@
+name: Weekly backup
+
+# Decision 0016: the database is dumped every Sunday, encrypted with an age
+# public key, and kept as a build artifact for 90 days (about 12 weeks). Only
+# Deva's private key, kept offline, can open it, so GitHub holds unreadable
+# files. Needs two repository secrets (Settings -> Secrets and variables ->
+# Actions): SUPABASE_DB_URL, the Session pooler URI with the password, and
+# BACKUP_AGE_RECIPIENT, the age public key (age1...). See scripts/backup/README.md.
+
+on:
+  schedule:
+    - cron: '30 5 * * 0' # Sundays 11:00 in India
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Install pg_dump 17 and age
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common age
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+      - name: Dump and encrypt
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DB_URL" ] || [ -z "$RECIPIENT" ]; then
+            echo "::error::Set the SUPABASE_DB_URL and BACKUP_AGE_RECIPIENT secrets (scripts/backup/README.md)"
+            exit 1
+          fi
+          day=$(date -u +%F)
+          mkdir -p out
+          # Nothing unencrypted ever touches the disk: pg_dump writes straight into age.
+          /usr/lib/postgresql/17/bin/pg_dump --dbname="$DB_URL" --format=custom --no-owner --no-privileges --schema=public \
+            | age -r "$RECIPIENT" -o "out/money-plant-$day.dump.age"
+          /usr/lib/postgresql/17/bin/pg_dump --dbname="$DB_URL" --format=custom --no-owner --no-privileges --data-only --table=auth.users \
+            | age -r "$RECIPIENT" -o "out/money-plant-$day-users.dump.age"
+          ls -l out
+          echo "DAY=$day" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: money-plant-backup-${{ env.DAY }}
+          path: out/
+          retention-days: 90
+          if-no-files-found: error
+          compression-level: 0
