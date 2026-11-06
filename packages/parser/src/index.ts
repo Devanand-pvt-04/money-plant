@@ -6,3 +6,4 @@ export { TEMPLATES } from './templates';
 export * from './predebit';
 export { cleanCounterparty } from './extract';
 export * from './statement';
+export { anonymiseSms } from './anonymise';
