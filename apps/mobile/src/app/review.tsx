@@ -132,12 +132,18 @@ function ReviewCard({
   const why = whyLabel(tx, row.aiConfidence);
   const change = () => onChangeCategory(tx.id, tx.kind === 'income' ? 'income' : 'expense', tx.counterparty);
   const accept = () => confirmEntry(tx.id).catch((e) => Alert.alert("Couldn't save", String(e?.message ?? e)));
+  const confirmRemove = () =>
+    Alert.alert('Remove this entry?', 'Use this for messages that were not a real payment.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
+    ]);
   return (
     <SwipeRow
       acceptLabel={isTransfer ? 'Transfer' : 'Looks right'}
       onAccept={accept}
-      otherLabel={isTransfer ? undefined : 'Change'}
-      onOther={isTransfer ? undefined : change}
+      otherLabel={isTransfer ? undefined : 'Remove'}
+      onOther={isTransfer ? undefined : confirmRemove}
+      otherDestructive
     >
       <Card style={styles.card}>
         <Pressable accessibilityRole="button" onPress={() => router.push(`/transaction/${tx.id}`)} style={styles.top}>
@@ -212,12 +218,7 @@ function ReviewCard({
             accessibilityRole="button"
             hitSlop={8}
             style={styles.quiet}
-            onPress={() =>
-              Alert.alert('Remove this entry?', 'Use this for messages that were not a real payment.', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Remove', style: 'destructive', onPress: () => deleteTransaction(tx.id) },
-              ])
-            }
+            onPress={confirmRemove}
           >
             <Text style={styles.quietText}>Not a real payment</Text>
           </Pressable>

@@ -54,6 +54,8 @@ export interface Rule {
   autoConfirm: boolean;
   hits: number;
   misses: number;
+  /** CAT-7: a note added to entries this rule or pattern categorises, when they have none. */
+  note?: string | null;
 }
 
 /** What the categoriser knows about an entry. Amount is always positive. */

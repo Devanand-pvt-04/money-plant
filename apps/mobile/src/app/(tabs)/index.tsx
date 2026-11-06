@@ -245,9 +245,9 @@ type FeatherName = React.ComponentProps<typeof Feather>['name'];
 
 /** HOME-1: the four things a user starts from Home. Scan & pay needs the Android UPI hand-off. */
 function Shortcuts({ pending }: { pending: number }) {
-  const items: { icon: FeatherName; label: string; href: '/pay' | '/quick-add' | '/review' | '/expense'; count?: number }[] = [
+  // Adding an entry is the floating + on every tab, so it isn't repeated here.
+  const items: { icon: FeatherName; label: string; href: '/pay' | '/review' | '/expense'; count?: number }[] = [
     ...(Platform.OS === 'android' ? [{ icon: 'maximize' as const, label: 'Scan & pay', href: '/pay' as const }] : []),
-    { icon: 'plus', label: 'Add', href: '/quick-add' },
     { icon: 'check-square', label: 'Review', href: '/review', count: pending },
     { icon: 'users', label: 'Split', href: '/expense' },
   ];

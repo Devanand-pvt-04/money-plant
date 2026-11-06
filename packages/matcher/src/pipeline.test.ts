@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { paise } from '@money-plant/core';
 import { normaliseSender, parseNotification, parseSms, parseStatementRow } from '@money-plant/parser';
 import { MemoryStore } from './memory-store';
-import { checkTransaction, ingestNotification, ingestSms, ingestStatementRow, type PipelineContext } from './pipeline';
+import { checkTransaction, ingestNotification, ingestSms, ingestStatementRow, noteFor, type PipelineContext } from './pipeline';
 
 function setup() {
   const store = new MemoryStore();
@@ -272,5 +272,15 @@ describe('ingestStatementRow (CAP-5)', () => {
     expect(store.balance(account.id)).toBe(-14000);
     const added = store.live().find((tx) => tx.sources.every((s) => s.kind === 'statement'))!;
     expect(added).toMatchObject({ kind: 'expense', counterparty: 'ANNA IDLI', occurredAt: '2026-10-21T12:00:00.000Z' });
+  });
+});
+
+describe('default notes from rules and patterns (CAT-7)', () => {
+  it('adds the note only to an entry without one', () => {
+    expect(noteFor({ note: null, userSetFields: [] }, { note: 'Office lunch' })).toBe('Office lunch');
+    expect(noteFor({ note: 'Team treat', userSetFields: [] }, { note: 'Office lunch' })).toBe('Team treat');
+    expect(noteFor({ note: null, userSetFields: ['note'] }, { note: 'Office lunch' })).toBeNull();
+    expect(noteFor({ note: null, userSetFields: [] }, { note: '  ' })).toBeNull();
+    expect(noteFor({ note: null, userSetFields: [] }, {})).toBeNull();
   });
 });

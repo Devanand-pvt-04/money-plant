@@ -184,6 +184,8 @@ export const rules = sqliteTable(
     autoConfirm: integer('auto_confirm').notNull().default(1),
     hits: integer('hits').notNull().default(0),
     misses: integer('misses').notNull().default(0),
+    /** CAT-7: added to entries it categorises that have no note. */
+    note: text('note'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -822,4 +824,6 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     nav TEXT
   );
   CREATE INDEX fund_transactions_account_idx ON fund_transactions (account_id);`,
+  // CAT-7: a default note on rules and patterns.
+  `ALTER TABLE rules ADD COLUMN note TEXT;`,
 ];

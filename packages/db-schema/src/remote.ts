@@ -349,6 +349,7 @@ export interface RemoteRule {
   auto_confirm: boolean;
   hits: number;
   misses: number;
+  note: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -364,6 +365,7 @@ export function toRemoteRule(row: LocalRule): Omit<RemoteRule, 'user_id' | 'upda
     auto_confirm: row.autoConfirm === 1,
     hits: row.hits,
     misses: row.misses,
+    note: row.note,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -379,6 +381,7 @@ export function fromRemoteRule(row: RemoteRule): LocalRule {
     autoConfirm: row.auto_confirm ? 1 : 0,
     hits: Number(row.hits),
     misses: Number(row.misses),
+    note: row.note ?? null,
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
