@@ -10,7 +10,8 @@ import { PersonPicker } from '@/components/person-picker';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { createIou, loanCandidates, type EntryLink } from '@/lib/ious';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
-import { listPeople, personForPayee, type Person } from '@/lib/people';
+import { createPerson, findPersonForPayee, listPeople, type Person } from '@/lib/people';
+import { isVpa } from '@/lib/me';
 import { today } from '@/lib/recurring';
 
 const linkKey = (link: EntryLink | null) => (link === null ? '' : 'existingId' in link ? `tx:${link.existingId}` : `acc:${link.accountId}`);
@@ -23,7 +24,14 @@ export default function NewIou() {
   const params = useLocalSearchParams<{ from?: string; person?: string }>();
   const [people, setPeople] = useState<Person[]>([]);
   const [accounts, setAccounts] = useState<AccountBalance[]>([]);
-  const [personId, setPersonId] = useState<string | null>(params.person ?? null);
+  const [personId, setPersonIdState] = useState<string | null>(params.person ?? null);
+  // The entry's payee when they aren't one of the user's people yet: created only on save.
+  const [draft, setDraft] = useState<{ name: string; vpa: string | null } | null>(null);
+  const [draftSelected, setDraftSelected] = useState(false);
+  const setPersonId = (id: string | null) => {
+    setPersonIdState(id);
+    if (id) setDraftSelected(false);
+  };
   const [direction, setDirection] = useState<IouDirection>('lent');
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
@@ -51,9 +59,14 @@ export default function NewIou() {
       setAmount(formatRupees(paise(Math.abs(own.amount)), { symbol: false }).replace(/,/g, ''));
       setOccurredOn(dateOf(row.tx.occurredAt));
       if (!params.person && row.tx.counterparty) {
-        const vpa = row.tx.sources.find((s) => s.kind === 'sms')?.parsedFields.vpa;
-        setPersonId(await personForPayee({ name: row.tx.counterparty, vpa: typeof vpa === 'string' ? vpa : null }));
-        await reloadPeople();
+        const smsVpa = row.tx.sources.find((s) => s.kind === 'sms')?.parsedFields.vpa;
+        const payee = { name: row.tx.counterparty, vpa: typeof smsVpa === 'string' && isVpa(smsVpa) ? smsVpa : null };
+        const found = await findPersonForPayee(payee);
+        if (found) setPersonId(found);
+        else {
+          setDraft(payee);
+          setDraftSelected(true);
+        }
       }
     })();
   }, [params.from, params.person, reloadPeople]);
@@ -66,15 +79,23 @@ export default function NewIou() {
   }, [fromTx, parsed, direction, occurredOn]);
 
   async function save() {
-    if (!personId) return setError('Pick who it is with');
+    if (!personId && !(draft && draftSelected)) return setError('Pick who it is with');
     if (parsed === null || parsed <= 0) return setError('Enter the amount as a number above zero');
     if (!isDateKey(occurredOn.trim())) return setError('Enter the date as YYYY-MM-DD');
     if (dueDate.trim() && !isDateKey(dueDate.trim())) return setError('Enter the due date as YYYY-MM-DD, or leave it empty');
     if (!link) return setError(direction === 'lent' ? 'Pick where the money went out from' : 'Pick where the money came in');
     setSaving(true);
     try {
+      let who = personId;
+      if (!who) {
+        who = await createPerson({ name: draft!.name, vpa: draft!.vpa });
+        // Kept, so trying again after an error doesn't add them twice.
+        setDraft(null);
+        setPersonId(who);
+        await reloadPeople();
+      }
       const id = await createIou(
-        { personId, direction, amount: parsed, reason: reason.trim() || null, occurredOn: occurredOn.trim(), dueDate: dueDate.trim() || null },
+        { personId: who, direction, amount: parsed, reason: reason.trim() || null, occurredOn: occurredOn.trim(), dueDate: dueDate.trim() || null },
         link,
       );
       router.replace(`/iou/${id}`);
@@ -92,6 +113,18 @@ export default function NewIou() {
         selected={personId ? [personId] : []}
         onToggle={(id) => setPersonId(id === personId ? null : id)}
         onCreated={(id) => reloadPeople().then(() => setPersonId(id))}
+        draft={
+          draft
+            ? {
+                name: draft.name,
+                selected: draftSelected && !personId,
+                onToggle: () => {
+                  setDraftSelected(!(draftSelected && !personId));
+                  setPersonIdState(null);
+                },
+              }
+            : null
+        }
       />
 
       <Text style={styles.label}>What happened</Text>
