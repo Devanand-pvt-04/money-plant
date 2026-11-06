@@ -8,6 +8,7 @@ import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, col
 import { contactById, pickContact } from '@/lib/contacts';
 import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/lib/friends';
 import { getMe } from '@/lib/me';
+import { markInvited } from '@/lib/setup';
 import { listIous, type IouView } from '@/lib/ious';
 import { createPerson, getPerson, updatePerson, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
@@ -47,6 +48,7 @@ export default function PersonDetail() {
     setError(null);
     try {
       const result = await inviteFriend(savedEmail);
+      void markInvited();
       if (result === 'invited') await Share.share({ message: inviteMessage(savedEmail, await getMe()) });
       setLink(await linkForEmail(savedEmail));
     } catch (e) {

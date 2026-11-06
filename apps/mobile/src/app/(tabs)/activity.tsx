@@ -269,7 +269,7 @@ export default function Activity() {
             </View>
           );
         }}
-        ListEmptyComponent={<Text style={styles.empty}>{data.rows.length === 0 ? 'No entries yet.' : 'Nothing matches.'}</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>{data.rows.length === 0 ? 'No entries yet. They appear as your bank SMS arrive, or tap + on Home to add one.' : 'Nothing matches.'}</Text>}
       />
       <FilterSheet
         visible={filtering}

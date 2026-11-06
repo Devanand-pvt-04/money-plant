@@ -4,6 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMonth, formatWholeRupees, reviewTime } from '@/components/format';
+import { SetupCard } from '@/components/setup-card';
 import { TransactionItem } from '@/components/transaction-item';
 import { Avatar, useMe } from '@/components/avatar';
 import { ErrorText, MoneyCard, ProgressBar, colors, figures, radius } from '@/components/ui';
@@ -14,6 +15,7 @@ import { countPending, listAccountBalances, listTransactions, type AccountBalanc
 import { displayName } from '@/lib/me';
 import { owedSummary, type OwedSummary } from '@/lib/ious';
 import { catchUpDue, usePullToRefresh } from '@/lib/refresh';
+import { setupState, type SetupState } from '@/lib/setup';
 import { useLedger } from '@/lib/use-ledger';
 import { weekAhead, type DueItem } from '@/lib/week';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-reader';
@@ -29,7 +31,7 @@ async function loadHome() {
     categoriesReady = true;
   }
   const month = currentMonth();
-  const [balances, pending, imported, overview, income, week, recent, owed] = await Promise.all([
+  const [balances, pending, imported, overview, income, week, recent, owed, setup] = await Promise.all([
     listAccountBalances(),
     countPending(),
     hasImportedInbox(),
@@ -38,8 +40,9 @@ async function loadHome() {
     weekAhead(),
     listTransactions({ limit: 3 }),
     owedSummary(),
+    setupState().catch(() => null),
   ]);
-  return { balances, pending, imported, month: overview.overall, outside: overview.outside, elapsed: overview.elapsed, income, week, recent, owed };
+  return { balances, pending, imported, month: overview.overall, outside: overview.outside, elapsed: overview.elapsed, income, week, recent, owed, setup };
 }
 
 function greeting(now: Date): string {
@@ -63,6 +66,7 @@ export default function Home() {
       week: { days: [] as string[], items: [] as DueItem[] },
       recent: [] as TransactionRow[],
       owed: null as OwedSummary | null,
+      setup: null as SetupState | null,
     },
     'home',
   );
@@ -119,6 +123,8 @@ export default function Home() {
         {data.month && <MonthCard line={data.month} outside={data.outside} income={data.income} elapsed={data.elapsed} />}
 
         <Shortcuts pending={data.pending} />
+
+        {data.setup && <SetupCard state={data.setup} onChange={reload} />}
 
         {flagged > 0 && (
           <Pressable accessibilityRole="button" onPress={() => router.push('/accounts')} style={({ pressed }) => [styles.notice, pressed && styles.pressed]}>
