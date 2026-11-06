@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { paise, validatePostings } from '@money-plant/core';
 import { matchContact, mobileFromVpa } from './contacts';
-import { allocateRepayment, findPerson, matchRepayment, outstanding, paidByOtherPostings, splitPostings, type Iou } from './ious';
+import { allocateRepayment, findPerson, matchRepayment, outstanding, paidByOtherPostings, payeeKey, splitPostings, type Iou } from './ious';
 
 const iou = (id: string, rupees: number, extra: Partial<Iou> = {}): Iou => ({
   id,
@@ -70,6 +70,14 @@ describe('matchRepayment (IOU-4)', () => {
     expect(matchRepayment({ direction: 'credit', amount: paise(250000), vpa: 'ravi@okicici', name: null }, people, open)).toBeNull();
     expect(matchRepayment({ direction: 'debit', amount: paise(1000), vpa: 'ravi@okicici', name: null }, people, open)).toBeNull();
     expect(matchRepayment({ direction: 'credit', amount: paise(1000), vpa: 'x@ybl', name: 'Someone Else' }, people, open)).toBeNull();
+  });
+
+  it('matches a name the user linked to a person before', () => {
+    const friends = [{ id: 'gobal', name: 'Gobal', vpa: null }];
+    const aliases = new Map([[payeeKey('GOBAL NAIR'), 'gobal']]);
+    expect(findPerson(friends, { vpa: null, name: 'GOBAL NAIR' })).toBeNull();
+    expect(findPerson(friends, { vpa: null, name: 'Gobal  Nair.' }, aliases)?.id).toBe('gobal');
+    expect(findPerson(friends, { vpa: null, name: 'GOBAL NAIR' }, new Map([['gobal nair', 'gone']]))).toBeNull();
   });
 
   it('does not guess between two people with the same name', () => {

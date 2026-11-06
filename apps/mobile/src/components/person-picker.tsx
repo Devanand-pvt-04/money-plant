@@ -14,6 +14,12 @@ export function PersonPicker(props: {
   onToggle: (id: string) => void;
   /** Called with the new person's id after it is created; the caller reloads people. */
   onCreated: (id: string) => void;
+  /**
+   * A suggested new person (the payee of a bank entry), shown as a chip but
+   * created only when the caller saves, so picking someone else leaves no
+   * stray person behind.
+   */
+  draft?: { name: string; selected: boolean; onToggle: () => void } | null;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -51,6 +57,7 @@ export function PersonPicker(props: {
         {props.people.map((p) => (
           <Chip key={p.account.id} label={p.account.name} selected={props.selected.includes(p.account.id)} onPress={() => props.onToggle(p.account.id)} />
         ))}
+        {props.draft && <Chip label={`${props.draft.name} (new)`} selected={props.draft.selected} onPress={props.draft.onToggle} />}
         <Chip label="+ Someone new" selected={adding} onPress={() => setAdding(!adding)} />
       </Chips>
       {adding && (
