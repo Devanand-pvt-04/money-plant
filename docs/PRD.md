@@ -35,7 +35,7 @@ These targets are starting guesses to test with the first friends, not benchmark
 
 ## MVP requirements
 
-The MVP has 62 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
+The MVP has 66 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
 
 ### Accounts and sign-in
 
@@ -46,7 +46,10 @@ The MVP has 62 requirements across 11 areas. "Must" items block the first releas
 | ACC-3 | Data syncs across a user's devices and works offline | Must |
 | ACC-4 | Export all data as CSV, and delete the account along with all its data. Deleting asks for a typed confirmation and offers the export first | Must |
 | ACC-7 | Clear all my data but keep the account: every entry, account, category, rule and IOU is removed on the phone and the server, and the app starts again from first run. Typed confirmation, export offered first | Must |
-| ACC-5 | Onboarding consent screen that explains SMS reading, cloud sync, contacts and AI use. It says AI runs on Deva's PC, not with an AI company, and that AI can be switched off in Settings (decision 0012) | Must |
+| ACC-5 | Onboarding consent screen that explains SMS reading, cloud sync, contacts and AI use. It says AI runs on Deva's PC, not with an AI company, and that AI can be switched off in Settings (decision 0012). It also says plainly that Deva runs the server and could technically see a user's entries, doesn't look, and keeps backups encrypted (decision 0016) | Must |
+| ACC-8 | Sign-up by invite only: an account can be created only for an email on the invite list. Each member can invite up to 5 people and Deva any number; an unused invite can be withdrawn. An invite opens the phone's share sheet with a message holding the install link, the email to sign in with and short install steps. No email is sent (decision 0016) | Must |
+| ACC-9 | Friend links: accepting an invite links the two people, and a member can send a friend request to an email from a person page. Once both sides accept, each side's person account fills in the other's name, email and UPI ID, and IOUs with that person are shared by default. Either side can unlink (decision 0016) | Must |
+| ACC-10 | First run is a short wizard (welcome, consent, name and UPI ID, SMS permission and import range), then a "Finish setting up" card on Home for the rest (UPI notifications, contacts, CAS import, first budget, invite a friend) that goes away once done or dismissed. Every tab has an empty state that says what fills it (decision 0016) | Must |
 | ACC-6 | Custom account types: the user names a type (for example Chit fund, PF, Gold) and picks its class (asset or liability) and whether it counts toward net worth. Custom types behave as plain manual accounts | Must |
 
 ### Capture
@@ -61,6 +64,7 @@ The MVP has 62 requirements across 11 areas. "Must" items block the first releas
 | CAP-6 | Import CAS PDFs from NSDL, CDSL, CAMS and KFintech | Must |
 | CAP-7 | Quick add in 3 taps, with smart defaults, in three modes: Spent, Received and Transfer (From and To accounts, for moving money between banks, paying a card bill or withdrawing cash). The date and time default to now and open the phone's pickers | Must |
 | CAP-8 | Show parse failures per bank so broken formats are noticed | Should |
+| CAP-9 | Share an anonymised sample of a message the app couldn't read: the phone replaces digits, names, UPI IDs and references, shows the result, and opens the share sheet only when the user taps Share. Nothing is sent automatically (decision 0016) | Must |
 
 ### Ledger and accuracy
 
@@ -130,7 +134,7 @@ The MVP has 62 requirements across 11 areas. "Must" items block the first releas
 
 ### Splits
 
-Splits are personal in the MVP: they live in the payer's ledger, so friends don't need the app. Shared groups between app users come after the friends release.
+Splits are personal in the MVP: they live in the payer's ledger, so friends don't need the app. A share with a linked friend (ACC-9) becomes a shared IOU they confirm. Shared groups between app users are a second wave of the friends release, built once two or three friends use the app (decision 0016).
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
@@ -164,13 +168,13 @@ Six flows carry the MVP. Each should feel finished before anything else gets pol
 
 ### First run (target: under 5 minutes)
 
-1. Sign in with an email OTP.
-2. Read the consent screen (SMS, sync, AI) and accept.
+1. Open the invite a friend shared, install the app and sign in with the invited email (ACC-8).
+2. Read the consent screen (SMS, sync, AI, what Deva can see) and accept, then add a name and UPI ID.
 3. Android: grant SMS access and pick how far back to read (6 months by default). The app scans that range of bank SMS and lists the accounts and cards it found. iOS (later): follow the guided Shortcuts setup, then add accounts by hand.
 4. Confirm or rename the detected accounts, and enter any opening balances the app couldn't find.
 5. Optionally import a CAS PDF and add FDs.
 6. Pick budgets: the app suggests one per category based on the past 3 months; accept or edit each.
-7. Land on the home screen with real numbers.
+7. Land on the home screen with real numbers and a "Finish setting up" card for the optional steps (ACC-10).
 
 ### Daily review (target: under 2 minutes)
 
@@ -215,7 +219,9 @@ Accuracy and privacy rank above speed of delivery. A fast app with wrong totals 
 | --- | --- |
 | Accuracy | No entry is created without a source. Amounts are stored as integer paise, never floating point |
 | Accuracy | The parser test suite of anonymised real SMS for each supported bank must pass before every release |
-| Privacy | Raw SMS text never leaves the phone; only parsed fields sync |
+| Privacy | Raw SMS text never leaves the phone; only parsed fields sync. The one exception is CAP-9: an anonymised sample the user has seen and chooses to share |
+| Security | Before invites go out and monthly after: tests prove one user can't read or change another's rows, Supabase's Security Advisor shows no warnings, every edge function checks the sign-in and its inputs, CI scans dependencies and secrets, and Deva's admin accounts use two-factor sign-in (decision 0016) |
+| Fair use | AI jobs are capped at 300 a day per user; more wait for the next day (decision 0016) |
 | Privacy | AI calls send only what the task needs. No account numbers, phone numbers or other people's names beyond the payee label |
 | Privacy | Contacts are read and matched only on the phone; the contact list is never uploaded |
 | Security | Row-level security, so each user reads only their own rows and the IOUs they are part of. Encryption at rest, and an encrypted local database |
@@ -240,7 +246,7 @@ These items are deliberately left out of the MVP.
 | Account Aggregator | Needs a regulated partner | Future |
 | End-to-end encryption | Server-side protection is enough for friends; E2E complicates AI and shared IOUs | Before any public launch |
 | Gmail and email parsing | Restricted Gmail access requires a yearly security assessment | Phase 2 (a forwarding inbox instead) |
-| Shared split groups between app users, Splitwise import | Personal splits cover the core need without friends installing the app | After the friends release |
+| Splitwise import | Personal splits and shared groups cover the need | If friends ask for it |
 | Finding friends on the app by phone number | Sign-in is email only, and hashed phone numbers are easy to reverse; friends are invited by email | With phone sign-in |
 | Ask-anything AI chat and a bigger role for AI | The month review and categorising deliver the main AI value first; Deva wants to shape AI's wider role later (decision 0012) | Phase 2 |
 | Crypto, digital gold in apps, P2P lending, foreign shares, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime (decision 0014) | When a tester needs it |
@@ -266,7 +272,7 @@ After milestone 4, a second design step (decision 0008) follows Deva's end-to-en
 After milestone 5, an investments step (decision 0014) adds Settings → Health (HOME-3), the demat statement import (NW-5) and long-term savings (NW-6), in that order, while milestone 6 waits on its open choices. Collecting friends' HDFC, HSBC and SBI samples for milestone 7 starts at the same time.
 6. **AI.** A self-hosted open model on Deva's PC (decisions 0006 and 0012), in four builds: the AI job queue and PC worker, a model chosen by testing candidates on Deva's tagged merchants, AI categorisation as the last CAT-2 layer (with a per-user AI switch and icon suggestions for new categories), and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 After milestone 6's code, a UI revamp (decision 0015) gives the app a charcoal and sage look and reworks Home, Activity, Budgets, Accounts and entry detail, from mockups Deva signed off on 5 Nov 2026. It ships in three PRs.
-7. **Android friends release.** Onboarding, consent, export and delete, parser coverage for ICICI, HDFC, HSBC and SBI, a speed pass (measured on Deva's phone first), APK distribution. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
+7. **Android friends release** (decision 0016). In order: a security pass, invites and friend links, first run and empty states (with the speed pass, measured on Deva's phone first), bank sample sharing and the AI cap, then a release kit (APK on Drive with install steps, encrypted cloud backup, a friend install guide). A second wave adds shared groups between app users. Parser coverage for HDFC, HSBC and SBI grows from friends' shared samples. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
 ## Free-tier plan
 
@@ -282,7 +288,8 @@ Every MVP service fits in a free tier except phone OTP, so phone sign-in moves t
 | Push | Expo push service | Free |
 | Builds | EAS Build free tier; GitHub Actions | Limited builds a month |
 | Monitoring | Sentry free developer plan | Event quota |
-| Android distribution | Share the APK directly | No Play Store fee |
+| Android distribution | The APK from a shared Google Drive folder; the friend turns Play Protect scanning off while installing, then back on (decision 0016) | Play Protect in India blocks sideloaded apps that read SMS; Play internal testing would avoid this for a one-time $25 |
+| Backup | Weekly GitHub Actions job in the private repo, encrypted with age; artifacts kept 90 days (decision 0016) | Artifact storage on the free plan |
 | iOS distribution | Deferred along with iOS | The Apple Developer Program costs about $99 a year when needed |
 | AI | Self-hosted open model on Deva's PC (Ollama) | Works only while the PC is on; AI jobs wait in a queue meanwhile |
 

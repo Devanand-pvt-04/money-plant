@@ -1,0 +1,31 @@
+# Security pass (decision 0016). Security updates are raised as soon as an
+# advisory appears (turn on Dependabot alerts and security updates in the
+# repo's Settings -> Code security). Routine version bumps are monthly and
+# grouped, so they don't flood the PR list. Expo and React Native packages
+# move with the Expo SDK, so they are left to `npx expo install`.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "expo*"
+      - dependency-name: "@expo/*"
+      - dependency-name: "react-native*"
+      - dependency-name: "react"
+      - dependency-name: "react-dom"
+  - package-ecosystem: pip
+    directory: /services/cas-parser
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
