@@ -82,10 +82,20 @@ export interface PersonRef {
   vpa: string | null;
 }
 
-const normaliseName = (name: string) => name.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+/** A payee or person name in one form: lower case letters and single spaces. */
+export const payeeKey = (name: string) => name.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+const normaliseName = payeeKey;
 
-/** The user's person account a payment was to or from: same UPI ID, or the same name. */
-export function findPerson<T extends PersonRef>(people: readonly T[], payee: { vpa: string | null; name: string | null }): T | null {
+/**
+ * The user's person account a payment was to or from: same UPI ID, a name
+ * the user linked to them before (`aliases`, payeeKey to person id), or the
+ * same name.
+ */
+export function findPerson<T extends PersonRef>(
+  people: readonly T[],
+  payee: { vpa: string | null; name: string | null },
+  aliases: ReadonlyMap<string, string> = new Map(),
+): T | null {
   if (payee.vpa) {
     const vpa = payee.vpa.toLowerCase();
     const byVpa = people.find((p) => p.vpa?.toLowerCase() === vpa);
@@ -94,6 +104,9 @@ export function findPerson<T extends PersonRef>(people: readonly T[], payee: { v
   if (!payee.name) return null;
   const name = normaliseName(payee.name);
   if (!name) return null;
+  const aliased = aliases.get(name);
+  const byAlias = aliased ? people.find((p) => p.id === aliased) : undefined;
+  if (byAlias) return byAlias;
   const byName = people.filter((p) => normaliseName(p.name) === name);
   return byName.length === 1 ? byName[0]! : null;
 }
@@ -107,8 +120,9 @@ export function matchRepayment(
   payment: { direction: 'debit' | 'credit'; amount: Paise; vpa: string | null; name: string | null },
   people: readonly PersonRef[],
   open: readonly (Iou & { outstanding: Paise })[],
+  aliases: ReadonlyMap<string, string> = new Map(),
 ): { personId: string; parts: { iouId: string; amount: Paise }[] } | null {
-  const person = findPerson(people, payment);
+  const person = findPerson(people, payment, aliases);
   if (!person) return null;
   const direction: IouDirection = payment.direction === 'credit' ? 'lent' : 'borrowed';
   const theirs = open.filter((iou) => iou.personId === person.id && iou.direction === direction && iou.outstanding > 0);
