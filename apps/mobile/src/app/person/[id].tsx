@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
 import { formatAmount } from '@/components/format';
 import { IouRow } from '@/components/people-rows';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, colors } from '@/components/ui';
 import { contactById, pickContact } from '@/lib/contacts';
+import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/lib/friends';
+import { getMe } from '@/lib/me';
 import { listIous, type IouView } from '@/lib/ious';
 import { createPerson, getPerson, updatePerson, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
@@ -29,6 +31,30 @@ export default function PersonDetail() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // ACC-9: whether this person is linked on Money Plant. Undefined while loading or offline.
+  const [link, setLink] = useState<FriendLink | null | undefined>(undefined);
+  const [inviting, setInviting] = useState(false);
+  const savedEmail = data.person?.account.email ?? null;
+
+  useEffect(() => {
+    if (!savedEmail) return setLink(undefined);
+    linkForEmail(savedEmail).then(setLink, () => setLink(undefined));
+  }, [savedEmail]);
+
+  async function invite() {
+    if (!savedEmail) return;
+    setInviting(true);
+    setError(null);
+    try {
+      const result = await inviteFriend(savedEmail);
+      if (result === 'invited') await Share.share({ message: inviteMessage(savedEmail, await getMe()) });
+      setLink(await linkForEmail(savedEmail));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInviting(false);
+    }
+  }
 
   useEffect(() => {
     navigation.setOptions({ title: isNew ? 'Add a person' : (data.person?.account.name ?? 'Person') });
@@ -108,6 +134,15 @@ export default function PersonDetail() {
       <Text style={styles.hint}>Used to pay them back from a UPI app, and to spot their payments in your bank SMS.</Text>
       <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="ravi@gmail.com" />
       <Text style={styles.hint}>If they use Money Plant with this email, they see your IOUs with them and can confirm them.</Text>
+      {savedEmail && link !== undefined && (
+        link?.state === 'friends' ? (
+          <Text style={styles.linked}>Linked on Money Plant</Text>
+        ) : link ? (
+          <Text style={styles.hint}>{link.state === 'waiting_for_you' ? 'They asked to link with you. Answer in Settings → Invite friends.' : 'Friend request sent.'}</Text>
+        ) : (
+          <Button title="Invite to Money Plant" variant="secondary" onPress={invite} loading={inviting} />
+        )
+      )}
       {Platform.OS === 'android' && (
         <>
           <Text style={styles.label}>Phone contact</Text>
@@ -144,5 +179,6 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
+  linked: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 6 },
   actions: { marginTop: 16, gap: 10 },
 });

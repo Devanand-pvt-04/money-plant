@@ -5,6 +5,9 @@ import { KeyboardGap } from '@/components/keyboard';
 import { Button, ErrorText, Field, colors } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 
+const NOT_INVITED =
+  "This email hasn't been invited yet. Money Plant is invite only: ask a friend who uses it to invite this email, then try again.";
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignIn() {
@@ -24,7 +27,8 @@ export default function SignIn() {
       options: { shouldCreateUser: true },
     });
     setBusy(false);
-    if (error) setError(error.message);
+    // ACC-8: the server refuses to create a sign-in for an email nobody invited.
+    if (error) setError(/database error saving new user|not invited/i.test(error.message) ? NOT_INVITED : error.message);
     else setCodeSent(true);
   }
 

@@ -43,10 +43,13 @@ select is(
 
 -- ---- Three users ----
 
+-- The invite door (ACC-8) has its own tests in invites.test.sql; skip it here.
+set local session_replication_role = replica;
 insert into auth.users (id, email, aud, role) values
   ('aaaaaaaa-0000-4000-8000-000000000001', 'asha@example.com', 'authenticated', 'authenticated'),
   ('bbbbbbbb-0000-4000-8000-000000000002', 'bala@example.com', 'authenticated', 'authenticated'),
   ('cccccccc-0000-4000-8000-000000000003', 'chitra@example.com', 'authenticated', 'authenticated');
+set local session_replication_role = origin;
 
 create function pg_temp.act_as(p_id uuid, p_email text) returns void language sql as $$
   select set_config('role', 'authenticated', true),

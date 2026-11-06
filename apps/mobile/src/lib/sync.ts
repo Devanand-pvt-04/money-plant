@@ -1,3 +1,4 @@
+import { syncFriendLinks } from './friends';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import {
   accountTypes,
@@ -541,6 +542,8 @@ export function syncNow(): Promise<SyncResult> {
         (await pullSplitGroups()) +
         (await pullIous(me)) +
         (await pullIouPayments());
+      // ACC-9: friends' links become person accounts. Best effort: a failure here never stops the ledger sync.
+      await syncFriendLinks().catch((e) => console.warn('friend links', e instanceof Error ? e.message : e));
       // Screens out of view reload on their next focus only after a change, so say when one came in.
       if (pulled > 0) notifyLedgerChange();
       return { pushed, pulled };

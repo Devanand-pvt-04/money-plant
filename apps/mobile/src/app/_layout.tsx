@@ -125,6 +125,7 @@ export default function RootLayout() {
             <Stack.Screen name="expense" options={{ title: 'Add expense', presentation: 'modal' }} />
             <Stack.Screen name="group/[id]" options={{ title: 'Group' }} />
             <Stack.Screen name="group/edit" options={{ title: 'Group', presentation: 'modal' }} />
+            <Stack.Screen name="friends" options={{ title: 'Friends' }} />
             <Stack.Screen name="profile" options={{ title: 'Your name and UPI ID', presentation: 'modal' }} />
             <Stack.Screen name="settings" options={{ title: 'Profile and settings' }} />
             <Stack.Screen name="data" options={{ title: 'Your data' }} />
