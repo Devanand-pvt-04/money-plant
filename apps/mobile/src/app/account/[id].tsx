@@ -99,7 +99,7 @@ function GenericView({ data, footer }: { data: typeof EMPTY; footer: React.React
             {((!data.deposit && !data.fund && !data.market) || passbook) && (
               <PillButton title={passbook ? 'Update from passbook' : 'Set balance'} onPress={() => router.push(`/account/balance?id=${account.id}`)} />
             )}
-            {reconciliation?.flagged && <PillButton title="Use bank's balance" onPress={() => adoptBankBalance(account.id)} />}
+            {reconciliation?.flagged && <PillButton title="Use bank's balance" onPress={() => adoptBankBalance(account.id, reconciliation.latest.anchor)} />}
           </View>
           <Text style={styles.section}>ENTRIES</Text>
         </View>
@@ -198,7 +198,7 @@ function BankView({ balance: item, rows, upcoming, footer }: { balance: AccountB
           </View>
           {reconciliation?.flagged && (
             <View style={styles.actions}>
-              <PillButton title="Use the bank's balance" onPress={() => adoptBankBalance(account.id)} />
+              <PillButton title="Use the bank's balance" onPress={() => adoptBankBalance(account.id, reconciliation.latest.anchor)} />
             </View>
           )}
           {upcoming.length > 0 && (

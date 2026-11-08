@@ -57,6 +57,8 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     .select()
     .from(balanceAnchors)
     .where(and(inArray(balanceAnchors.accountId, ids), isNull(balanceAnchors.deletedAt)))
+    // Two readings of one moment (a statement imported again with more rows): the newer is the latest.
+    .orderBy(asc(balanceAnchors.observedAt), asc(balanceAnchors.createdAt))
     .all();
   const customTypes = new Map(db.select().from(accountTypes).all().map((t) => [t.id, t]));
   const depositTerms = new Map((await listDeposits()).map((d) => [d.accountId, d]));
@@ -251,18 +253,26 @@ export async function setCurrentBalance(accountId: string, balance: Paise): Prom
   notifyLedgerChange();
 }
 
-/** One-tap fix for a reconciliation gap: trust the latest balance the bank reported. */
-export async function adoptBankBalance(accountId: string): Promise<void> {
+/**
+ * One-tap fix for a reconciliation gap: trust the balance the bank reported.
+ * Pass the anchor the gap was shown for, so the fix is exactly the one shown.
+ */
+export async function adoptBankBalance(accountId: string, anchor?: { balance: Paise; observedAt: string }): Promise<void> {
   const db = await getDb();
-  const latest = db
-    .select()
-    .from(balanceAnchors)
-    .where(and(eq(balanceAnchors.accountId, accountId), isNull(balanceAnchors.deletedAt)))
-    .orderBy(desc(balanceAnchors.observedAt))
-    .get();
+  const latest =
+    anchor ??
+    (() => {
+      const row = db
+        .select()
+        .from(balanceAnchors)
+        .where(and(eq(balanceAnchors.accountId, accountId), isNull(balanceAnchors.deletedAt)))
+        .orderBy(desc(balanceAnchors.observedAt), desc(balanceAnchors.createdAt))
+        .get();
+      return row ? { balance: paise(row.balancePaise), observedAt: row.observedAt } : null;
+    })();
   if (!latest) return;
   const store = new SqliteLedgerStore(db);
-  await store.setBalanceRef(accountId, { kind: 'user', balance: paise(latest.balancePaise), at: latest.observedAt });
+  await store.setBalanceRef(accountId, { kind: 'user', balance: latest.balance, at: latest.observedAt });
   await rebaseOpening(store, accountId);
   notifyLedgerChange();
 }

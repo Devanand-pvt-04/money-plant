@@ -382,7 +382,7 @@ function Gaps({ gaps }: { gaps: AccountBalance[] }) {
               probably missing
               {windowStart ? ` between ${formatDateTime(windowStart)} and ${formatDateTime(latest.anchor.observedAt)}` : ''}.
             </Text>
-            <Button title="Use the bank's balance" variant="secondary" onPress={() => adoptBankBalance(account.id)} />
+            <Button title="Use the bank's balance" variant="secondary" onPress={() => adoptBankBalance(account.id, latest.anchor)} />
           </View>
         );
       })}
