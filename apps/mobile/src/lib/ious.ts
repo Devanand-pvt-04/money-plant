@@ -1,16 +1,22 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { addDays, buildUpiUri, dateKey, daysBetween, dateOf, paise, startOfDate, type DateKey, type Paise } from '@money-plant/core';
-import { accounts, iouPayments, ious, sources, transactions, type LocalIou } from '@money-plant/db-schema';
+import { accounts, iouPayments, ious, sources, transactions } from '@money-plant/db-schema';
 import {
   allocateRepayment,
+  canRepay,
   findPerson,
+  guessRepayment,
+  iouView,
+  isOpenIou,
+  isVisibleIou,
+  repaymentDirection,
+  repaymentOptionsFor,
+  type IouView,
+  type RepaymentOption,
   matchRepayment,
-  outstanding,
   rebaseOpening,
-  type Iou,
   type IouDirection,
-  type IouPayment,
   type LedgerTransaction,
   type UserSetField,
 } from '@money-plant/matcher';
@@ -22,7 +28,7 @@ import { notifyLedgerChange } from './events';
 import { loadTransactions, SqliteLedgerStore, systemAccountId, writeTransaction } from './ledger-store';
 import { displayName, getMe, type Me } from './me';
 import { cancelScheduled, notifyAt } from './notifications';
-import { createPerson, listPeople, payeeAliases, rememberPayee, type Person } from './people';
+import { createPerson, listPeople, payeeAliases, rememberPayee } from './people';
 import { syncNow } from './sync';
 
 const now = () => new Date().toISOString();
@@ -32,61 +38,7 @@ const REMINDER_PREFIX = 'iou:';
 /** How far back a payment can be a repayment of an open IOU. */
 const SETTLE_LOOKBACK_DAYS = 90;
 
-/**
- * Where an IOU stands between the two people (IOU-2). `personal`: only the
- * owner knows it. `awaiting_them`: shared, the other person hasn't answered.
- * `awaiting_me`: someone shared it with this user.
- */
-export type IouState = 'personal' | 'awaiting_them' | 'awaiting_me' | 'confirmed' | 'declined';
-
-export interface IouView extends Iou {
-  role: 'owner' | 'counterparty';
-  state: IouState;
-  /** This user's ledger entry for the loan. */
-  transactionId: string | null;
-  otherName: string;
-  /** UPI ID to pay the other person (IOU-3). */
-  otherVpa: string | null;
-  /** The address the IOU is shared with, for the owner. */
-  sharedWith: string | null;
-  outstanding: Paise;
-  payments: IouPayment[];
-}
-
-function stateOf(row: LocalIou, role: IouView['role']): IouState {
-  if (role === 'owner') {
-    if (!row.counterpartyEmail) return 'personal';
-    return row.declinedAt ? 'declined' : row.confirmedAt ? 'confirmed' : 'awaiting_them';
-  }
-  if (row.response) return row.response === 'accept' ? 'confirmed' : 'declined';
-  return row.declinedAt ? 'declined' : row.confirmedAt ? 'confirmed' : 'awaiting_me';
-}
-
-function toView(row: LocalIou, me: Me, people: ReadonlyMap<string, Person>, payments: IouPayment[]): IouView {
-  const role = row.userId === me.id ? 'owner' : 'counterparty';
-  const personId = role === 'owner' ? row.personAccountId : row.counterpartyPersonAccountId;
-  const person = personId ? people.get(personId) : undefined;
-  const base: Iou = {
-    id: row.id,
-    personId,
-    direction: role === 'owner' ? row.direction : row.direction === 'lent' ? 'borrowed' : 'lent',
-    amount: paise(row.amountPaise),
-    reason: row.reason,
-    occurredOn: row.occurredOn,
-    dueDate: row.dueDate,
-  };
-  return {
-    ...base,
-    role,
-    state: stateOf(row, role),
-    transactionId: role === 'owner' ? row.transactionId : row.counterpartyTransactionId,
-    otherName: person?.account.name ?? (role === 'owner' ? 'Someone' : (row.ownerName ?? row.ownerEmail ?? 'A friend')),
-    otherVpa: role === 'owner' ? (person?.account.vpa ?? row.counterpartyVpa) : (row.ownerVpa ?? person?.account.vpa ?? null),
-    sharedWith: role === 'owner' ? row.counterpartyEmail : null,
-    outstanding: outstanding(base, payments),
-    payments,
-  };
-}
+export type { IouState, IouView, RepaymentOption } from '@money-plant/matcher';
 
 /** Every IOU this user can see, with what is still owed. Ones they declined are left out. */
 export async function listIous(): Promise<IouView[]> {
@@ -99,19 +51,19 @@ export async function listIous(): Promise<IouView[]> {
     .from(iouPayments)
     .where(and(isNull(iouPayments.deletedAt), inArray(iouPayments.iouId, rows.map((r) => r.id))))
     .all();
-  const byPerson = new Map(people.map((p) => [p.account.id, p]));
+  const byPerson = new Map(people.map((p) => [p.account.id, { name: p.account.name, vpa: p.account.vpa }]));
   return rows
     .map((row) =>
-      toView(
+      iouView(
         row,
-        me,
-        byPerson,
+        me.id,
+        (id) => byPerson.get(id),
         paymentRows
           .filter((p) => p.iouId === row.id)
           .map((p) => ({ id: p.id, iouId: p.iouId, byMe: p.userId === me.id, amount: paise(p.amountPaise), paidAt: p.paidAt })),
       ),
     )
-    .filter((view) => !(view.role === 'counterparty' && view.state === 'declined'));
+    .filter(isVisibleIou);
 }
 
 export async function getIou(id: string): Promise<IouView | null> {
@@ -119,7 +71,7 @@ export async function getIou(id: string): Promise<IouView | null> {
 }
 
 /** Open IOUs that count toward balances: not declined, not waiting for this user's answer. */
-export const isOpen = (v: IouView) => v.outstanding > 0 && v.personId !== null && v.state !== 'declined' && v.state !== 'awaiting_me';
+export const isOpen = isOpenIou;
 
 // ---- Ledger entries for loans and repayments ----
 
@@ -495,8 +447,7 @@ async function settleFromLedger(views: readonly IouView[]): Promise<number> {
     const sms = tx.sources.find((s) => s.kind === 'sms')?.parsedFields as Partial<ParsedTransaction> | undefined;
     const on = dateOf(tx.occurredAt);
     const live = open
-      // A loan can't be repaid before it was made, or by the entry that made it.
-      .filter((v) => v.occurredOn <= on && v.transactionId !== tx.id)
+      .filter((v) => canRepay(v, on, tx.id))
       .map((v) => ({ ...v, outstanding: paise(remaining.get(v.id) ?? 0) }));
     const match = matchRepayment(
       { direction: own.amount < 0 ? 'debit' : 'credit', amount: paise(Math.abs(own.amount)), vpa: sms?.vpa ?? null, name: tx.counterparty },
@@ -520,15 +471,6 @@ function payeeOf(tx: LedgerTransaction): { name: string | null; vpa: string | nu
   return { name: tx.counterparty, vpa: typeof vpa === 'string' ? vpa : null };
 }
 
-export interface RepaymentOption {
-  personId: string;
-  name: string;
-  /** What is still open with them in the entry's direction. */
-  outstanding: Paise;
-  /** True when the payee is this person by UPI ID, a linked name or the exact name. */
-  likely: boolean;
-}
-
 /**
  * IOU-4 by hand: the people an entry could be a repayment from (money in) or
  * to (money out). Each has open IOUs in that direction from on or before the
@@ -540,23 +482,11 @@ export async function repaymentOptions(transactionId: string): Promise<{ amount:
   const owned = ownedAccountIds(db);
   const own = tx.postings.find((p) => owned.has(p.accountId));
   if (!own || tx.postings.length !== 2) return { amount: paise(0), direction: 'lent', options: [] };
-  // Being paid back settles money the user lent; paying back settles money they borrowed.
-  const direction: IouDirection = own.amount > 0 ? 'lent' : 'borrowed';
+  const direction = repaymentDirection(own.amount);
   const amount = paise(Math.abs(own.amount));
-  const on = dateOf(tx.occurredAt);
-  const open = (await listIous()).filter((v) => isOpen(v) && v.direction === direction && v.occurredOn <= on && v.transactionId !== tx.id);
-  const totals = new Map<string, { name: string; outstanding: number }>();
-  for (const v of open) {
-    const t = totals.get(v.personId!) ?? { name: v.otherName, outstanding: 0 };
-    t.outstanding += v.outstanding;
-    totals.set(v.personId!, t);
-  }
   const people = (await listPeople()).map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa }));
   const match = findPerson(people, payeeOf(tx), await payeeAliases())?.id ?? null;
-  const options = [...totals]
-    .filter(([, t]) => t.outstanding >= amount)
-    .map(([personId, t]) => ({ personId, name: t.name, outstanding: paise(t.outstanding), likely: personId === match }))
-    .sort((a, b) => Number(b.likely) - Number(a.likely) || a.name.localeCompare(b.name));
+  const options = repaymentOptionsFor(await listIous(), { transactionId: tx.id, on: dateOf(tx.occurredAt), amount, direction }, match);
   return { amount, direction, options };
 }
 
@@ -572,9 +502,7 @@ export async function settleWithEntry(transactionId: string, personId: string): 
   if (!option) throw new Error(direction === 'lent' ? "They don't owe you this much from before this day" : "You don't owe them this much from before this day");
   const tx = await loadTx(transactionId);
   const on = dateOf(tx.occurredAt);
-  const open = (await listIous()).filter(
-    (v) => isOpen(v) && v.personId === personId && v.direction === direction && v.occurredOn <= on && v.transactionId !== tx.id,
-  );
+  const open = (await listIous()).filter((v) => isOpen(v) && v.personId === personId && v.direction === direction && canRepay(v, on, tx.id));
   const { parts } = allocateRepayment(open, amount);
   await convertEntry(transactionId, personId, { direction, amount, repayment: true });
   await addPayments(parts, transactionId, tx.occurredAt);
@@ -603,11 +531,8 @@ export async function repaymentGuesses(txs: readonly LedgerTransaction[]): Promi
     if (tx.postings.length !== 2 || (tx.kind !== 'income' && tx.kind !== 'expense')) continue;
     const own = tx.postings.find((p) => owned.has(p.accountId));
     if (!own) continue;
-    const direction: IouDirection = own.amount > 0 ? 'lent' : 'borrowed';
-    const on = dateOf(tx.occurredAt);
-    const hits = open.filter((v) => v.direction === direction && v.outstanding === Math.abs(own.amount) && v.occurredOn <= on && v.transactionId !== tx.id);
-    const people = new Set(hits.map((v) => v.personId));
-    if (people.size === 1) guesses.set(tx.id, { personId: hits[0]!.personId!, name: hits[0]!.otherName });
+    const guess = guessRepayment(open, { transactionId: tx.id, on: dateOf(tx.occurredAt), ownAmount: own.amount });
+    if (guess) guesses.set(tx.id, guess);
   }
   return guesses;
 }
