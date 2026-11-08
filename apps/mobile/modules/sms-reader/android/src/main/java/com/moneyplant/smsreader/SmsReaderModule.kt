@@ -26,7 +26,8 @@ class SmsReaderModule : Module() {
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
     }
 
-    // Inbox messages from bank-like senders received after `sinceMillis`, oldest first (CAP-2).
+    // Money messages from business senders received after `sinceMillis`, oldest first (CAP-2, CAP-11).
+    // `senderTokens` is from older JavaScript and no longer narrows the list.
     AsyncFunction("readInbox") { sinceMillis: Double, senderTokens: List<String>, limit: Int ->
       if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
         throw SmsPermissionException()
@@ -46,7 +47,7 @@ class SmsReaderModule : Module() {
         val dateSentCol = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE_SENT)
         while (cursor.moveToNext() && messages.size < limit) {
           val address = cursor.getString(addressCol)
-          if (!Allowlists.isCandidateBankSender(address, senderTokens)) continue
+          if (!Allowlists.isMoneySms(context, address, cursor.getString(bodyCol) ?: "")) continue
           val date = cursor.getLong(dateCol)
           val dateSent = cursor.getLong(dateSentCol)
           messages.add(
@@ -62,6 +63,11 @@ class SmsReaderModule : Module() {
         }
       }
       messages
+    }
+
+    // Settings → Capture: senders to skip, and apps the user said yes or no to (CAP-11, CAP-12).
+    Function("setCaptureFilters") { ignoredSenders: List<String>, approvedApps: List<String>, deniedApps: List<String> ->
+      CaptureFilters.save(context, ignoredSenders, approvedApps, deniedApps)
     }
 
     Function("isNotificationAccessGranted") {

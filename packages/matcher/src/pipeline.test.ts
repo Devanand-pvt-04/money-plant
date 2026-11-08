@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from '@money-plant/core';
-import { normaliseSender, parseNotification, parseSms, parseStatementRow } from '@money-plant/parser';
+import { normaliseSender, parseAnySms, parseNotification, parseSms, parseStatementRow } from '@money-plant/parser';
 import { MemoryStore } from './memory-store';
 import { checkTransaction, ingestNotification, ingestSms, ingestStatementRow, isEstimated, noteFor, type PipelineContext } from './pipeline';
 
@@ -303,6 +303,20 @@ describe('foreign spends with an estimated rupee amount (CAP-10)', () => {
     expect(isEstimated(after)).toBe(false);
     expect(store.balance(card)).toBe(-216_240);
     expect(checkTransaction(after)).toBeNull();
+  });
+});
+
+describe('senders without tuned rules (CAP-11)', () => {
+  it('posts to the account the user linked the sender to, and asks to confirm', async () => {
+    const { store, ctx } = setup();
+    const enbd = { id: 'enbd', type: 'credit_card' as const, name: 'ENBD card', institution: null, last4: null };
+    await store.createAccount(enbd);
+    const result = parseAnySms({ sender: 'AD-ENBD', body: 'Purchase of AED 85.00 on your Credit Card ending 1234 at CARREFOUR was successful.' });
+    if (result.status !== 'parsed') throw new Error('not parsed');
+    const outcome = await ingestSms(ctx, { parsed: result.transaction, sender: 'ENBD', receivedAt: '2026-11-08T10:00:00.000Z', fingerprint: 'enbd-1', rawText: null, accountId: 'enbd' });
+    expect(outcome.outcome).toBe('created');
+    expect(store.balance('enbd')).toBe(-8500);
+    expect(store.live()[0]).toMatchObject({ status: 'pending', counterparty: 'CARREFOUR' });
   });
 });
 

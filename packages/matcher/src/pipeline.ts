@@ -51,6 +51,11 @@ export interface SmsCapture {
   receivedAt: string;
   fingerprint: string;
   rawText: string | null;
+  /**
+   * The account the user linked this sender to (CAP-11), for senders without
+   * tuned rules. Without it, the account comes from the bank and digits.
+   */
+  accountId?: string;
 }
 
 export interface NotificationCapture {
@@ -82,7 +87,9 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
   const { parsed } = capture;
 
   const accounts = await store.listAccounts();
-  const resolution = resolveAccount(parsed, accounts);
+  const linked = capture.accountId ? accounts.find((a) => a.id === capture.accountId) : undefined;
+  if (capture.accountId && !linked) throw new Error('Linked account not found');
+  const resolution = linked ? { account: linked, certain: true } : resolveAccount(parsed, accounts);
   let account: LedgerAccount;
   if ('create' in resolution) {
     account = { id: newId(), ...resolution.create };
@@ -90,7 +97,7 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
     accounts.push(account);
   } else {
     account = resolution.account;
-    if (resolution.upgradeLast4) await store.setAccountLast4(account.id, resolution.upgradeLast4);
+    if ('upgradeLast4' in resolution && resolution.upgradeLast4) await store.setAccountLast4(account.id, resolution.upgradeLast4);
   }
 
   const source: LedgerSource = {
