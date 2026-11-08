@@ -7,6 +7,7 @@ import { sources, transactions } from '@money-plant/db-schema';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
 import { listAccountBalances } from './ledger';
+import { countSetAside } from './sync';
 
 /** HOME-3: seconds in Review per day, kept on the phone only. */
 const REVIEW_LOG_KEY = 'health.review_seconds';
@@ -72,6 +73,8 @@ export interface Health extends HealthFigures {
   balances: BalanceHealth[];
   /** Bank accounts with no balance from the bank yet. */
   unchecked: string[];
+  /** Changed entries the server refused, waiting on this phone until they're edited. */
+  unsynced: number;
 }
 
 export async function loadHealth(): Promise<Health> {
@@ -113,5 +116,6 @@ export async function loadHealth(): Promise<Health> {
         observedAt: b.reconciliation!.latest.anchor.observedAt,
       })),
     unchecked: banks.filter((b) => !b.reconciliation).map((b) => b.account.name),
+    unsynced: await countSetAside(),
   };
 }

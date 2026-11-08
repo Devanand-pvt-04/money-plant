@@ -11,3 +11,4 @@ export * from './deposit';
 export * from './fund';
 export * from './health';
 export * from './demat';
+export * from './sync';
