@@ -14,7 +14,7 @@ How Money Plant keeps each person's money data private, what CI checks on every 
 
 ## Checked on every PR (CI)
 
-- `supabase test db` runs `supabase/tests/database/rls.test.sql`. It makes three users and proves none can read, change or delete another's accounts, entries, postings, sources, IOUs, repayments or crash reports. It also fails if any table lacks row-level security or a policy, if signed-out callers have any grant, or if a security definer function is open to them. **Every new table needs a case here.**
+- `supabase test db` runs `supabase/tests/database/rls.test.sql`. It makes three users and proves none can read, change or delete another's rows in any table: accounts, entries, postings, sources, balance anchors, account types, rules, budgets, recurring payments, groups, deposits, holdings, AI jobs, AI usage, IOUs, repayments and crash reports. It also fails if any table lacks row-level security or a policy, if signed-out callers have any grant, or if a security definer function is open to them. **Every new table needs a case here.**
 - `supabase db advisors --fail-on warn`: Supabase's Security and Performance Advisor on the migrated database.
 - `pnpm audit --prod --audit-level high`: fails on high or critical advisories.
 - gitleaks scans the whole git history for keys, tokens and passwords. `.gitleaksignore` lists the one known public value.
