@@ -81,6 +81,8 @@ export const postings = sqliteTable(
     transactionId: text('transaction_id').notNull(),
     accountId: text('account_id').notNull(),
     amountPaise: integer('amount_paise').notNull(),
+    /** The currency of `amountPaise`, in minor units (decision 0017). */
+    currency: text('currency').notNull().default('INR'),
     createdAt: text('created_at').notNull(),
   },
   (table) => [index('postings_transaction_idx').on(table.transactionId), index('postings_account_idx').on(table.accountId)],
@@ -239,6 +241,7 @@ export const recurring = sqliteTable(
     vpa: text('vpa'),
     merchant: text('merchant'),
     amountPaise: integer('amount_paise').notNull(),
+    currency: text('currency').notNull().default('INR'),
     cadence: text('cadence').$type<Cadence>().notNull(),
     anchorDay: integer('anchor_day'),
     /** "2026-10-25", on the phone's calendar. */
@@ -383,6 +386,23 @@ export const fundTransactions = sqliteTable(
  * share, ETF, gold bond and bond held, keyed by ISIN, and each NPS scheme's
  * NAV, keyed by `nps:` and its normalised name.
  */
+/**
+ * Local only: exchange rates (decision 0017). `perInrE9` is how many major
+ * units of `currency` one rupee buys, times 10^9, kept as text because it can
+ * pass 2^53 for weak currencies. `date` is the day asked for; `rateDate` the
+ * day the rate was published (the nearest earlier working day).
+ */
+export const fxRates = sqliteTable(
+  'fx_rates',
+  {
+    date: text('date').notNull(),
+    currency: text('currency').notNull(),
+    perInrE9: text('per_inr_e9').notNull(),
+    rateDate: text('rate_date').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.date, table.currency] })],
+);
+
 export const prices = sqliteTable('prices', {
   key: text('key').primaryKey(),
   priceE4: integer('price_e4').notNull(),
@@ -406,6 +426,7 @@ export const ious = sqliteTable(
     personAccountId: text('person_account_id').notNull(),
     direction: text('direction').$type<'lent' | 'borrowed'>().notNull(),
     amountPaise: integer('amount_paise').notNull(),
+    currency: text('currency').notNull().default('INR'),
     reason: text('reason'),
     occurredOn: text('occurred_on').notNull(),
     dueDate: text('due_date'),
@@ -435,6 +456,7 @@ export const iouPayments = sqliteTable(
     userId: text('user_id').notNull(),
     iouId: text('iou_id').notNull(),
     amountPaise: integer('amount_paise').notNull(),
+    currency: text('currency').notNull().default('INR'),
     paidAt: text('paid_at').notNull(),
     transactionId: text('transaction_id'),
     createdAt: text('created_at').notNull(),
@@ -472,6 +494,7 @@ export type LocalRecurring = typeof recurring.$inferSelect;
 export type LocalDeposit = typeof deposits.$inferSelect;
 export type LocalHolding = typeof holdings.$inferSelect;
 export type LocalPrice = typeof prices.$inferSelect;
+export type LocalFxRate = typeof fxRates.$inferSelect;
 export type LocalAccountType = typeof accountTypes.$inferSelect;
 export type LocalRule = typeof rules.$inferSelect;
 export type LocalBudget = typeof budgets.$inferSelect;
@@ -826,4 +849,16 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   CREATE INDEX fund_transactions_account_idx ON fund_transactions (account_id);`,
   // CAT-7: a default note on rules and patterns.
   `ALTER TABLE rules ADD COLUMN note TEXT;`,
+  // Multiple currencies (decision 0017): a currency on every amount, and exchange rates.
+  `ALTER TABLE postings ADD COLUMN currency TEXT NOT NULL DEFAULT 'INR';
+  ALTER TABLE recurring ADD COLUMN currency TEXT NOT NULL DEFAULT 'INR';
+  ALTER TABLE ious ADD COLUMN currency TEXT NOT NULL DEFAULT 'INR';
+  ALTER TABLE iou_payments ADD COLUMN currency TEXT NOT NULL DEFAULT 'INR';
+  CREATE TABLE fx_rates (
+    date TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    per_inr_e9 TEXT NOT NULL,
+    rate_date TEXT NOT NULL,
+    PRIMARY KEY (date, currency)
+  );`,
 ];

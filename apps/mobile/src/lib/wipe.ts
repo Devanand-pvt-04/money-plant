@@ -8,6 +8,7 @@ import {
   captureLog,
   deposits,
   fundTransactions,
+  fxRates,
   holdings,
   iouPayments,
   ious,
@@ -63,6 +64,7 @@ export async function wipeLocal(options: { keepSession: boolean }): Promise<void
       merchantCache,
       navs,
       navHistory,
+      fxRates,
       pendingNotifications,
       captureLog,
     ]) {

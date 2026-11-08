@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
-import { paise, type Paise } from '@money-plant/core';
+import { DEFAULT_CURRENCY, paise, type Paise } from '@money-plant/core';
 import {
   accounts,
   balanceAnchors,
@@ -72,7 +72,7 @@ export function loadTransactions(db: Database, rows: (typeof transactions.$infer
     userSetFields: JSON.parse(row.userSetFields) as UserSetField[],
     note: row.note,
     splitGroupId: row.splitGroupId,
-    postings: (postingsOf.get(row.id) ?? []).map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise) })),
+    postings: (postingsOf.get(row.id) ?? []).map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise), currency: p.currency })),
     sources: (sourcesOf.get(row.id) ?? []).map(
       (s): LedgerSource => ({
         id: s.id,
@@ -133,7 +133,9 @@ export function writeTransaction(db: Database, tx: LedgerTransaction): void {
       .run();
     t.delete(postings).where(eq(postings.transactionId, tx.id)).run();
     t.insert(postings)
-      .values(tx.postings.map((p) => ({ id: p.id, transactionId: tx.id, accountId: p.accountId, amountPaise: p.amount, createdAt })))
+      .values(
+        tx.postings.map((p) => ({ id: p.id, transactionId: tx.id, accountId: p.accountId, amountPaise: p.amount, currency: p.currency ?? DEFAULT_CURRENCY, createdAt })),
+      )
       .run();
     for (const s of tx.sources) {
       const values = {

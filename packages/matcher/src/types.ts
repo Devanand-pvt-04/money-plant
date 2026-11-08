@@ -1,4 +1,4 @@
-import type { AccountType, Paise } from '@money-plant/core';
+import type { AccountType, CurrencyCode, Paise } from '@money-plant/core';
 import type { CategoryReason } from '@money-plant/categoriser';
 import type { Direction } from '@money-plant/parser';
 
@@ -43,7 +43,10 @@ export interface LedgerSource {
 export interface LedgerPosting {
   id: string;
   accountId: string;
+  /** Minor units of `currency`. */
   amount: Paise;
+  /** INR when left out (decision 0017). */
+  currency?: CurrencyCode;
 }
 
 export type TransactionKind = 'expense' | 'income' | 'transfer' | 'adjustment' | 'iou';

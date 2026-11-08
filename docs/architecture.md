@@ -112,7 +112,7 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | balance_anchors | id, account_id, balance_paise, observed_at, source_id | Balances seen in SMS and statements, used for reconciliation |
 | ai_jobs | id, user_id, kind, payload, status, result, attempts, claimed_at, updated_at, deleted_at | The AI queue (milestone 6). Users read their own jobs; only the ai-worker function claims and completes them |
 
-All money is stored as whole numbers in the smallest unit of its currency: paise for rupees, cents for dollars, fils for dirhams, whole yen. The `_paise` column names stayed when currencies arrived (decision 0017); read them as "minor units of the row's currency". Every table has updated_at and deleted_at columns (soft delete) for sync.
+All money is stored as whole numbers in the smallest unit of its currency: paise for rupees, cents for dollars, fils for dirhams (1/100) and Kuwaiti dinars (1/1000), whole yen. The `_paise` column names stayed when currencies arrived (decision 0017); read them as "minor units of the row's currency". Every table has updated_at and deleted_at columns (soft delete) for sync.
 
 ## Currencies
 
