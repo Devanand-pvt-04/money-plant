@@ -35,7 +35,7 @@ These targets are starting guesses to test with the first friends, not benchmark
 
 ## MVP requirements
 
-The MVP has 71 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
+The MVP has 73 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
 
 ### Accounts and sign-in
 
@@ -67,6 +67,8 @@ The MVP has 71 requirements across 11 areas. "Must" items block the first releas
 | CAP-7 | Quick add in 3 taps, with smart defaults, in three modes: Spent, Received and Transfer (From and To accounts, for moving money between banks, paying a card bill or withdrawing cash). The date and time default to now and open the phone's pickers | Must |
 | CAP-8 | Show parse failures per bank so broken formats are noticed | Should |
 | CAP-10 | Foreign-currency spends in Indian bank SMS ("USD 25.00 spent on HDFC card") create an entry on the rupee card or account at that day's rate, marked "estimated rate" until the statement or a later SMS gives the rupee amount, which replaces it (decision 0017) | Must |
+| CAP-11 | Any bank, card or wallet, in India or abroad: the phone checks SMS from any business sender (never a phone number) for an amount and a money word, and reads the ones that match. Unknown senders go through the general reader and land in Review, where the user links the sender to an account once or ignores it. Settings → Capture lists every sender read, with counts of messages read and missed. Tuned rules for more banks are added over time from shared samples (decision 0017) | Must |
+| CAP-12 | Notifications from any payment or bank app: built-in UPI and bank apps are read by default, and the first payment notification from another app asks once whether to read that app (decision 0017) | Should |
 | CAP-9 | Share an anonymised sample of a message the app couldn't read: the phone replaces digits, names, UPI IDs and references, shows the result, and opens the share sheet only when the user taps Share. Nothing is sent automatically (decision 0016) | Must |
 
 ### Ledger and accuracy
@@ -254,7 +256,7 @@ These items are deliberately left out of the MVP.
 | Splitwise import | Personal splits and shared groups cover the need | If friends ask for it |
 | Finding friends on the app by phone number | Sign-in is email only, and hashed phone numbers are easy to reverse; friends are invited by email | With phone sign-in |
 | Ask-anything AI chat and a bigger role for AI | The month review and categorising deliver the main AI value first; Deva wants to shape AI's wider role later (decision 0012) | Phase 2 |
-| SMS from banks outside India, live prices for foreign shares, UPI in other currencies | The parser knows Indian banks only, and new banks need samples (CAP-9); a foreign broker is a manual account in its currency; UPI is rupee-only (decision 0017) | When a friend abroad shares samples |
+| Live prices for foreign shares, UPI in other currencies | A foreign broker is a manual account in its currency; UPI is rupee-only (decision 0017) | When a tester needs it |
 | Crypto, digital gold in apps, P2P lending, foreign shares, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime (decision 0014) | When a tester needs it |
 | Broker APIs, live prices | Daily prices are enough for net worth | Phase 3 |
 | Web app, family accounts | Phones come first | Phase 3 |
@@ -278,7 +280,7 @@ After milestone 4, a second design step (decision 0008) follows Deva's end-to-en
 After milestone 5, an investments step (decision 0014) adds Settings → Health (HOME-3), the demat statement import (NW-5) and long-term savings (NW-6), in that order, while milestone 6 waits on its open choices. Collecting friends' HDFC, HSBC and SBI samples for milestone 7 starts at the same time.
 6. **AI.** A self-hosted open model on Deva's PC (decisions 0006 and 0012), in four builds: the AI job queue and PC worker, a model chosen by testing candidates on Deva's tagged merchants, AI categorisation as the last CAT-2 layer (with a per-user AI switch and icon suggestions for new categories), and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 After milestone 6's code, a UI revamp (decision 0015) gives the app a charcoal and sage look and reworks Home, Activity, Budgets, Accounts and entry detail, from mockups Deva signed off on 5 Nov 2026. It ships in three PRs.
-7. **Android friends release** (decision 0016). In order: a security pass, invites and friend links, first run and empty states (the speed pass was measured on Deva's phone on 6 Nov 2026: Home opens in 176 ms and every screen loads in under 200 ms, so no changes were needed), bank sample sharing and the AI cap, then a release kit (APK on Drive with install steps, encrypted cloud backup, a friend install guide). Invites wait for multiple currencies (decision 0017), so friends abroad can join with their own currency. A second wave adds shared groups between app users. Parser coverage for HDFC, HSBC and SBI grows from friends' shared samples. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
+7. **Android friends release** (decision 0016). In order: a security pass, invites and friend links, first run and empty states (the speed pass was measured on Deva's phone on 6 Nov 2026: Home opens in 176 ms and every screen loads in under 200 ms, so no changes were needed), bank sample sharing and the AI cap, then a release kit (APK on Drive with install steps, encrypted cloud backup, a friend install guide). Invites wait for multiple currencies and capture from any bank (decision 0017), so friends abroad and friends with other banks can join; the release APK becomes 0.11.0. A second wave adds shared groups between app users. Parser coverage for HDFC, HSBC and SBI grows from friends' shared samples. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
 ## Free-tier plan
 
