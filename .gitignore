@@ -2,7 +2,16 @@ node_modules/
 .DS_Store
 *.tsbuildinfo
 coverage/
-.env*.local
+
+# Env files hold secrets (service role key, worker token, CAS token, SMTP).
+# Ignored everywhere, so one can't be committed by accident. The two
+# exceptions are public by design: the mobile app's .env holds only the
+# Supabase URL and anon key that ship in the app (see .gitleaksignore), and
+# .env.example files hold placeholders.
+.env
+.env.*
+!apps/mobile/.env
+!.env.example
 
 # Python
 __pycache__/

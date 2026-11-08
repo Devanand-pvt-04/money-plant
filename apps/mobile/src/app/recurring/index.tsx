@@ -54,7 +54,7 @@ export default function RecurringList() {
                   <Text style={styles.name}>{item.name}</Text>
                   <Text style={styles.meta}>{CADENCE_LABELS[item.cadence]} · no reminders</Text>
                 </View>
-                <Text style={styles.amountMuted}>{formatAmount(item.amount)}</Text>
+                <Text style={styles.amountMuted}>{formatAmount(item.amount, item.currency)}</Text>
               </Pressable>
             ))}
           </Card>

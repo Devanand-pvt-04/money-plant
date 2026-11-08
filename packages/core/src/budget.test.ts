@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, sortBudgets, combineBudgets } from './budget';
+import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, suggestionStep, sortBudgets, combineBudgets } from './budget';
 
 describe('effectiveBudgets', () => {
   const rows = [
@@ -78,6 +78,14 @@ describe('budgetPace', () => {
 describe('suggestBudget', () => {
   it('rounds the 3-month average up to ₹500', () => {
     expect(suggestBudget([paise(410000), paise(380000), paise(450000)])).toBe(450000);
+  });
+
+  it('rounds to a step that suits the currency (decision 0017)', () => {
+    expect(suggestionStep('INR')).toBe(50_000);
+    expect(suggestionStep('USD')).toBe(1000);
+    expect(suggestionStep('JPY')).toBe(1000);
+    expect(suggestionStep('KWD')).toBe(10_000);
+    expect(suggestBudget([paise(41_234), paise(38_000)], suggestionStep('USD'))).toBe(40_000);
   });
 
   it('returns null without spending', () => {

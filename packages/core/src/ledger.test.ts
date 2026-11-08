@@ -23,7 +23,34 @@ describe('validatePostings', () => {
     expect(validatePostings([post('hdfc', -45000), post('food', 40000)])).toEqual({
       code: 'unbalanced',
       sum: -5000,
+      currency: 'INR',
     });
+  });
+
+  it('balances each currency on its own (decision 0017)', () => {
+    // A $25 lunch from a USD account.
+    expect(
+      validatePostings([
+        { accountId: 'wise', amount: paise(-2500), currency: 'USD' },
+        { accountId: 'food', amount: paise(2500), currency: 'USD' },
+      ]),
+    ).toBeNull();
+    // ₹83,500 into $1,000 through the exchange account.
+    expect(
+      validatePostings([
+        { accountId: 'hdfc', amount: paise(-8350000) },
+        { accountId: 'exchange', amount: paise(8350000), currency: 'INR' },
+        { accountId: 'exchange', amount: paise(-100000), currency: 'USD' },
+        { accountId: 'wise', amount: paise(100000), currency: 'USD' },
+      ]),
+    ).toBeNull();
+    // Rupees out and dollars in don't balance each other.
+    expect(
+      validatePostings([
+        { accountId: 'hdfc', amount: paise(-8350000) },
+        { accountId: 'wise', amount: paise(8350000), currency: 'USD' },
+      ]),
+    ).toEqual({ code: 'unbalanced', sum: -8350000, currency: 'INR' });
   });
 
   it('rejects zero amounts', () => {

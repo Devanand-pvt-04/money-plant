@@ -1,21 +1,22 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppLock } from '@/components/app-lock';
 import { ErrorScreen } from '@/components/error-screen';
 import { UpdateBanner } from '@/components/update-banner';
-import { colors } from '@/components/ui';
+import { Button, colors } from '@/components/ui';
 import { useConsent } from '@/lib/consent';
-import { flushErrors, watchErrors } from '@/lib/errors';
+import { flushErrors, reportError, watchErrors } from '@/lib/errors';
 import { applyHideInRecents } from '@/lib/privacy';
 import { watchSharedIous } from '@/lib/realtime';
 import { useSession } from '@/lib/session';
 import { followSystemScheme, scheme } from '@/lib/theme';
+import { restartApp } from '@/lib/updates';
 
 watchErrors();
 
@@ -36,6 +37,36 @@ const navigationTheme = {
   },
 };
 
+/** How long the first screen may wait before it says what it's waiting for. */
+const SLOW_START_MS = 8_000;
+
+/**
+ * True once the app has waited too long on one startup step. The step is
+ * logged once (as a non-fatal error with how long it took), so a start that
+ * hangs shows up in the error log even when nothing crashed.
+ */
+function useSlowStart(step: 'session' | 'consent' | null): boolean {
+  const [slow, setSlow] = useState(false);
+  const started = useRef(Date.now());
+  const slowStep = useRef<string | null>(null);
+  useEffect(() => {
+    if (!step) {
+      if (slowStep.current) {
+        reportError(new Error(`Slow start: waited on ${slowStep.current}, ready after ${Math.round((Date.now() - started.current) / 1000)} s`), 'startup');
+        slowStep.current = null;
+      }
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      slowStep.current = step;
+      setSlow(true);
+    }, SLOW_START_MS);
+    return () => clearTimeout(timer);
+  }, [step]);
+  return slow;
+}
+
 export default function RootLayout() {
   const { session, loading } = useSession();
   const insets = useSafeAreaInsets();
@@ -50,6 +81,8 @@ export default function RootLayout() {
 
   const userId = session?.user.id;
   const consented = useConsent(userId);
+  const waitingFor = loading ? 'session' : session && consented === null ? 'consent' : null;
+  const slow = useSlowStart(waitingFor);
   useEffect(() => (userId ? watchSharedIous(userId) : undefined), [userId]);
   // Balances stay out of the recent apps view once there is a ledger to hide.
   useEffect(() => {
@@ -68,13 +101,25 @@ export default function RootLayout() {
     const url = content.data?.url;
     if (typeof url !== 'string' || handledResponse.current === identifier) return;
     handledResponse.current = identifier;
+    // Android keeps the last tapped notification across launches; clearing it stops every cold start reopening that screen.
+    Notifications.clearLastNotificationResponse();
     router.push(url as never);
   }, [lastResponse, loading, session, consented]);
 
-  if (loading || (session && consented === null)) {
+  if (waitingFor) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
-        <ActivityIndicator color={colors.primary} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} size="large" />
+        {slow && (
+          <>
+            <Text style={{ fontSize: 15, color: colors.text, textAlign: 'center', lineHeight: 21 }}>
+              {waitingFor === 'session'
+                ? 'Still checking your sign-in. After a while away this needs the internet, so a slow connection holds it up.'
+                : 'Still opening your data on this phone.'}
+            </Text>
+            <Button title="Try again" variant="secondary" onPress={() => void restartApp()} />
+          </>
+        )}
       </View>
     );
   }
@@ -122,6 +167,7 @@ export default function RootLayout() {
             <Stack.Screen name="person/[id]" options={{ title: 'Person' }} />
             <Stack.Screen name="iou/new" options={{ title: 'Record a loan', presentation: 'modal' }} />
             <Stack.Screen name="iou/[id]" options={{ title: 'IOU' }} />
+            <Stack.Screen name="iou/repay" options={{ title: 'Repayment', presentation: 'modal' }} />
             <Stack.Screen name="expense" options={{ title: 'Add expense', presentation: 'modal' }} />
             <Stack.Screen name="group/[id]" options={{ title: 'Group' }} />
             <Stack.Screen name="group/edit" options={{ title: 'Group', presentation: 'modal' }} />

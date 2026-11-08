@@ -18,14 +18,14 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 
 ## Rules
 
-- Money is always integer paise. Never use floating point for amounts.
-- Every transaction's postings sum to zero (double-entry). Write balances only as sums of postings, never as stored totals.
+- Money is always an integer in the smallest unit of its currency (paise for INR; `_paise` columns hold minor units of the row's currency, decision 0017). Never use floating point for amounts or exchange rates. Never assume ₹: format with the amount's currency.
+- Every transaction's postings sum to zero in each currency (double-entry). Write balances only as sums of postings, never as stored totals.
 - Every transaction has at least one source row. No entry exists without a source.
 - Raw SMS text never leaves the device. Don't log it, sync it or put it in an AI job. Only parsed fields leave the parser.
 - Secrets (AI worker token, SMTP, MSG91) live only in Supabase edge function secrets. Never put them in the app or the repo.
 - Every new table needs `updated_at`, `deleted_at` and a client-generated UUID primary key, plus row-level security policies and a case in `supabase/tests/database/rls.test.sql` proving another user can't read or change it. See `docs/security.md`.
 - Free tiers only. Don't add a paid service without asking.
-- Support these banks first: ICICI, HDFC, HSBC, SBI. Adding a bank format needs anonymised fixtures in `packages/parser/fixtures/<bank>/`.
+- Capture is never limited to a fixed list of banks: any business sender's money SMS reaches the general reader (decision 0017). ICICI, HDFC, HSBC and SBI have tuned rules first. Adding a bank's tuned rules needs anonymised fixtures in `packages/parser/fixtures/<bank>/`.
 - Never add code that moves money. UPI links only hand off to the user's own UPI app.
 
 ## Commands

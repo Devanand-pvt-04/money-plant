@@ -7,7 +7,7 @@ import { ErrorText, MoneyCard, colors, figures, radius } from '@/components/ui';
 import { GROUPS, SLICE_COLOURS, SLICE_LABELS, type AccountGroup } from '@/lib/account-groups';
 import { marketValues } from '@/lib/demat';
 import { fundValues } from '@/lib/funds';
-import { listAccountBalances, netWorth, type AccountBalance } from '@/lib/ledger';
+import { homeValueOf, listAccountBalances, missingRates, netWorth, type AccountBalance } from '@/lib/ledger';
 import { netWorthHistory, type NetWorthPoint } from '@/lib/networth';
 import { recurringOverview, type UpcomingPayment } from '@/lib/recurring';
 import { usePullToRefresh } from '@/lib/refresh';
@@ -54,8 +54,10 @@ export default function Accounts() {
   );
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
   const counted = data.balances.filter((b) => b.inNetWorth);
-  const own = counted.filter((b) => b.value > 0).reduce((s, b) => s + b.value, 0);
-  const owe = counted.filter((b) => b.value < 0).reduce((s, b) => s - b.value, 0);
+  // NW-7: totals are in the home currency.
+  const own = counted.filter((b) => homeValueOf(b) > 0).reduce((s, b) => s + homeValueOf(b), 0);
+  const owe = counted.filter((b) => homeValueOf(b) < 0).reduce((s, b) => s - homeValueOf(b), 0);
+  const unrated = missingRates(data.balances);
   const worth = netWorth(data.balances);
   const previous = data.history.length >= 2 ? data.history[data.history.length - 2]!.value : null;
   const change = previous === null ? null : worth - previous;
@@ -64,9 +66,9 @@ export default function Accounts() {
   // Where the money sits: what each slice owns, of everything owned.
   const slices = new Map<AccountGroup['slice'], number>();
   for (const b of counted) {
-    if (b.value <= 0) continue;
+    if (homeValueOf(b) <= 0) continue;
     const slice = GROUPS.find((g) => g.has(b))?.slice ?? 'rest';
-    slices.set(slice, (slices.get(slice) ?? 0) + b.value);
+    slices.set(slice, (slices.get(slice) ?? 0) + homeValueOf(b));
   }
   const parts = (['funds', 'bank', 'stocks', 'deposits', 'rest'] as const)
     .map((slice) => ({ slice, value: slices.get(slice) ?? 0 }))
@@ -74,7 +76,7 @@ export default function Accounts() {
 
   const groups = GROUPS.map((group) => {
     const rows = data.balances.filter(group.has);
-    return { group, rows, total: rows.reduce((s, b) => s + b.value, 0) };
+    return { group, rows, total: rows.reduce((s, b) => s + homeValueOf(b), 0) };
   }).filter((g) => g.rows.length > 0);
 
   const status = (group: AccountGroup, rows: AccountBalance[]): { text: string; tone: 'in' | 'warn' | 'muted' } => {
@@ -82,7 +84,10 @@ export default function Accounts() {
     if (group.key === 'stocks' && data.gain.stocks) return { text: `${percent(data.gain.stocks.gain, data.gain.stocks.invested)} overall`, tone: data.gain.stocks.gain >= 0 ? 'in' : 'warn' };
     const flagged = rows.find((b) => b.reconciliation?.flagged);
     if (flagged) {
-      return { text: `${flagged.account.institution ?? flagged.account.name} off by ${formatWholeRupees(Math.abs(flagged.reconciliation!.latest.gap))}`, tone: 'warn' };
+      return {
+        text: `${flagged.account.institution ?? flagged.account.name} off by ${formatWholeRupees(Math.abs(flagged.reconciliation!.latest.gap), flagged.account.currency)}`,
+        tone: 'warn',
+      };
     }
     if (group.key === 'debts') {
       const due = data.upcoming.find((u) => rows.some((b) => b.account.id === u.item.accountId));
@@ -120,6 +125,11 @@ export default function Accounts() {
         <Text style={styles.heroAmount} numberOfLines={1} adjustsFontSizeToFit>
           {formatWholeRupees(worth)}
         </Text>
+        {unrated.length > 0 && (
+          <Text style={styles.heroMuted}>
+            Leaves out {unrated.map((b) => b.account.name).join(', ')} until today's exchange rate loads
+          </Text>
+        )}
         {own > 0 && parts.length > 0 && (
           <>
             <View style={styles.bar} accessible accessibilityLabel={`Where it sits: ${parts.map((p) => `${SLICE_LABELS[p.slice]} ${Math.round((p.value * 100) / own)}%`).join(', ')}`}>
@@ -207,7 +217,7 @@ export default function Accounts() {
         <View style={styles.grow}>
           <Text style={styles.name}>Recurring payments</Text>
           <Text style={styles.meta}>
-            {next ? `${data.upcoming.length} active · next ${next.item.name} ${formatAmount(next.item.amount)}` : 'Autopays, EMIs and subscriptions'}
+            {next ? `${data.upcoming.length} active · next ${next.item.name} ${formatAmount(next.item.amount, next.item.currency)}` : 'Autopays, EMIs and subscriptions'}
           </Text>
         </View>
         <Feather name="chevron-right" size={18} color={colors.muted} />

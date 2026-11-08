@@ -43,6 +43,18 @@ function writeQueue(queue: ErrorReport[]): void {
   db.insert(kv).values({ key: QUEUE_KEY, value }).onConflictDoUpdate({ target: kv.key, set: { value } }).run();
 }
 
+/** Supabase hands back plain objects with a message and a code; keep both rather than "[object Object]". */
+function toError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (typeof error === 'object' && error !== null && typeof (error as { message?: unknown }).message === 'string') {
+    const { message, code } = error as { message: string; code?: unknown };
+    const e = new Error(typeof code === 'string' && code ? `${code} ${message}` : message);
+    e.name = 'ServerError';
+    return e;
+  }
+  return new Error(String(error));
+}
+
 /**
  * Records an error for the error log: the message and stack with numbers
  * taken out, where it happened and the app version, never amounts, payees or
@@ -51,7 +63,7 @@ function writeQueue(queue: ErrorReport[]): void {
  */
 export function reportError(error: unknown, source: string, fatal = false): void {
   try {
-    const e = error instanceof Error ? error : new Error(String(error));
+    const e = toError(error);
     const report: ErrorReport = {
       id: Crypto.randomUUID(),
       message: scrub(`${e.name}: ${e.message}`, 500),
@@ -100,4 +112,36 @@ export function watchErrors(): void {
     reportError(error, 'global', !!isFatal);
     previous(error, isFatal);
   });
+}
+
+/** Offline and timed-out calls are expected on a phone; they aren't worth a report. */
+function isOffline(error: Error): boolean {
+  return /network request failed|failed to fetch|fetch failed|FunctionsFetchError|FunctionsRelayError|AuthRetryableFetchError|timed? ?out|aborted/i.test(
+    `${error.name} ${error.message}`,
+  );
+}
+
+const reported = new Set<string>();
+
+/**
+ * A catch handler for work that runs in the background (sync, refresh passes,
+ * SMS capture), whose failures would otherwise vanish. It records the error in
+ * the error log, once per source and message each time the app runs, and skips
+ * offline failures. `withoutMessage` keeps only the error's name and where it
+ * was thrown: for capture, where a message could quote the SMS.
+ */
+export function reportBackground(source: string, options: { withoutMessage?: boolean } = {}): (error: unknown) => void {
+  return (error) => {
+    const e = toError(error);
+    if (isOffline(e)) return;
+    const key = `${source}|${e.name}|${options.withoutMessage ? '' : e.message}`;
+    if (reported.has(key)) return;
+    reported.add(key);
+    if (!options.withoutMessage) return reportError(e, source);
+    const bare = new Error('(message left out)');
+    bare.name = e.name;
+    // The first line of a stack repeats the message; keep only the frames.
+    bare.stack = e.stack ? `${e.name}\n${e.stack.split('\n').slice(1).join('\n')}` : undefined;
+    reportError(bare, source);
+  };
 }

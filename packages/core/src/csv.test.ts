@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { rupeesDecimal, toCsv } from './csv';
+import { minorDecimal, rupeesDecimal, toCsv } from './csv';
 
 describe('toCsv', () => {
   it('writes a header and rows with CRLF line ends', () => {
@@ -31,5 +31,14 @@ describe('rupeesDecimal', () => {
     [-1010, '-10.10'],
   ])('formats %i paise', (value, expected) => {
     expect(rupeesDecimal(paise(value))).toBe(expected);
+  });
+});
+
+describe('minorDecimal', () => {
+  it('writes each currency with its own decimals (decision 0017)', () => {
+    expect(minorDecimal(-123456, 'USD')).toBe('-1234.56');
+    expect(minorDecimal(2500, 'JPY')).toBe('2500');
+    expect(minorDecimal(3250, 'KWD')).toBe('3.250');
+    expect(minorDecimal(5, 'INR')).toBe('0.05');
   });
 });

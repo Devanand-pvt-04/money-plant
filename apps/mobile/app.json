@@ -3,7 +3,7 @@
     "name": "Money Plant",
     "slug": "money-plant",
     "scheme": "moneyplant",
-    "version": "0.10.0",
+    "version": "0.11.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },

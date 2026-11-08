@@ -26,6 +26,7 @@ export default function RuleDetail() {
   const [to, setTo] = useState('');
   const [days, setDays] = useState<number[]>([]);
   const [autoConfirm, setAutoConfirm] = useState(false);
+  const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,6 +35,7 @@ export default function RuleDetail() {
       setRule(loaded);
       setCategory({ id: loaded.categoryId, name: names.get(loaded.categoryId) ?? 'Deleted category' });
       setAutoConfirm(loaded.autoConfirm);
+      setNote(loaded.note ?? '');
       const { match } = loaded;
       setMin(money(match.minAmount));
       setMax(money(match.maxAmount));
@@ -81,7 +83,7 @@ export default function RuleDetail() {
       if (days.length === 0) return setError('Pick at least one day');
       next = { ...match, minAmount, maxAmount, startMinute: start * 60, endMinute: end * 60, weekdays: [...days].sort() };
     }
-    await updateRule(id, { match: next, categoryId: category!.id, autoConfirm });
+    await updateRule(id, { match: next, categoryId: category!.id, autoConfirm, note });
     await recategoriseHistory({ uncategorisedOnly: match.kind === 'pattern' });
     router.back();
   }
@@ -124,6 +126,8 @@ export default function RuleDetail() {
 
       <Text style={styles.label}>Category</Text>
       <Button title={category.name} variant="secondary" onPress={() => setPicking(true)} />
+      <Field label="Note for matching entries (optional)" value={note} onChangeText={setNote} maxLength={200} placeholder="Office lunch" />
+      <Text style={styles.meta}>Added to new entries this categorises, unless they already have a note.</Text>
       <View style={styles.switchRow}>
         <Text style={styles.switchLabel}>Confirm matches without asking</Text>
         <Switch value={autoConfirm} onValueChange={setAutoConfirm} />

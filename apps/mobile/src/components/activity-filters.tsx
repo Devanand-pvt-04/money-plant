@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
-import { parseRupees, type DateKey, type Paise } from '@money-plant/core';
+import { currencyInfo, paise, parseMoney, type DateKey, type Paise } from '@money-plant/core';
 import type { SourceKind } from '@money-plant/matcher';
+import { homeCurrency } from '@/lib/home-currency';
 import type { TransactionRow } from '@/lib/ledger';
 import { AccountPicker, accountLabel } from './account-picker';
 import { CategoryPicker } from './category-picker';
@@ -52,8 +53,8 @@ const ORIGINS: { key: Origin; label: string; kinds: readonly SourceKind[] }[] = 
   { key: 'manual', label: 'Added by me', kinds: ['manual'] },
 ];
 
-/** The entry's own amount, positive. */
-const sizeOf = (row: TransactionRow) => Math.abs(row.legs[0]?.amount ?? 0);
+/** The entry's amount in the home currency, positive; null while its rate isn't known (decision 0017). */
+const sizeOf = (row: TransactionRow) => (row.homeAmount === null ? null : Math.abs(row.homeAmount));
 
 /**
  * Whether a row passes every filter but the date range. `parents` maps a
@@ -67,8 +68,10 @@ export function passes(row: TransactionRow, f: ActivityFilters, parents: Readonl
     const id = row.category?.id;
     if (!id || (id !== f.category.id && parents.get(id) !== f.category.id)) return false;
   }
-  if (f.min !== null && sizeOf(row) < f.min) return false;
-  if (f.max !== null && sizeOf(row) > f.max) return false;
+  const size = sizeOf(row);
+  // An entry whose rate isn't known yet stays in rather than vanish from an amount filter.
+  if (f.min !== null && size !== null && size < f.min) return false;
+  if (f.max !== null && size !== null && size > f.max) return false;
   if (f.origins.length > 0) {
     const kinds = new Set(ORIGINS.filter((o) => f.origins.includes(o.key)).flatMap((o) => o.kinds));
     if (!tx.sources.some((s) => kinds.has(s.kind))) return false;
@@ -103,14 +106,16 @@ export function FilterSheet(props: { visible: boolean; value: ActivityFilters; c
   useEffect(() => {
     if (!props.visible) return;
     setF(props.value);
-    setMin(props.value.min !== null ? String(props.value.min / 100) : '');
-    setMax(props.value.max !== null ? String(props.value.max / 100) : '');
+    // Amounts are in the home currency.
+    const unit = 10 ** currencyInfo(homeCurrency()).decimals;
+    setMin(props.value.min !== null ? String(props.value.min / unit) : '');
+    setMax(props.value.max !== null ? String(props.value.max / unit) : '');
   }, [props.visible, props.value]);
 
   const set = (change: Partial<ActivityFilters>) => setF((current) => ({ ...current, ...change }));
   const amount = (text: string) => {
-    const parsed = text.trim() ? parseRupees(text) : null;
-    return parsed !== null && parsed > 0 ? parsed : null;
+    const parsed = text.trim() ? parseMoney(text, homeCurrency()) : null;
+    return parsed !== null && parsed > 0 ? paise(parsed) : null;
   };
   const next = { ...f, min: amount(min), max: amount(max) };
 

@@ -1,0 +1,53 @@
+# 0017: Multiple currencies and any bank
+
+Decided by Deva on 2026-11-08, in the thread "Support multiple currencies". The app has assumed rupees everywhere: amounts in paise, ₹ with Indian grouping, and an SMS parser that reads only Rs, INR and ₹. `accounts.currency` existed, set to INR, but nothing read it.
+
+Deva wants two cases covered, and wants the friends release held until this ships:
+
+- **Friends living abroad**, whose own money is in another currency (for example AED, USD or GBP).
+- **Deva's own foreign accounts**, such as a Wise USD balance, a forex card or a US broker, alongside rupee accounts.
+
+Deva also doesn't want the app limited to a fixed set of banks, even today: "We can slowly build compatibility through trial and error, but I want Money Plant to be able to handle everything." Until now the phone only looked at SMS from senders containing HDFC, ICICI, HSBC, SBI or slice, and only at notifications from a fixed list of UPI apps, so an Axis, Kotak or Emirates NBD message never reached the parser. The section "Any bank" below covers this.
+
+## Choices
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Home currency (ACC-11) | Each person picks a home currency in the first-run wizard (INR by default) and can change it in Settings. Every total (Home, Activity, budgets, net worth, month review) shows in it. It lives in the user's profile metadata next to name and UPI ID | Friends abroad think in their own currency; Deva's totals stay in rupees |
+| Account currency (ACC-12) | Each account has one currency, chosen when it is added (the home currency by default). It can be changed only while the account has no entries | A bank account holds one currency; changing it later would reinterpret old amounts |
+| Storing amounts | Still whole numbers, now in the smallest unit of the posting's currency: paise for INR, cents for USD, fils for AED (1/100) and KWD (1/1000), whole yen. Columns keep their `_paise` names to avoid a rename across every table and query; the meaning is "minor units of the row's currency". Never floating point | Keeps the integer-only rule without a risky rename; `packages/core` holds a table of each currency's decimals |
+| Postings | Every posting stores its currency. A bank, card, cash, deposit or investment account accepts postings only in its own currency. Category and person accounts accept any currency. A transaction's postings sum to zero in each currency (LED-1) | A $25 lunch paid from Wise is simply Wise −25.00 USD, Food +25.00 USD: no conversion is stored, and nothing changes if rates are revised |
+| Moving money between currencies (LED-11) | A transfer from an INR account to a USD account records both amounts actually moved, for example HDFC −₹83,500 and Wise +$1,000. Two postings on a hidden Exchange account (+₹83,500, −$1,000) balance each currency. The entry shows the rate it implies and its cost against that day's market rate (fees and spread). The Exchange account is not spending and not in net worth | Both banks' amounts stay exact and match their SMS and statements; the cost of converting is visible instead of lost |
+| Converting for totals (NW-7) | Totals convert each amount at the rate for the entry's date; balances and net worth use today's rate; net worth history uses each month's last rate. Each foreign account shows its own balance with the home value beside it | Budgets and past months don't drift when rates move, and net worth reflects what money is worth today |
+| Rate source | A new `fx-rates` edge function, like `nav-prices`: the phone asks for the dates and currencies it needs, at most once a day for today's rates. It reads Frankfurter (European Central Bank reference rates, free, no key) and, for the currencies the ECB doesn't publish (such as AED, SAR and QAR), the free fawazahmed0 currency API on jsDelivr. Rates are stored on the phone only, as integers scaled by 10^9, and conversion uses integer arithmetic with one rounding per amount | Free and keyless, so no new secret. Rates are a day old at most, which Deva accepted for totals; they never change a stored amount |
+| Budgets | Budget limits are in the home currency. Spending in other currencies counts at its date's rate. Changing the home currency asks to convert existing limits at today's rate | One budget per category stays simple, and a trip abroad still counts against Food |
+| Foreign spends in Indian SMS (CAP-10) | An Indian card SMS like "USD 25.00 spent on HDFC card at AMAZON" creates an entry on the rupee card at that day's rate, marked "estimated rate". The statement row or a later SMS with the rupee amount replaces the amount and clears the mark; the forex markup lands on the same entry | The card is billed in rupees, so its balance must stay in rupees; the estimate is close until the real figure arrives |
+| SMS from banks abroad | Read like any other bank (see "Any bank" below), with currency codes and symbols in the general reader | Friends abroad get capture from day one, at lower accuracy until their bank has its own rules |
+| IOUs and splits | An IOU and its repayments carry a currency, the currency of the account that paid or the payer's home currency. A shared IOU between friends with different home currencies stays in the IOU's currency on both sides, and each side's totals convert it. A person's balance shows one line per currency when they differ | Neither friend's view rounds the debt into a different number |
+| Investments and deposits | Mutual funds, demat holdings, NPS and Indian savings schemes stay rupee-only. A foreign broker or foreign FD is a manual account (or custom type) in its own currency, with the balance updated by hand | AMFI, NSE and NPS prices are rupee sources; live foreign prices stay out of scope |
+| Scan and pay, UPI links | Rupee only. Pay and settle buttons are hidden for IOUs in other currencies, which can be marked paid by hand | UPI works only in rupees |
+| Display | `packages/core` formats every amount with its currency: rupees keep Indian grouping (₹1,25,000.00); other currencies use their symbol, their decimals and groups of three ($1,250.00, AED 1,250.00, KWD 1,250.500). Each currency has its own symbol, so only the US dollar is "$" and others are A$, S$ or a code | Readable at a glance, and rupees look exactly as they do today |
+| Export | The CSV export gains a currency column per amount, and a home-currency value column | Exports stay complete |
+
+## Any bank
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Which SMS the phone reads (CAP-11) | Any business sender, not a fixed list: an alphanumeric header (VM-AXISBK, ENBD, Revolut) or a short code of up to 6 digits, whose text has an amount and a money word (debited, credited, spent, paid, received, withdrawn, purchase and so on). Full phone numbers are still never read, and OTPs and promotions are dropped as today. The check runs in Kotlin on the phone before any JavaScript, and the text never leaves the phone | Covers every bank, card and wallet without a new APK per bank, while keeping personal messages out |
+| Messages from a sender the app doesn't know | Go through the general reader, now with currency codes and symbols ($, €, £, AED, SGD), both 1,234.56 and 1.234,56 styles, and more money words. They never confirm on their own: each lands in Review as "New sender: ENBD. Which account is this?", where the user picks or creates the account (with its currency) or ignores the sender (LED-9). The answer is remembered, so later messages from that sender go straight to that account | A wrong guess costs one tap, never a silent wrong balance |
+| Settings → Capture | Lists every sender the app reads, with its account, how many messages it read and how many it couldn't (CAP-8). The user can add a sender by name, pause one or ignore one | The user can always see and fix what is read |
+| Notifications (CAP-12) | The listener looks at notifications from every app on the phone, but only passes on ones with an amount and a money word. The first time an app not in the built-in list posts one, Review asks "Read payments from Revolut?"; only apps the user says yes to are read after that. Built-in UPI and bank apps stay on by default | Banks in the UK, US and Europe notify through their apps rather than SMS. Asking per app avoids reading notifications from apps the user never chose, and needs no permission to list installed apps |
+| Getting better over time | Every message the general reader couldn't read, or read and the user then corrected, counts against its sender in Settings → Capture, and can be shared as an anonymised sample (CAP-9). Samples become per-bank rules with fixtures in `packages/parser/fixtures/<bank>/`, as today. ICICI, HDFC, HSBC and SBI keep their tuned rules | Trial and error, as Deva asked, with each fix tested against real messages |
+| Native change | The Kotlin filters change, and the senders and apps the user chose are kept where the receiver can read them before JavaScript starts. This needs a new APK: `version` in `app.json` goes to 0.11.0, which becomes the friends release build | The receiver runs before any JavaScript, so its filter can't change over the air |
+| Consent (ACC-5) | The consent screen says the app checks SMS from businesses and payment notifications on the phone, reads only the ones about money, and never uploads message text | The reach is wider than "known banks", so the consent says so |
+
+## Build order
+
+Steps 2 to 4 are JavaScript and database changes and ship over the air; step 5 needs a new APK. The migration must be pushed (`npx supabase db push`) before the over-the-air update.
+
+1. Docs (this record, the PRD and the architecture notes).
+2. Foundations: currency table and formatter in `packages/core`, `currency` on postings, IOUs, IOU payments and recurring payments (default INR, so existing rows are unchanged), sync of the new columns, RLS test cases, the `fx-rates` function and the phone's rate cache. Nothing visible changes yet.
+3. In the app: home currency in the wizard and Settings, currency on new accounts, every screen showing amounts in their own currency, quick add and entry edit in an account's currency, and cross-currency transfers.
+4. Totals: Home, Activity, budgets, net worth and its history, month review and Health in the home currency; foreign spends from Indian SMS; export.
+5. Any bank: the general reader with currencies and number styles, unknown senders in Review, Settings → Capture, then the Kotlin filters for SMS and notifications and the consent text (native, version 0.11.0).
+6. Then the friends release resumes from its release kit (decision 0016), with 0.11.0 as the APK.

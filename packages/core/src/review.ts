@@ -65,16 +65,21 @@ export const MAX_STARTS = 3;
  * Earlier months are compared with today's budget, since that's the one
  * being changed.
  */
-export function reviewSuggestions(lines: readonly ReviewLine[]): BudgetSuggestion[] {
+export function reviewSuggestions(
+  lines: readonly ReviewLine[],
+  /** For a home currency other than the rupee (decision 0017): its rounding step and its start minimum. */
+  options: { step?: number; startMin?: number } = {},
+): BudgetSuggestion[] {
+  const startMin = options.startMin ?? START_MIN;
   const raises: BudgetSuggestion[] = [];
   const lowers: BudgetSuggestion[] = [];
   const starts: BudgetSuggestion[] = [];
   for (const line of lines) {
     const months = [...line.previous.slice(-2), line.spent];
-    const suggested = suggestBudget(months);
+    const suggested = suggestBudget(months, options.step);
     if (suggested === null) continue;
     if (line.limit === null) {
-      if (line.canStart && suggested >= START_MIN) starts.push({ categoryId: line.categoryId, kind: 'start', current: null, suggested });
+      if (line.canStart && suggested >= startMin) starts.push({ categoryId: line.categoryId, kind: 'start', current: null, suggested });
       continue;
     }
     const limit = line.limit;

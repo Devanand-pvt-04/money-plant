@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { paise, validatePostings } from '@money-plant/core';
 import { matchContact, mobileFromVpa } from './contacts';
-import { allocateRepayment, findPerson, matchRepayment, outstanding, paidByOtherPostings, splitPostings, type Iou } from './ious';
+import { allocateRepayment, findPerson, matchRepayment, outstanding, paidByOtherPostings, payeeKey, splitPostings, type Iou } from './ious';
 
 const iou = (id: string, rupees: number, extra: Partial<Iou> = {}): Iou => ({
   id,
@@ -72,6 +72,14 @@ describe('matchRepayment (IOU-4)', () => {
     expect(matchRepayment({ direction: 'credit', amount: paise(1000), vpa: 'x@ybl', name: 'Someone Else' }, people, open)).toBeNull();
   });
 
+  it('matches a name the user linked to a person before', () => {
+    const friends = [{ id: 'gobal', name: 'Gobal', vpa: null }];
+    const aliases = new Map([[payeeKey('GOBAL NAIR'), 'gobal']]);
+    expect(findPerson(friends, { vpa: null, name: 'GOBAL NAIR' })).toBeNull();
+    expect(findPerson(friends, { vpa: null, name: 'Gobal  Nair.' }, aliases)?.id).toBe('gobal');
+    expect(findPerson(friends, { vpa: null, name: 'GOBAL NAIR' }, new Map([['gobal nair', 'gone']]))).toBeNull();
+  });
+
   it('does not guess between two people with the same name', () => {
     expect(findPerson([{ id: 'a', name: 'Ravi', vpa: null }, { id: 'b', name: 'RAVI', vpa: null }], { vpa: null, name: 'ravi' })).toBeNull();
   });
@@ -97,6 +105,13 @@ describe('split postings (SPL-1, SPL-2)', () => {
   it('leaves out a zero share for the user', () => {
     const postings = splitPostings({ id: 'bank', accountId: 'hdfc', amount: paise(-1000) }, 'food', paise(0), new Map([['a', paise(1000)]]), newId);
     expect(postings.map((p) => p.accountId)).toEqual(['hdfc', 'a']);
+  });
+
+  it('keeps every share in the paying leg\'s currency (decision 0017)', () => {
+    const postings = splitPostings({ id: 'card', accountId: 'amex', amount: paise(-9000), currency: 'USD' }, 'food', paise(3000), new Map([['a', paise(6000)]]), newId);
+    expect(postings.map((p) => p.currency)).toEqual(['USD', 'USD', 'USD']);
+    expect(validatePostings(postings)).toBeNull();
+    expect(paidByOtherPostings('ravi', 'travel', paise(2500), newId, 'EUR').every((p) => p.currency === 'EUR')).toBe(true);
   });
 
   it('records what the user owes when someone else paid', () => {

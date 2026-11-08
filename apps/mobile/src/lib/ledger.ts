@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
-import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, paise, reconcile, type AccountType, type Paise, type Reconciliation } from '@money-plant/core';
+import { ACCOUNT_TYPE_LABELS, convertOn, DEFAULT_CURRENCY, LIABILITY_TYPES, paise, reconcile, type AccountType, type CurrencyCode, type Paise, type Reconciliation } from '@money-plant/core';
 import {
   accountTypes,
   accounts,
@@ -9,6 +9,7 @@ import {
   captureLog,
   merchantCache,
   postings,
+  sources,
   transactions,
   type LocalAccount,
 } from '@money-plant/db-schema';
@@ -20,17 +21,24 @@ import { marketValues } from './demat';
 import { getDb } from './db';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
 import { notifyLedgerChange } from './events';
+import { loadRates, refreshTodayRates, todayKey } from './fx';
+import { homeCurrency } from './home-currency';
+import { homeConverter } from './home-money';
 
 /** Accounts that hold the user's money, as opposed to category and people accounts. */
-const NON_OWNED: AccountType[] = ['category', 'person'];
+const NON_OWNED: AccountType[] = ['category', 'person', 'exchange'];
 
 export interface AccountBalance {
   account: LocalAccount;
   /** Opening balance plus every posting, never a stored total. */
   balance: Paise;
   reconciliation: Reconciliation | null;
-  /** What it is worth today: the balance, plus interest earned so far on an FD or RD, or a fund at today's NAV (NW-1). */
+  /** What it is worth today: the balance, plus interest earned so far on an FD or RD, or a fund at today's NAV (NW-1). In `currency`. */
   value: Paise;
+  /** The account's currency (ACC-12); balance and value are in it. */
+  currency: CurrencyCode;
+  /** The value in the home currency at today's rate (NW-7), or null while no rate is known. */
+  homeValue: Paise | null;
   /** "Credit card", or the custom type's name (ACC-6). */
   typeLabel: string;
   liability: boolean;
@@ -54,9 +62,17 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     .where(and(inArray(postings.accountId, ids), isNull(transactions.deletedAt)))
     .all();
   const anchors = db
-    .select()
+    .select({
+      accountId: balanceAnchors.accountId,
+      observedAt: balanceAnchors.observedAt,
+      balancePaise: balanceAnchors.balancePaise,
+      sourceKind: sources.kind,
+    })
     .from(balanceAnchors)
+    .leftJoin(sources, eq(sources.id, balanceAnchors.sourceId))
     .where(and(inArray(balanceAnchors.accountId, ids), isNull(balanceAnchors.deletedAt)))
+    // Two readings of one moment (a statement imported again with more rows): the newer is the latest.
+    .orderBy(asc(balanceAnchors.observedAt), asc(balanceAnchors.createdAt))
     .all();
   const customTypes = new Map(db.select().from(accountTypes).all().map((t) => [t.id, t]));
   const depositTerms = new Map((await listDeposits()).map((d) => [d.accountId, d]));
@@ -66,7 +82,7 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     const balance = own.reduce((sum, p) => sum + p.amount, account.openingBalancePaise);
     const ownAnchors = anchors
       .filter((a) => a.accountId === account.id)
-      .map((a) => ({ observedAt: a.observedAt, balance: paise(a.balancePaise) }));
+      .map((a) => ({ observedAt: a.observedAt, balance: paise(a.balancePaise), from: a.sourceKind === 'statement' ? ('statement' as const) : ('sms' as const) }));
     const custom = account.accountTypeId ? customTypes.get(account.accountTypeId) : undefined;
     const deposit = depositTerms.get(account.id);
     return {
@@ -83,15 +99,36 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
   const funds = await fundValues(balanceMap);
   const markets = await marketValues(balanceMap);
   const schemes = await schemeValues();
+  // NW-7: each account's value in the home currency, at today's rate.
+  const home = homeCurrency();
+  const currencies = [...new Set([...rows.map((row) => row.currency), home])];
+  // Fetched in the background; screens reload when new rates arrive.
+  refreshTodayRates(currencies).then((fresh) => fresh && notifyLedgerChange(), () => {});
+  const rates = await loadRates(currencies);
+  const today = todayKey();
   return result.map((r) => {
     const valued = funds.get(r.account.id) ?? markets.get(r.account.id) ?? schemes.get(r.account.id);
-    return valued ? { ...r, value: valued.value } : r;
+    const value = valued ? valued.value : r.value;
+    const currency = r.account.currency;
+    const converted = convertOn(rates, value, currency, home, today);
+    return { ...r, value, currency, homeValue: converted === null ? null : paise(converted) };
   });
 }
 
-/** NW-1: balances are signed, so liabilities already count as negative; deposits and funds count at their value today. */
+/** The value counted in totals: in the home currency, or 0 while no rate is known. */
+export const homeValueOf = (b: AccountBalance): number => b.homeValue ?? 0;
+
+/**
+ * NW-1: balances are signed, so liabilities already count as negative; deposits and funds count at their value today.
+ * NW-7: in the home currency; an account with no known rate yet counts as 0 (see `missingRates`).
+ */
 export function netWorth(balances: readonly AccountBalance[]): Paise {
-  return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + b.value, 0));
+  return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + homeValueOf(b), 0));
+}
+
+/** Accounts left out of totals because their currency has no rate yet. */
+export function missingRates(balances: readonly AccountBalance[]): AccountBalance[] {
+  return balances.filter((b) => b.inNetWorth && b.homeValue === null && b.value !== 0);
 }
 
 export interface TransactionRow {
@@ -101,7 +138,9 @@ export interface TransactionRow {
   /** For AI-categorised entries: how sure the AI was (CAT-6). */
   aiConfidence: number | null;
   /** The posting on the user's own account(s), for display. */
-  legs: { accountId: string; accountName: string; amount: Paise }[];
+  legs: { accountId: string; accountName: string; amount: Paise; currency: CurrencyCode }[];
+  /** The first leg in the home currency at the entry's day, for totals (decision 0017); null while no rate is known. */
+  homeAmount: Paise | null;
   /** Names of every account the postings touch, including categories. */
   accountNames: Record<string, string>;
 }
@@ -132,15 +171,24 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
     const parent = account?.parentId ? byId.get(account.parentId) : undefined;
     return parent ? `${parent.name} › ${account!.name}` : (account?.name ?? 'Unknown category');
   };
+  const owned = (tx: LedgerTransaction) => tx.postings.filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'));
+  const converter = await homeConverter(txs.flatMap((tx) => owned(tx).slice(0, 1).map((p) => ({ currency: p.currency, occurredAt: tx.occurredAt }))));
   return txs.map((tx) => {
+    const legs = owned(tx).map((p) => ({
+      accountId: p.accountId,
+      accountName: byId.get(p.accountId)?.name ?? 'Unknown account',
+      amount: p.amount,
+      currency: p.currency ?? DEFAULT_CURRENCY,
+    }));
+    const first = legs[0];
+    const homeAmount = first ? converter.toHome(first.amount, first.currency, tx.occurredAt) : 0;
     const categoryLeg = tx.kind === 'transfer' ? undefined : tx.postings.find((p) => byId.get(p.accountId)?.type === 'category');
     return {
       tx,
       category: categoryLeg ? { id: categoryLeg.accountId, name: path(categoryLeg.accountId), key: keyOf(categoryLeg.accountId), look: lookOf(categoryLeg.accountId) } : null,
       aiConfidence: tx.categoryReason === 'ai' && tx.counterparty ? (merchants.get(normaliseMerchant(tx.counterparty)) ?? null) : null,
-      legs: tx.postings
-        .filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'))
-        .map((p) => ({ accountId: p.accountId, accountName: byId.get(p.accountId)?.name ?? 'Unknown account', amount: p.amount })),
+      legs,
+      homeAmount: homeAmount === null ? null : paise(homeAmount),
       accountNames: Object.fromEntries(tx.postings.map((p) => [p.accountId, byId.get(p.accountId)?.name ?? 'Unknown account'])),
     };
   });
@@ -251,18 +299,26 @@ export async function setCurrentBalance(accountId: string, balance: Paise): Prom
   notifyLedgerChange();
 }
 
-/** One-tap fix for a reconciliation gap: trust the latest balance the bank reported. */
-export async function adoptBankBalance(accountId: string): Promise<void> {
+/**
+ * One-tap fix for a reconciliation gap: trust the balance the bank reported.
+ * Pass the anchor the gap was shown for, so the fix is exactly the one shown.
+ */
+export async function adoptBankBalance(accountId: string, anchor?: { balance: Paise; observedAt: string }): Promise<void> {
   const db = await getDb();
-  const latest = db
-    .select()
-    .from(balanceAnchors)
-    .where(and(eq(balanceAnchors.accountId, accountId), isNull(balanceAnchors.deletedAt)))
-    .orderBy(desc(balanceAnchors.observedAt))
-    .get();
+  const latest =
+    anchor ??
+    (() => {
+      const row = db
+        .select()
+        .from(balanceAnchors)
+        .where(and(eq(balanceAnchors.accountId, accountId), isNull(balanceAnchors.deletedAt)))
+        .orderBy(desc(balanceAnchors.observedAt), desc(balanceAnchors.createdAt))
+        .get();
+      return row ? { balance: paise(row.balancePaise), observedAt: row.observedAt } : null;
+    })();
   if (!latest) return;
   const store = new SqliteLedgerStore(db);
-  await store.setBalanceRef(accountId, { kind: 'user', balance: paise(latest.balancePaise), at: latest.observedAt });
+  await store.setBalanceRef(accountId, { kind: 'user', balance: latest.balance, at: latest.observedAt });
   await rebaseOpening(store, accountId);
   notifyLedgerChange();
 }

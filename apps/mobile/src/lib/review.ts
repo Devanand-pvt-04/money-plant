@@ -3,6 +3,7 @@ import {
   overspends,
   paise,
   reviewSuggestions,
+  suggestionStep,
   type BudgetSuggestion,
   type MonthKey,
   type Overspend,
@@ -11,6 +12,7 @@ import {
   type SpendItem,
 } from '@money-plant/core';
 import { formatMonth } from '@/components/format';
+import { homeCurrency } from './home-currency';
 import { categoryBreakdown, currentMonth, incomeThisMonth, monthOverview, setBudget, type MonthOverview } from './budgets';
 import type { CategoryNode } from './categories';
 import { kvGet, kvSet } from './kv';
@@ -84,7 +86,10 @@ export async function monthReview(month: MonthKey): Promise<MonthReview> {
   );
 
   const suggestions: ReviewSuggestion[] = [];
-  for (const s of reviewSuggestions(reviewLines)) {
+  // Budgets are in the home currency, so suggestions round in it (decision 0017).
+  const home = homeCurrency();
+  const step = suggestionStep(home);
+  for (const s of reviewSuggestions(reviewLines, home === 'INR' ? {} : { step, startMin: 2 * step })) {
     if ((await kvGet(ignoredKey(s.categoryId))) === String(s.suggested)) continue;
     suggestions.push({ ...s, category: byId.get(s.categoryId)! });
   }

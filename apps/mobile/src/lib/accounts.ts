@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { eq, sql } from 'drizzle-orm';
-import type { AccountType, Paise } from '@money-plant/core';
+import { DEFAULT_CURRENCY, type AccountType, type CurrencyCode, type Paise } from '@money-plant/core';
 import { accounts, balanceRefs } from '@money-plant/db-schema';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
@@ -12,9 +12,17 @@ export interface AccountInput {
   name: string;
   institution: string | null;
   last4: string | null;
-  /** Signed: money owed on a card, loan or liability type is negative. */
+  /** Signed: money owed on a card, loan or liability type is negative. In minor units of `currency`. */
   openingBalance: Paise;
+  /** INR when left out (ACC-12). */
+  currency?: CurrencyCode;
 }
+
+/**
+ * Types that can hold another currency (decision 0017). Deposits, funds,
+ * stocks, NPS and savings schemes are Indian products priced in rupees.
+ */
+export const FOREIGN_CAPABLE_TYPES: ReadonlySet<AccountType> = new Set(['bank', 'cash', 'wallet', 'credit_card', 'loan', 'custom']);
 
 /** Returns the new account's id. */
 export async function createAccount(input: AccountInput): Promise<string> {
@@ -31,6 +39,7 @@ export async function createAccount(input: AccountInput): Promise<string> {
     last4: input.last4,
     accountTypeId: input.accountTypeId ?? null,
     openingBalancePaise: input.openingBalance,
+    currency: FOREIGN_CAPABLE_TYPES.has(input.type) ? (input.currency ?? DEFAULT_CURRENCY) : DEFAULT_CURRENCY,
     createdAt,
     dirty: 1,
   });

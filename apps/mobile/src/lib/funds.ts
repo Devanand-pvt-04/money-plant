@@ -3,24 +3,20 @@ import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   addDays,
   casDate,
-  casFlows,
+  casHoldings as casHoldingsOf,
   dateKey,
   dateOf,
-  detectSip,
-  fundValue,
-  isFundPayee,
-  navOn,
   pairFlows,
   paise,
-  rupeesToPaise,
   scaleDecimal,
   startOfDate,
-  unitsBought,
+  holdingValue,
+  shortSchemeName,
+  sipFundFor,
   FLOW_DAYS_AFTER,
   FLOW_DAYS_BEFORE,
-  FLOW_TOLERANCE,
-  costFromTransactions,
   type CasStatement,
+  type FundValue,
   type CasTransaction,
   type DematStatement,
   type DateKey,
@@ -54,72 +50,11 @@ export async function readCas(file: PdfFile, password: string): Promise<CasState
   return data as CasStatement;
 }
 
-/** One scheme from a CAS, ready to show and save. */
-export interface CasHolding {
-  key: string;
-  scheme: string;
-  isin: string | null;
-  amfiCode: string | null;
-  folio: string | null;
-  amc: string | null;
-  unitsE4: number;
-  cost: Paise;
-  navE4: number | null;
-  navDate: DateKey | null;
-  value: Paise;
-  asOf: DateKey;
-  sip: { amount: Paise; day: number } | null;
-  flows: ReturnType<typeof casFlows>;
-  /** The statement's transactions for the scheme, kept for its chart and history. */
-  transactions: CasTransaction[];
-}
+export type { CasHolding, FundValue } from '@money-plant/core';
+export { shortSchemeName };
 
-/** The schemes still held, with units, cost and value as of the statement's end. Closed folios are left out. */
-export function casHoldings(statement: CasStatement): CasHolding[] {
-  const end = casDate(statement.statement.to) ?? today();
-  const out: CasHolding[] = [];
-  for (const folio of statement.folios) {
-    for (const scheme of folio.schemes) {
-      const unitsE4 = scaleDecimal(scheme.units, 4) ?? 0;
-      if (unitsE4 <= 0 || !scheme.name) continue;
-      const navE4 = scaleDecimal(scheme.valuation.nav, 4);
-      const value = rupeesToPaise(scheme.valuation.value) ?? (navE4 !== null ? fundValue(unitsE4, navE4) : paise(0));
-      const asOf = casDate(scheme.valuation.date) ?? end;
-      const isin = scheme.isin && /^IN[A-Z0-9]{10}$/.test(scheme.isin) ? scheme.isin : null;
-      const amfiCode = scheme.amfi && /^\d{1,10}$/.test(scheme.amfi) ? scheme.amfi : null;
-      out.push({
-        key: `${isin ?? amfiCode ?? scheme.name}:${folio.folio ?? ''}`,
-        scheme: scheme.name.replace(/\s+/g, ' ').trim().slice(0, 200),
-        isin,
-        amfiCode,
-        folio: folio.folio?.slice(0, 40) ?? null,
-        amc: folio.amc?.slice(0, 120) ?? null,
-        unitsE4,
-        // The cost of the units still held. KFinTech statements often leave it out: then it is worked out
-        // from the transactions, and only when those don't cover every unit does it fall back to the value.
-        cost: rupeesToPaise(scheme.valuation.cost) ?? costFromTransactions(scheme.transactions, unitsE4) ?? value,
-        navE4,
-        navDate: navE4 !== null ? asOf : null,
-        value,
-        asOf,
-        sip: detectSip(scheme.transactions, asOf),
-        flows: casFlows(scheme.transactions),
-        transactions: scheme.transactions,
-      });
-    }
-  }
-  return out;
-}
-
-/** "Parag Parikh Flexi Cap Fund - Direct Plan - Growth" reads as "Parag Parikh Flexi Cap Fund". */
-export function shortSchemeName(scheme: string): string {
-  const name = scheme
-    .replace(/\(.*?\)/g, ' ')
-    .split(/\s+-\s+/)[0]!
-    .replace(/\s+/g, ' ')
-    .trim();
-  return (name || scheme).slice(0, 60);
-}
+/** The schemes still held, as of the statement's end (casHoldings in core). */
+export const casHoldings = (statement: CasStatement) => casHoldingsOf(statement, today());
 
 /** Accounts that hold the user's money and can pay into a fund, so not funds, categories or people. */
 export function payingAccounts(db: Awaited<ReturnType<typeof getDb>>): Set<string> {
@@ -129,7 +64,7 @@ export function payingAccounts(db: Awaited<ReturnType<typeof getDb>>): Set<strin
       .from(accounts)
       .where(isNull(accounts.deletedAt))
       .all()
-      .filter((a) => !['category', 'person', 'mutual_fund', 'stock', 'nps', 'savings_scheme', 'fd', 'rd'].includes(a.type))
+      .filter((a) => !['category', 'person', 'exchange', 'mutual_fund', 'stock', 'nps', 'savings_scheme', 'fd', 'rd'].includes(a.type))
       .map((a) => a.id),
   );
 }
@@ -301,17 +236,6 @@ export async function listHoldings(): Promise<LocalHolding[]> {
     .map((row) => row.holding);
 }
 
-export interface FundValue {
-  /** Units at the latest NAV, including estimated units for money paid in since the statement. */
-  value: Paise;
-  /** What the units are worth now, less what they cost (the statement's cost plus money paid in since). */
-  gain: Paise;
-  navE4: number | null;
-  navDate: DateKey | null;
-  /** Units bought since the statement, estimated until the next CAS (4 decimals). */
-  estimatedUnitsE4: number;
-}
-
 /** The freshest NAV for a holding: AMFI's if it's newer than the statement's. */
 export async function latestNavs(): Promise<Map<string, { navE4: number; date: DateKey }>> {
   const db = await getDb();
@@ -353,33 +277,7 @@ export async function fundValues(balances: ReadonlyMap<string, Paise>): Promise<
   const latest = await latestNavs();
   const list = await listHoldings();
   const flows = await flowsSince(list);
-  const out = new Map<string, FundValue>();
-  for (const holding of list) {
-    const amfi = (holding.amfiCode && latest.get(holding.amfiCode)) || (holding.isin && latest.get(holding.isin)) || null;
-    const statementNav = holding.navE4 !== null && holding.navDate ? { navE4: holding.navE4, date: holding.navDate } : null;
-    const nav = amfi && (!holding.navDate || amfi.date >= holding.navDate) ? amfi : statementNav;
-    const balance = balances.get(holding.accountId) ?? paise(holding.costPaise);
-    let estimatedUnitsE4 = 0;
-    let paidIn = 0;
-    for (const flow of flows.get(holding.accountId) ?? []) {
-      if (flow.on <= holding.asOf || flow.amount <= 0) continue;
-      const navE4 = navOn(flow.on, statementNav, nav);
-      if (navE4 === null) continue;
-      estimatedUnitsE4 += unitsBought(flow.amount, navE4);
-      paidIn += flow.amount;
-    }
-    const market = nav ? fundValue(holding.unitsE4 + estimatedUnitsE4, nav.navE4) : paise(holding.costPaise + paidIn);
-    // Whatever the ledger holds beyond the statement's cost and the money that bought units (money taken out) counts as it is.
-    const rest = balance - holding.costPaise - paidIn;
-    out.set(holding.accountId, {
-      value: paise(market + rest),
-      gain: paise(market - holding.costPaise - paidIn),
-      navE4: nav?.navE4 ?? null,
-      navDate: nav?.date ?? null,
-      estimatedUnitsE4,
-    });
-  }
-  return out;
+  return new Map(list.map((holding) => [holding.accountId, holdingValue(holding, latest, flows.get(holding.accountId) ?? [], balances.get(holding.accountId))]));
 }
 
 /**
@@ -446,13 +344,8 @@ export async function refreshFunds(): Promise<number> {
     for (const { tx, leg } of entries.sort((a, b) => a.tx.occurredAt.localeCompare(b.tx.occurredAt))) {
       const on = dateOf(tx.occurredAt);
       const amount = -leg.amount;
-      const fits = list.filter(
-        (h) => on > h.asOf && Math.abs(amount - h.sipPaise!) <= FLOW_TOLERANCE && !funded.has(`${h.accountId}|${on.slice(0, 7)}`) && isFundPayee(tx.counterparty, h.amc),
-      );
-      if (fits.length === 0) continue;
-      const day = Number(on.slice(8, 10));
-      const gap = (h: LocalHolding) => Math.min(Math.abs(day - h.sipDay!), 31 - Math.abs(day - h.sipDay!));
-      const fund = fits.sort((a, b) => gap(a) - gap(b))[0]!;
+      const fund = sipFundFor(list, { on, amount: paise(amount), payee: tx.counterparty }, funded);
+      if (!fund) continue;
       toTransfer(db, tx, leg, [{ accountId: fund.accountId, amount: paise(amount) }]);
       funded.add(`${fund.accountId}|${on.slice(0, 7)}`);
       changed++;

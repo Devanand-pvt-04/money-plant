@@ -1,7 +1,7 @@
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { balanceMet, formatRupees, HEALTH_DAYS, HEALTH_TARGETS, paise, type Share as Ratio } from '@money-plant/core';
+import { balanceMet, formatMoney, HEALTH_DAYS, HEALTH_TARGETS, type Share as Ratio } from '@money-plant/core';
 import { Button, Card, colors, SectionTitle } from '@/components/ui';
 import { formatDateTime } from '@/components/format';
 import { loadHealth, type Health as HealthData } from '@/lib/health';
@@ -27,7 +27,7 @@ export default function Health() {
       `Captured automatically: ${ratio(data.captured)} (target ${percent(HEALTH_TARGETS.captured)})`,
       `Categories left unchanged: ${ratio(data.categories)} (target ${percent(HEALTH_TARGETS.categories)})`,
       `Time in Review: ${data.review.averageSeconds === null ? '-' : `${minutes(data.review.averageSeconds)} a day over ${data.review.days} days`} (target under 2 min)`,
-      ...data.balances.map((b, i) => `Bank account ${i + 1}: ${balanceMet(b.gap) ? 'matches' : `off by ${formatRupees(paise(Math.abs(b.gap)))}`}`),
+      ...data.balances.map((b, i) => `Bank account ${i + 1}: ${balanceMet(b.gap) ? 'matches' : `off by ${formatMoney(Math.abs(b.gap), b.currency)}`}`),
     ];
     void Share.share({ message: lines.join('\n') });
   }
@@ -77,7 +77,7 @@ export default function Health() {
                   first={i === 0}
                   title={b.name}
                   detail={`Bank's balance on ${formatDateTime(b.observedAt)}`}
-                  value={balanceMet(b.gap) ? 'Matches' : `${b.gap > 0 ? 'Missing' : 'Extra'} ${formatRupees(paise(Math.abs(b.gap)))}`}
+                  value={balanceMet(b.gap) ? 'Matches' : `${b.gap > 0 ? 'Missing' : 'Extra'} ${formatMoney(Math.abs(b.gap), b.currency)}`}
                   target="Target within ₹1"
                   met={balanceMet(b.gap)}
                   onPress={() => router.push(`/account/${b.accountId}`)}
@@ -86,6 +86,11 @@ export default function Health() {
             )}
           </Card>
           {data.unchecked.length > 0 && <Text style={styles.hint}>Not checked yet, no balance from the bank: {data.unchecked.join(', ')}.</Text>}
+          {data.unsynced > 0 && (
+            <Text style={styles.hint}>
+              {data.unsynced === 1 ? '1 entry' : `${data.unsynced} entries`} couldn't sync: the server refused {data.unsynced === 1 ? 'it' : 'them'}. Everything else still syncs. Editing an entry tries it again; the error log has the reason.
+            </Text>
+          )}
 
           <View style={styles.actions}>
             <Button title="Send these numbers" variant="secondary" onPress={share} />

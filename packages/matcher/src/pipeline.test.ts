@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from '@money-plant/core';
-import { normaliseSender, parseNotification, parseSms, parseStatementRow } from '@money-plant/parser';
+import { normaliseSender, parseAnySms, parseNotification, parseSms, parseStatementRow } from '@money-plant/parser';
 import { MemoryStore } from './memory-store';
-import { checkTransaction, ingestNotification, ingestSms, ingestStatementRow, type PipelineContext } from './pipeline';
+import { checkTransaction, ingestNotification, ingestSms, ingestStatementRow, isEstimated, noteFor, type PipelineContext } from './pipeline';
 
 function setup() {
   const store = new MemoryStore();
@@ -272,5 +272,60 @@ describe('ingestStatementRow (CAP-5)', () => {
     expect(store.balance(account.id)).toBe(-14000);
     const added = store.live().find((tx) => tx.sources.every((s) => s.kind === 'statement'))!;
     expect(added).toMatchObject({ kind: 'expense', counterparty: 'ANNA IDLI', occurredAt: '2026-10-21T12:00:00.000Z' });
+  });
+});
+
+describe('foreign spends with an estimated rupee amount (CAP-10)', () => {
+  it('replaces the estimate with the statement amount, markup included', async () => {
+    const { store, ctx } = setup();
+    const result = parseSms({ sender: 'VM-HDFCBK', body: 'USD 25.00 spent on HDFC Bank Card XX4321 at AMAZON WEB SERVICES on 21-10-26.' });
+    if (result.status !== 'parsed') throw new Error('not parsed');
+    expect(result.transaction).toMatchObject({ amount: 2500, currency: 'USD' });
+    // The phone converts it at the day's rate before the pipeline sees it.
+    const { currency: _usd, ...rest } = result.transaction;
+    const parsed = { ...rest, amount: paise(208_750), foreign: { amount: 2500, currency: 'USD' } };
+    const sms = await ingestSms(ctx, { parsed, sender: 'HDFCBK', receivedAt: '2026-10-21T10:00:00.000Z', fingerprint: 'usd', rawText: null });
+    expect(sms.outcome).toBe('created');
+    const [tx] = store.live();
+    if (!tx) throw new Error('no entry');
+    expect(isEstimated(tx)).toBe(true);
+    const card = tx.postings.find((p) => p.amount < 0)!.accountId;
+
+    const statement = parseStatementRow('hdfc', { date: '2026-10-21', lines: ['AMAZON WEB SERVICES'], debit: '2,162.40', credit: null, balance: null })!;
+    const attached = await ingestStatementRow(
+      ctx,
+      { parsed: statement, accountId: card, occurredAt: '2026-10-21T12:00:00.000Z', dayStart: '2026-10-21T00:00:00.000Z', fingerprint: 'st-usd' },
+      new Set(),
+    );
+    expect(attached).toMatchObject({ outcome: 'attached', transactionId: tx.id });
+    const after = store.live().find((t) => t.id === tx.id)!;
+    expect(store.live()).toHaveLength(1);
+    expect(isEstimated(after)).toBe(false);
+    expect(store.balance(card)).toBe(-216_240);
+    expect(checkTransaction(after)).toBeNull();
+  });
+});
+
+describe('senders without tuned rules (CAP-11)', () => {
+  it('posts to the account the user linked the sender to, and asks to confirm', async () => {
+    const { store, ctx } = setup();
+    const enbd = { id: 'enbd', type: 'credit_card' as const, name: 'ENBD card', institution: null, last4: null };
+    await store.createAccount(enbd);
+    const result = parseAnySms({ sender: 'AD-ENBD', body: 'Purchase of AED 85.00 on your Credit Card ending 1234 at CARREFOUR was successful.' });
+    if (result.status !== 'parsed') throw new Error('not parsed');
+    const outcome = await ingestSms(ctx, { parsed: result.transaction, sender: 'ENBD', receivedAt: '2026-11-08T10:00:00.000Z', fingerprint: 'enbd-1', rawText: null, accountId: 'enbd' });
+    expect(outcome.outcome).toBe('created');
+    expect(store.balance('enbd')).toBe(-8500);
+    expect(store.live()[0]).toMatchObject({ status: 'pending', counterparty: 'CARREFOUR' });
+  });
+});
+
+describe('default notes from rules and patterns (CAT-7)', () => {
+  it('adds the note only to an entry without one', () => {
+    expect(noteFor({ note: null, userSetFields: [] }, { note: 'Office lunch' })).toBe('Office lunch');
+    expect(noteFor({ note: 'Team treat', userSetFields: [] }, { note: 'Office lunch' })).toBe('Team treat');
+    expect(noteFor({ note: null, userSetFields: ['note'] }, { note: 'Office lunch' })).toBeNull();
+    expect(noteFor({ note: null, userSetFields: [] }, { note: '  ' })).toBeNull();
+    expect(noteFor({ note: null, userSetFields: [] }, {})).toBeNull();
   });
 });

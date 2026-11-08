@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
-import { addDays, dateKey, daysBetween, nextOccurrence, paise, startOfDate, type DateKey, type Paise } from '@money-plant/core';
+import { addDays, dateKey, daysBetween, nextOccurrence, paise, startOfDate, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { accounts, recurring, transactions, type LocalRecurring } from '@money-plant/db-schema';
 import {
   applyPreDebit,
@@ -17,6 +17,7 @@ import {
 import { normaliseMerchant } from '@money-plant/categoriser';
 import type { ParsedPreDebit } from '@money-plant/parser';
 import { formatAmount } from '@/components/format';
+import { homeCurrency } from './home-currency';
 import { ownedAccountIds } from './categories';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
@@ -40,6 +41,7 @@ function toPayment(row: LocalRecurring): RecurringPayment {
     vpa: row.vpa,
     merchant: row.merchant,
     amount: paise(row.amountPaise),
+    currency: row.currency,
     cadence: row.cadence,
     anchorDay: row.anchorDay,
     nextDue: row.nextDue,
@@ -87,7 +89,12 @@ export async function getRecurring(id: string): Promise<RecurringPayment | null>
 async function write(item: RecurringPayment | Omit<RecurringPayment, 'id'>): Promise<string> {
   const db = await getDb();
   const id = 'id' in item ? item.id : Crypto.randomUUID();
-  const values = toRow({ ...item, id });
+  // The amount is in the paying account's currency, else the home currency (decision 0017).
+  const currency =
+    item.currency ??
+    (item.accountId ? db.select({ currency: accounts.currency }).from(accounts).where(eq(accounts.id, item.accountId)).get()?.currency : undefined) ??
+    homeCurrency();
+  const values = { ...toRow({ ...item, id }), currency };
   db.insert(recurring)
     .values({ id, ...values, createdAt: new Date().toISOString(), dirty: 1 })
     .onConflictDoUpdate({ target: recurring.id, set: { ...values, dirty: 1, rev: sql`${recurring.rev} + 1` } })
@@ -104,6 +111,8 @@ export interface RecurringInput {
   categoryId: string | null;
   /** A UPI ID or a merchant name, as the user typed it; debits to it count as this payment. */
   payee: string | null;
+  /** The amount's currency; left out, the paying account's, else the home currency (decision 0017). */
+  currency?: CurrencyCode;
 }
 
 function payeeFields(payee: string | null): Pick<RecurringPayment, 'vpa' | 'merchant'> {
@@ -129,6 +138,8 @@ export async function saveRecurring(id: string | null, input: RecurringInput): P
     nextDue: input.nextDue,
     accountId: input.accountId,
     categoryId: input.categoryId,
+    // Not the old one: a payment moved to an account in another currency takes that account's.
+    currency: input.currency,
     ...payee,
   });
   await requestNotificationPermission().catch(() => false);
@@ -342,9 +353,9 @@ export async function scheduleReminders(): Promise<void> {
         id: `${REMINDER_PREFIX}${item.id}:${before}`,
         channel: 'reminders',
         at,
-        title: `${item.name}: ${formatAmount(item.amount)} due ${when}`,
+        title: `${item.name}: ${formatAmount(item.amount, item.currency)} due ${when}`,
         body: short
-          ? `${accountName} may be short by ${formatAmount(short)}. Top it up before then.`
+          ? `${accountName} may be short by ${formatAmount(short, item.currency)}. Top it up before then.`
           : accountName
             ? `It will be paid from ${accountName}.`
             : 'Tap to see it in Money Plant.',

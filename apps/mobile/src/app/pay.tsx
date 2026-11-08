@@ -279,7 +279,7 @@ function Amount(props: { payment: UpiPayment; guess: PayeeGuess | null; onBack: 
     }
   }
 
-  const shown = fixed ? formatAmount(payment.amount!).replace(/\.00$/, '') : `₹${text === '' ? '0' : Number(text.split('.')[0]).toLocaleString('en-IN')}${text.includes('.') ? `.${text.split('.')[1]}` : ''}`;
+  const shown = fixed ? formatAmount(payment.amount!, 'INR').replace(/\.00$/, '') : `₹${text === '' ? '0' : Number(text.split('.')[0]).toLocaleString('en-IN')}${text.includes('.') ? `.${text.split('.')[1]}` : ''}`;
   return (
     <View style={[styles.amountScreen, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }]}>
       <Pressable accessibilityRole="button" accessibilityLabel="Back" hitSlop={8} onPress={props.onBack} style={styles.iconButton}>
@@ -340,7 +340,7 @@ function Amount(props: { payment: UpiPayment; guess: PayeeGuess | null; onBack: 
           </View>
         )}
         {error && <ErrorText>{error}</ErrorText>}
-        <Button title={amount ? `Pay ${formatAmount(amount).replace(/\.00$/, '')}` : 'Pay'} onPress={pay} loading={paying} disabled={!amount} />
+        <Button title={amount ? `Pay ${formatAmount(amount, 'INR').replace(/\.00$/, '')}` : 'Pay'} onPress={pay} loading={paying} disabled={!amount} />
         <Text style={[styles.small, styles.centerText]}>Android asks which UPI app to open. Money Plant never moves money itself.</Text>
       </View>
       <KeyboardGap />
@@ -396,7 +396,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
     }
   }
 
-  const title = paid ? `Paid ${formatAmount(amount).replace(/\.00$/, '')} to ${name}` : answered === null ? TITLES[result.status] : TITLES.failure;
+  const title = paid ? `Paid ${formatAmount(amount, 'INR').replace(/\.00$/, '')} to ${name}` : answered === null ? TITLES[result.status] : TITLES.failure;
   const subtitle = paid
     ? `${result.status === 'success' ? 'Confirmed by your UPI app' : 'You confirmed it'} · ${formatTime(props.at)}`
     : unsure

@@ -1,4 +1,4 @@
-import { parseRupees, type Paise } from '@money-plant/core';
+import { currencyInfo, DEFAULT_CURRENCY, isCurrency, parseMoney, parseRupees, type CurrencyCode, type Paise } from '@money-plant/core';
 import type { Channel, Direction, IgnoreReason, Instrument } from './types';
 
 /**
@@ -18,11 +18,53 @@ export interface Amounts {
   amount: Paise | null;
   balance: Paise | null;
   availableLimit: Paise | null;
+  /**
+   * CAP-10: a transaction amount in another currency, "USD 25.00 spent", in
+   * that currency's minor units. Only used when no rupee amount was found.
+   */
+  foreign: { amount: number; currency: CurrencyCode } | null;
+}
+
+// "USD 25.00", "EUR25", "AED 1,250.50", "KWD 3.250", and the common symbols.
+const FOREIGN_AMOUNT = /(?:\b([A-Z]{3})\s*|(US\$|\$|€|£|¥))([0-9][0-9.,]*[0-9]|[0-9])/g;
+const TRAILING_FOREIGN = /\b([0-9][0-9.,]*[0-9]|[0-9])\s?([A-Z]{3})\b/g;
+const SYMBOLS: Record<string, CurrencyCode> = { US$: 'USD', $: 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY' };
+
+/**
+ * "1.234,56" (European style) as "1234.56"; "1,234.56" and "1234" stay as
+ * they are. "3.250" stays a decimal in a currency with 3 decimals (KWD).
+ */
+export function plainNumber(text: string, currency: CurrencyCode): string {
+  if (currencyInfo(currency).decimals === 3 && /^\d+\.\d{3}$/.test(text)) return text;
+  if (/^\d{1,3}(?:\.\d{3})+(?:,\d{1,3})?$/.test(text) || /^\d+,\d{1,2}$/.test(text)) return text.replace(/\./g, '').replace(',', '.');
+  return text;
+}
+
+/** The first foreign-currency amount that isn't a balance, limit or due amount. */
+function extractForeign(text: string): Amounts['foreign'] {
+  for (const match of text.matchAll(FOREIGN_AMOUNT)) {
+    const currency = match[1] ?? SYMBOLS[match[2]!];
+    if (!currency || currency === DEFAULT_CURRENCY || !isCurrency(currency)) continue;
+    const before = text.slice(Math.max(0, match.index - 30), match.index);
+    if (LIMIT_BEFORE.test(before) || BALANCE_BEFORE.test(before) || NOT_TXN_AMOUNT_BEFORE.test(before)) continue;
+    const amount = parseMoney(plainNumber(match[3]!, currency), currency);
+    if (amount !== null && amount > 0) return { amount, currency };
+  }
+  // The code after the number, as many banks abroad write it: "12,50 EUR".
+  for (const match of text.matchAll(TRAILING_FOREIGN)) {
+    const currency = match[2]!;
+    if (currency === DEFAULT_CURRENCY || !isCurrency(currency)) continue;
+    const before = text.slice(Math.max(0, match.index - 30), match.index);
+    if (LIMIT_BEFORE.test(before) || BALANCE_BEFORE.test(before) || NOT_TXN_AMOUNT_BEFORE.test(before)) continue;
+    const amount = parseMoney(plainNumber(match[1]!, currency), currency);
+    if (amount !== null && amount > 0) return { amount, currency };
+  }
+  return null;
 }
 
 /** Splits the amounts in a message into the transaction amount, balance and available limit. */
 export function extractAmounts(text: string): Amounts {
-  const result: Amounts = { amount: null, balance: null, availableLimit: null };
+  const result: Amounts = { amount: null, balance: null, availableLimit: null, foreign: null };
   for (const match of text.matchAll(CURRENCY_AMOUNT)) {
     const value = parseRupees(match[1]!);
     if (value === null) continue;
@@ -31,7 +73,8 @@ export function extractAmounts(text: string): Amounts {
     else if (BALANCE_BEFORE.test(before)) result.balance ??= value;
     else if (!NOT_TXN_AMOUNT_BEFORE.test(before)) result.amount ??= value;
   }
-  if (result.amount === null) {
+  if (result.amount === null) result.foreign = extractForeign(text);
+  if (result.amount === null && result.foreign === null) {
     const bare = BARE_AMOUNT.exec(text);
     if (bare) result.amount = parseRupees(bare[1]!);
   }
@@ -135,7 +178,11 @@ export function extractCounterparty(text: string): string | null {
 
 /** Trims a captured counterparty and rejects captures that are really the user's own account. */
 export function cleanCounterparty(raw: string): string | null {
-  const value = raw.replace(/\s+/g, ' ').replace(/^[\s:\-]+|[\s.,:;\-]+$/g, '');
+  const value = raw
+    .replace(/\s+/g, ' ')
+    // "at CARREFOUR was successful", "at LIDL has been approved": the status isn't part of the name.
+    .replace(/\s+(?:was|is|has been)\s+(?:successful|approved|completed|processed)\b.*$/i, '')
+    .replace(/^[\s:\-]+|[\s.,:;\-]+$/g, '');
   if (value.length < 2) return null;
   if (/^(?:your\s+)?(?:hdfc|icici|sbi|hsbc)?\s*(?:bank\s+)?(?:savings\s+|current\s+|salary\s+)?(?:a\/c|ac\b|acct|account|card|credit card|debit card)/i.test(value)) return null;
   // "ICICI Bank Savings Account XX798": a masked number after an account word is the user's own account.

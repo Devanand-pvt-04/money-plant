@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { formatRupees, parseRupees, type Paise } from '@money-plant/core';
+import { currencyInfo, formatMoney, paise, parseMoney, suggestionStep, type Paise } from '@money-plant/core';
+import { formatAmount } from './format';
+import { homeCurrency } from '@/lib/home-currency';
 import { Sheet } from './sheet';
 import { Button, ErrorText, colors, radius } from './ui';
 
-const plain = (amount: Paise) => formatRupees(amount, { symbol: false }).replace(/\.00$/, '');
+/** Budgets are in the home currency (decision 0017). */
+const plain = (amount: Paise) => formatMoney(amount, homeCurrency(), { symbol: false }).replace(/\.0+$/, '');
+
+/** "₹500" or "$10": how far suggested budgets round up in the home currency. */
+export function roundingText(): string {
+  const home = homeCurrency();
+  return formatAmount(suggestionStep(home), home);
+}
 
 /**
  * BUD-1: asks for one budget amount. `onSave` gets the amount, or null from
@@ -29,16 +38,16 @@ export function BudgetSheet(props: {
   }, [props.visible, props.value]);
 
   function save() {
-    const amount = parseRupees(text);
+    const amount = parseMoney(text, homeCurrency());
     if (amount === null || amount <= 0) return setError('Enter an amount above zero');
-    props.onSave(amount);
+    props.onSave(paise(amount));
   }
 
   return (
     <Sheet visible={props.visible} onClose={props.onClose} title={props.title}>
       {props.note && <Text style={styles.note}>{props.note}</Text>}
       <View style={styles.amount}>
-        <Text style={styles.rupee}>₹</Text>
+        <Text style={styles.rupee}>{currencyInfo(homeCurrency()).symbol.trim()}</Text>
         <TextInput
           value={text}
           onChangeText={setText}

@@ -1,3 +1,4 @@
+import { DEFAULT_CURRENCY, type CurrencyCode } from './currency';
 import type { Paise } from './money';
 
 export const ACCOUNT_TYPES = [
@@ -15,6 +16,8 @@ export const ACCOUNT_TYPES = [
   'person',
   'category',
   'custom',
+  // Hidden: balances transfers between currencies (LED-11, decision 0017).
+  'exchange',
 ] as const;
 
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -34,6 +37,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   person: 'Person',
   category: 'Category',
   custom: 'Custom',
+  exchange: 'Currency exchange',
 };
 
 /**
@@ -41,8 +45,14 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
  * other flows; `custom` accounts are created from a user-defined account type (ACC-6).
  */
 export const USER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(
-  (type) => type !== 'person' && type !== 'category' && type !== 'custom',
+  (type) => type !== 'person' && type !== 'category' && type !== 'custom' && type !== 'exchange',
 );
+
+/**
+ * Accounts that take postings in any currency (decision 0017). Every other
+ * account takes postings only in its own currency.
+ */
+export const ANY_CURRENCY_TYPES: ReadonlySet<AccountType> = new Set(['person', 'category', 'exchange']);
 
 /** Built-in types whose balance is money owed rather than money held. */
 export const LIABILITY_TYPES: ReadonlySet<AccountType> = new Set(['credit_card', 'loan']);
@@ -56,28 +66,35 @@ export function isAccountType(value: string): value is AccountType {
 
 export interface Posting {
   accountId: string;
+  /** Minor units of `currency`. */
   amount: Paise;
+  /** INR when left out. */
+  currency?: CurrencyCode;
 }
 
 export type PostingError =
   | { code: 'too_few_postings' }
   | { code: 'not_integer'; index: number }
   | { code: 'zero_amount'; index: number }
-  | { code: 'unbalanced'; sum: number };
+  | { code: 'unbalanced'; sum: number; currency: CurrencyCode };
 
 /**
  * A transaction is valid when it has at least two non-zero integer postings
- * that sum to zero. Returns the first problem found, or null.
+ * that sum to zero in each currency. Returns the first problem found, or null.
  */
 export function validatePostings(postings: readonly Posting[]): PostingError | null {
   if (postings.length < 2) return { code: 'too_few_postings' };
-  let sum = 0;
+  const sums = new Map<CurrencyCode, number>();
   for (const [index, posting] of postings.entries()) {
     if (!Number.isSafeInteger(posting.amount)) return { code: 'not_integer', index };
     if (posting.amount === 0) return { code: 'zero_amount', index };
-    sum += posting.amount;
+    const currency = posting.currency ?? DEFAULT_CURRENCY;
+    sums.set(currency, (sums.get(currency) ?? 0) + posting.amount);
   }
-  return sum === 0 ? null : { code: 'unbalanced', sum };
+  for (const [currency, sum] of sums) {
+    if (sum !== 0) return { code: 'unbalanced', sum, currency };
+  }
+  return null;
 }
 
 /** Balance of one account: its opening balance plus every posting to it. */

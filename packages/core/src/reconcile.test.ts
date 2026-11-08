@@ -37,4 +37,10 @@ describe('reconcile', () => {
       windowStart: '2026-10-01T10:00:00Z',
     });
   });
+
+  it('takes the last of two readings of the same moment as the latest', () => {
+    // A statement imported again with more rows reads the same closing moment; the caller lists the newer one last.
+    const result = reconcile(paise(100000), [], [a('2026-10-05T18:29:59Z', 90000), a('2026-10-05T18:29:59Z', 100000)]);
+    expect(result).toMatchObject({ flagged: false, latest: { gap: 0 } });
+  });
 });

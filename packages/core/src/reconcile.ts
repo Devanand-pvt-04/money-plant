@@ -4,6 +4,8 @@ import type { Paise } from './money';
 export interface BalanceAnchorPoint {
   observedAt: string;
   balance: Paise;
+  /** Where the bank reported it. Missing means an SMS. */
+  from?: 'sms' | 'statement';
 }
 
 export interface DatedAmount {

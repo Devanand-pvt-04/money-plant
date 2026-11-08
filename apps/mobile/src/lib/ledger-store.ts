@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
-import { paise, type Paise } from '@money-plant/core';
+import { ANY_CURRENCY_TYPES, DEFAULT_CURRENCY, paise, type Paise } from '@money-plant/core';
 import {
   accounts,
   balanceAnchors,
@@ -72,7 +72,7 @@ export function loadTransactions(db: Database, rows: (typeof transactions.$infer
     userSetFields: JSON.parse(row.userSetFields) as UserSetField[],
     note: row.note,
     splitGroupId: row.splitGroupId,
-    postings: (postingsOf.get(row.id) ?? []).map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise) })),
+    postings: (postingsOf.get(row.id) ?? []).map((p) => ({ id: p.id, accountId: p.accountId, amount: paise(p.amountPaise), currency: p.currency })),
     sources: (sourcesOf.get(row.id) ?? []).map(
       (s): LedgerSource => ({
         id: s.id,
@@ -89,8 +89,28 @@ export function loadTransactions(db: Database, rows: (typeof transactions.$infer
   }));
 }
 
+/**
+ * Postings made without a currency (SMS capture, statements, rules) take the
+ * currency of the user's own account in the entry, so an entry on a dollar
+ * account is in dollars throughout (decision 0017). Postings that name a
+ * currency keep it.
+ */
+function withCurrencies(db: Database, tx: LedgerTransaction): LedgerTransaction {
+  if (tx.postings.every((p) => p.currency)) return tx;
+  const rows = db
+    .select({ id: accounts.id, type: accounts.type, currency: accounts.currency })
+    .from(accounts)
+    .where(inArray(accounts.id, [...new Set(tx.postings.map((p) => p.accountId))]))
+    .all();
+  const ownCurrency = new Map(rows.filter((a) => !ANY_CURRENCY_TYPES.has(a.type)).map((a) => [a.id, a.currency]));
+  const own = tx.postings.find((p) => ownCurrency.has(p.accountId));
+  const fallback = own ? (own.currency ?? ownCurrency.get(own.accountId)!) : DEFAULT_CURRENCY;
+  return { ...tx, postings: tx.postings.map((p) => (p.currency ? p : { ...p, currency: ownCurrency.get(p.accountId) ?? fallback })) };
+}
+
 /** Writes a transaction with exactly these postings and sources, and marks it for sync. */
-export function writeTransaction(db: Database, tx: LedgerTransaction): void {
+export function writeTransaction(db: Database, written: LedgerTransaction): void {
+  const tx = withCurrencies(db, written);
   const problem = checkTransaction(tx);
   if (problem) throw new Error(`Refusing to save transaction ${tx.id}: ${problem}`);
   const createdAt = now();
@@ -133,7 +153,9 @@ export function writeTransaction(db: Database, tx: LedgerTransaction): void {
       .run();
     t.delete(postings).where(eq(postings.transactionId, tx.id)).run();
     t.insert(postings)
-      .values(tx.postings.map((p) => ({ id: p.id, transactionId: tx.id, accountId: p.accountId, amountPaise: p.amount, createdAt })))
+      .values(
+        tx.postings.map((p) => ({ id: p.id, transactionId: tx.id, accountId: p.accountId, amountPaise: p.amount, currency: p.currency ?? DEFAULT_CURRENCY, createdAt })),
+      )
       .run();
     for (const s of tx.sources) {
       const values = {

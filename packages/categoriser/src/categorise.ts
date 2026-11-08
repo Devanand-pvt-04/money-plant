@@ -32,6 +32,8 @@ export interface CategoryDecision {
   confidence: number;
   /** False means the entry waits in review as a suggestion. */
   autoConfirm: boolean;
+  /** The rule's or pattern's default note, for an entry that has none (CAT-7). */
+  note?: string | null;
 }
 
 export const RULE_CONFIDENCE = 0.95;
@@ -54,7 +56,7 @@ export function categorise(input: CategoriseInput, ctx: CategoriserContext): Cat
     .sort((a, b) => ruleSpecificity(b.match) - ruleSpecificity(a.match));
   const rule = rules.find((r) => ruleMatches(r.match, input));
   if (rule) {
-    return { categoryId: rule.categoryId, reason: 'rule', ruleId: rule.id, confidence: RULE_CONFIDENCE, autoConfirm: rule.autoConfirm };
+    return { categoryId: rule.categoryId, reason: 'rule', ruleId: rule.id, confidence: RULE_CONFIDENCE, autoConfirm: rule.autoConfirm, note: rule.note ?? null };
   }
 
   const patterns = active
@@ -69,6 +71,7 @@ export function categorise(input: CategoriseInput, ctx: CategoriserContext): Cat
       ruleId: pattern.id,
       confidence: PATTERN_CONFIDENCE,
       autoConfirm: pattern.autoConfirm,
+      note: pattern.note ?? null,
     };
   }
 

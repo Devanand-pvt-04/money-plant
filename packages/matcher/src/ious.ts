@@ -1,4 +1,4 @@
-import { paise, type DateKey, type Paise } from '@money-plant/core';
+import { paise, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import type { LedgerPosting } from './types';
 
 /**
@@ -82,10 +82,20 @@ export interface PersonRef {
   vpa: string | null;
 }
 
-const normaliseName = (name: string) => name.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+/** A payee or person name in one form: lower case letters and single spaces. */
+export const payeeKey = (name: string) => name.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+const normaliseName = payeeKey;
 
-/** The user's person account a payment was to or from: same UPI ID, or the same name. */
-export function findPerson<T extends PersonRef>(people: readonly T[], payee: { vpa: string | null; name: string | null }): T | null {
+/**
+ * The user's person account a payment was to or from: same UPI ID, a name
+ * the user linked to them before (`aliases`, payeeKey to person id), or the
+ * same name.
+ */
+export function findPerson<T extends PersonRef>(
+  people: readonly T[],
+  payee: { vpa: string | null; name: string | null },
+  aliases: ReadonlyMap<string, string> = new Map(),
+): T | null {
   if (payee.vpa) {
     const vpa = payee.vpa.toLowerCase();
     const byVpa = people.find((p) => p.vpa?.toLowerCase() === vpa);
@@ -94,6 +104,9 @@ export function findPerson<T extends PersonRef>(people: readonly T[], payee: { v
   if (!payee.name) return null;
   const name = normaliseName(payee.name);
   if (!name) return null;
+  const aliased = aliases.get(name);
+  const byAlias = aliased ? people.find((p) => p.id === aliased) : undefined;
+  if (byAlias) return byAlias;
   const byName = people.filter((p) => normaliseName(p.name) === name);
   return byName.length === 1 ? byName[0]! : null;
 }
@@ -107,8 +120,9 @@ export function matchRepayment(
   payment: { direction: 'debit' | 'credit'; amount: Paise; vpa: string | null; name: string | null },
   people: readonly PersonRef[],
   open: readonly (Iou & { outstanding: Paise })[],
+  aliases: ReadonlyMap<string, string> = new Map(),
 ): { personId: string; parts: { iouId: string; amount: Paise }[] } | null {
-  const person = findPerson(people, payment);
+  const person = findPerson(people, payment, aliases);
   if (!person) return null;
   const direction: IouDirection = payment.direction === 'credit' ? 'lent' : 'borrowed';
   const theirs = open.filter((iou) => iou.personId === person.id && iou.direction === direction && iou.outstanding > 0);
@@ -129,10 +143,12 @@ export function splitPostings(
   personShares: ReadonlyMap<string, Paise>,
   newId: () => string,
 ): LedgerPosting[] {
+  // Every share is in the paying leg's currency, so the entry still balances per currency (decision 0017).
+  const currency = payingLeg.currency ? { currency: payingLeg.currency } : {};
   const out: LedgerPosting[] = [payingLeg];
-  if (myShare > 0) out.push({ id: newId(), accountId: categoryId, amount: myShare });
+  if (myShare > 0) out.push({ id: newId(), accountId: categoryId, amount: myShare, ...currency });
   for (const [personId, share] of personShares) {
-    if (share > 0) out.push({ id: newId(), accountId: personId, amount: share });
+    if (share > 0) out.push({ id: newId(), accountId: personId, amount: share, ...currency });
   }
   return out;
 }
@@ -141,9 +157,10 @@ export function splitPostings(
  * SPL-2: someone else paid. The user's share is spending on the category and
  * a debt to the payer's person account; no account of the user's moves.
  */
-export function paidByOtherPostings(payerId: string, categoryId: string, myShare: Paise, newId: () => string): LedgerPosting[] {
+export function paidByOtherPostings(payerId: string, categoryId: string, myShare: Paise, newId: () => string, currency?: CurrencyCode): LedgerPosting[] {
+  const inCurrency = currency ? { currency } : {};
   return [
-    { id: newId(), accountId: categoryId, amount: myShare },
-    { id: newId(), accountId: payerId, amount: paise(-myShare) },
+    { id: newId(), accountId: categoryId, amount: myShare, ...inCurrency },
+    { id: newId(), accountId: payerId, amount: paise(-myShare), ...inCurrency },
   ];
 }

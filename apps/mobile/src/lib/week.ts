@@ -1,4 +1,4 @@
-import { addDays, daysBetween, type DateKey, type Paise } from '@money-plant/core';
+import { addDays, daysBetween, DEFAULT_CURRENCY, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { isOpen, listIous } from './ious';
 import { today, upcomingPayments } from './recurring';
 
@@ -8,6 +8,8 @@ export interface DueItem {
   overdue: boolean;
   title: string;
   amount: Paise;
+  /** The amount's own currency (decision 0017). */
+  currency: CurrencyCode;
   /** Money in: someone pays the user back. */
   incoming: boolean;
   href: `/recurring/${string}` | `/iou/${string}`;
@@ -23,6 +25,7 @@ export async function weekAhead(): Promise<{ days: DateKey[]; items: DueItem[] }
     overdue: u.overdue,
     title: u.item.name,
     amount: u.item.amount,
+    currency: u.item.currency ?? DEFAULT_CURRENCY,
     incoming: false,
     href: `/recurring/${u.item.id}`,
   }));
@@ -36,6 +39,7 @@ export async function weekAhead(): Promise<{ days: DateKey[]; items: DueItem[] }
       overdue: gap < 0,
       title: incoming ? `${view.otherName} pays you back` : `Pay ${view.otherName} back`,
       amount: view.outstanding,
+      currency: view.currency,
       incoming,
       href: `/iou/${view.id}`,
     });

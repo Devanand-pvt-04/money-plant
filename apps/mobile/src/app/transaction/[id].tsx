@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { formatRupees, paise } from '@money-plant/core';
+import { formatMoney, formatRupees, paise } from '@money-plant/core';
 import { describePattern, type Rule } from '@money-plant/categoriser';
-import { REVIEW_REASON_LABELS, USER_SET_FIELDS, type LedgerSource, type UserSetField } from '@money-plant/matcher';
+import { REVIEW_REASON_LABELS, USER_SET_FIELDS, foreignAmount, isEstimated, type LedgerSource, type UserSetField } from '@money-plant/matcher';
 import { AccountPicker } from '@/components/account-picker';
 import { EditFieldSheet, ownLeg, type EditField } from '@/components/edit-field-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
@@ -14,6 +14,7 @@ import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { useCategoryChange } from '@/components/use-category-change';
 import { whyLabel } from '@/components/why';
 import { confirmEntry, editEntry } from '@/lib/entries';
+import { repaymentOptions } from '@/lib/ious';
 import { deleteTransaction, getTransaction, splitTransfer, type TransactionRow } from '@/lib/ledger';
 import { getRule } from '@/lib/rules-store';
 import { useLedger } from '@/lib/use-ledger';
@@ -62,6 +63,21 @@ export default function TransactionDetail() {
     else setRule(null);
   }, [ruleId]);
 
+  // IOU-4: offer "Paid me back" when someone has an open loan this entry could settle.
+  const [repayable, setRepayable] = useState(false);
+  const plain = row !== null && (row.tx.kind === 'expense' || row.tx.kind === 'income') && row.tx.postings.length === 2;
+  useEffect(() => {
+    if (!plain) return setRepayable(false);
+    let live = true;
+    repaymentOptions(id).then(
+      (r) => live && setRepayable(r.options.length > 0),
+      () => live && setRepayable(false),
+    );
+    return () => {
+      live = false;
+    };
+  }, [id, plain]);
+
   if (!row) return null;
   const { tx } = row;
   // A refund is money in that sits on a spending category.
@@ -82,6 +98,7 @@ export default function TransactionDetail() {
   const split = tx.postings.length > 2 && tx.kind === 'expense';
   const twoLegs = tx.postings.length === 2;
   const own = ownLeg(row);
+  const foreign = foreignAmount(tx);
   const firstSource = [...tx.sources].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))[0];
   const badge = firstSource ? (SOURCE_BADGES[firstSource.kind] ?? 'Added') : null;
   const canSplit = tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0;
@@ -168,7 +185,14 @@ export default function TransactionDetail() {
         />
         <Line label="When" value={`${formatDay(tx.occurredAt)} · ${formatTime(tx.occurredAt)}`} onPress={() => setEditing('when')} />
         <Line label="Note" value={tx.note ?? 'Add a note'} muted={!tx.note} onPress={() => setEditing('note')} />
-        {twoLegs && <Line label="Amount" value={formatAmount(Math.abs(own?.amount ?? 0))} onPress={() => setEditing('amount')} />}
+        {twoLegs && <Line label="Amount" value={formatAmount(Math.abs(own?.amount ?? 0), own?.currency)} onPress={() => setEditing('amount')} />}
+        {foreign && (
+          // CAP-10: the bank sent a foreign amount; the rupee figure is the day's rate until the statement arrives.
+          <Line
+            label={isEstimated(tx) ? 'Paid abroad, estimated rate' : 'Paid abroad'}
+            value={formatAmount(foreign.amount, foreign.currency)}
+          />
+        )}
       </Card>
 
       {(canSplit || split || canRecur || canLend) && (
@@ -176,6 +200,9 @@ export default function TransactionDetail() {
           {(canSplit || split) && <Action icon="users" title={split ? 'Change split' : 'Split'} onPress={() => router.push(`/expense?from=${tx.id}`)} />}
           {canRecur && <Action icon="repeat" title="Recurring" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />}
           {canLend && <Action icon="corner-up-right" title={row.legs[0]!.amount < 0 ? 'I lent it' : 'I borrowed it'} onPress={() => router.push(`/iou/new?from=${tx.id}`)} />}
+          {canLend && repayable && (
+            <Action icon="corner-down-left" title={row.legs[0]!.amount > 0 ? 'Paid me back' : 'I paid back'} onPress={() => router.push(`/iou/repay?from=${tx.id}`)} />
+          )}
         </View>
       )}
 
@@ -199,7 +226,7 @@ export default function TransactionDetail() {
           {tx.postings.map((p) => (
             <View key={p.id} style={styles.posting}>
               <Text style={styles.postingText}>{row.accountNames[p.accountId]}</Text>
-              <Text style={styles.postingAmount}>{formatRupees(p.amount)}</Text>
+              <Text style={styles.postingAmount}>{formatMoney(p.amount, p.currency ?? 'INR')}</Text>
             </View>
           ))}
         </Card>

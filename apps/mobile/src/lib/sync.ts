@@ -1,5 +1,6 @@
 import { syncFriendLinks } from './friends';
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, notInArray } from 'drizzle-orm';
+import { isRejection, pushWithFallback } from '@money-plant/core';
 import {
   accountTypes,
   accounts,
@@ -54,6 +55,7 @@ import {
   type RemoteTransaction,
 } from '@money-plant/db-schema';
 import { ensureDefaultCategories } from './categories';
+import { reportBackground } from './errors';
 import { notifyLedgerChange } from './events';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
@@ -100,37 +102,80 @@ async function pushAccounts(): Promise<number> {
   return dirty.length;
 }
 
+/** Entries the server refused, by id, with the version refused. They wait until edited, so they don't hold back the rest. */
+const SET_ASIDE_KEY = 'sync.transactions.set_aside';
+
+async function readSetAside(): Promise<Record<string, number>> {
+  try {
+    const parsed: unknown = JSON.parse((await kvGet(SET_ASIDE_KEY)) ?? '{}');
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** How many changed entries the server refused and are waiting on this phone (shown in Settings → Health). */
+export async function countSetAside(): Promise<number> {
+  return Object.keys(await readSetAside()).length;
+}
+
 /**
  * Sends changed transactions with their postings and sources through the
  * push_transactions database function, which rejects unbalanced entries.
  * Raw SMS text is not part of the payload (see toTransactionPush).
+ *
+ * If the server refuses a batch, its entries are sent one by one, and any it
+ * still refuses are set aside and recorded in the error log, so one bad entry
+ * can't stop every later one from syncing. A set-aside entry is tried again
+ * once it is edited (its rev changes).
  */
 async function pushTransactions(): Promise<number> {
   const db = await getDb();
-  let pushed = 0;
-  for (;;) {
-    const dirty = db.select().from(transactions).where(eq(transactions.dirty, 1)).limit(PUSH_BATCH).all();
-    if (dirty.length === 0) return pushed;
-    const ids = dirty.map((row) => row.id);
-    const postingRows = db.select().from(postings).where(inArray(postings.transactionId, ids)).all();
-    const sourceRows = db.select().from(sources).where(inArray(sources.transactionId, ids)).all();
-    const payload = dirty.map((tx) =>
-      toTransactionPush(
-        tx,
-        postingRows.filter((p) => p.transactionId === tx.id),
-        sourceRows.filter((s) => s.transactionId === tx.id),
-      ),
-    );
-    const { error } = await supabase.rpc('push_transactions', { payload });
-    if (error) throw error;
-    for (const row of dirty) {
-      db.update(transactions)
-        .set({ dirty: 0 })
-        .where(and(eq(transactions.id, row.id), eq(transactions.rev, row.rev)))
-        .run();
+  // Forget entries edited or deleted on the phone since they were refused: they get another try.
+  const stored = await readSetAside();
+  const setAside: Record<string, number> = {};
+  const storedIds = Object.keys(stored);
+  if (storedIds.length > 0) {
+    for (const row of db.select({ id: transactions.id, rev: transactions.rev, dirty: transactions.dirty }).from(transactions).where(inArray(transactions.id, storedIds)).all()) {
+      if (row.dirty === 1 && row.rev === stored[row.id]) setAside[row.id] = row.rev;
     }
-    pushed += dirty.length;
-    if (dirty.length < PUSH_BATCH) return pushed;
+  }
+  let pushed = 0;
+  try {
+    for (;;) {
+      const waiting = Object.keys(setAside);
+      const dirtyWhere = waiting.length > 0 ? and(eq(transactions.dirty, 1), notInArray(transactions.id, waiting)) : eq(transactions.dirty, 1);
+      const dirty = db.select().from(transactions).where(dirtyWhere).limit(PUSH_BATCH).all();
+      if (dirty.length === 0) return pushed;
+      const ids = dirty.map((row) => row.id);
+      const postingRows = db.select().from(postings).where(inArray(postings.transactionId, ids)).all();
+      const sourceRows = db.select().from(sources).where(inArray(sources.transactionId, ids)).all();
+      const payloadOf = (tx: (typeof dirty)[number]) =>
+        toTransactionPush(
+          tx,
+          postingRows.filter((p) => p.transactionId === tx.id),
+          sourceRows.filter((s) => s.transactionId === tx.id),
+        );
+      const outcome = await pushWithFallback(
+        dirty,
+        async (batch) => await supabase.rpc('push_transactions', { payload: batch.map(payloadOf) }),
+        isRejection,
+      );
+      for (const row of outcome.sent) {
+        db.update(transactions)
+          .set({ dirty: 0 })
+          .where(and(eq(transactions.id, row.id), eq(transactions.rev, row.rev)))
+          .run();
+      }
+      for (const { item, error } of outcome.rejected) {
+        setAside[item.id] = item.rev;
+        reportBackground('sync-set-aside')(error);
+      }
+      pushed += outcome.sent.length;
+      if (dirty.length < PUSH_BATCH) return pushed;
+    }
+  } finally {
+    await kvSet(SET_ASIDE_KEY, JSON.stringify(setAside));
   }
 }
 
@@ -543,10 +588,14 @@ export function syncNow(): Promise<SyncResult> {
         (await pullIous(me)) +
         (await pullIouPayments());
       // ACC-9: friends' links become person accounts. Best effort: a failure here never stops the ledger sync.
-      await syncFriendLinks().catch((e) => console.warn('friend links', e instanceof Error ? e.message : e));
+      await syncFriendLinks().catch(reportBackground('friend-links'));
       // Screens out of view reload on their next focus only after a change, so say when one came in.
       if (pulled > 0) notifyLedgerChange();
       return { pushed, pulled };
+    } catch (e) {
+      // Most callers don't wait for sync, so a failure would go unseen; the caller still gets it.
+      reportBackground('sync')(e);
+      throw e;
     } finally {
       running = null;
     }

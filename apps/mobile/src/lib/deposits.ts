@@ -187,7 +187,7 @@ export async function refreshDeposits(): Promise<number> {
       .from(accounts)
       .where(isNull(accounts.deletedAt))
       .all()
-      .filter((a) => a.type !== 'category' && a.type !== 'person')
+      .filter((a) => a.type !== 'category' && a.type !== 'person' && a.type !== 'exchange')
       .map((a) => a.id),
   );
   const on = today();
@@ -305,7 +305,7 @@ async function scheduleMaturityReminders(): Promise<void> {
       title: `${name} matures in ${MATURITY_REMINDER_DAYS} days`,
       body: isBalanceScheme(row.kind)
         ? 'Check with the bank or post office whether to extend it or take the money out.'
-        : `It should pay about ${formatWholeRupees(maturityValue(termsOf(row)))}${payer ? ` into ${payer}` : ''}.`,
+        : `It should pay about ${formatWholeRupees(maturityValue(termsOf(row)), 'INR')}${payer ? ` into ${payer}` : ''}.`,
       data: { url: `/account/${row.accountId}` },
     });
   }

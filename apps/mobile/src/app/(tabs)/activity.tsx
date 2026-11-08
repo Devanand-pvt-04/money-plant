@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { addMonths, dateOf, monthOf, type MonthKey } from '@money-plant/core';
+import { addMonths, currencyInfo, dateOf, monthOf, type MonthKey } from '@money-plant/core';
 import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } from '@/components/activity-filters';
 import { formatAmount, formatDay, formatMonth, formatWholeRupees } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
 import { ErrorText, colors, figures, radius } from '@/components/ui';
 import { useAiWaiting } from '@/lib/ai-settings';
 import { flatten, listCategories } from '@/lib/categories';
+import { homeCurrency } from '@/lib/home-currency';
 import { listTransactions, type TransactionRow } from '@/lib/ledger';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
@@ -20,30 +21,42 @@ async function load() {
 
 function matchesQuery(row: TransactionRow, query: string): boolean {
   if (!query) return true;
-  const amount = Math.abs(row.legs[0]?.amount ?? 0);
-  const haystack = [transactionTitle(row), row.category?.name ?? '', row.tx.note ?? '', String(amount / 100), formatAmount(amount)]
+  const leg = row.legs[0];
+  const amount = Math.abs(leg?.amount ?? 0);
+  const currency = leg?.currency ?? homeCurrency();
+  const haystack = [transactionTitle(row), row.category?.name ?? '', row.tx.note ?? '', String(amount / 10 ** currencyInfo(currency).decimals), formatAmount(amount, currency)]
     .join(' ')
     .toLowerCase();
   return haystack.includes(query);
 }
 
-/** Money in and out of the user's own accounts: income and spends only, never transfers or loans. */
+/**
+ * Money in and out of the user's own accounts: income and spends only, never
+ * transfers or loans. In the home currency at each entry's day (decision
+ * 0017); `unpriced` counts entries left out while their rate is unknown.
+ */
 function flows(rows: readonly TransactionRow[]) {
   let moneyIn = 0;
   let moneyOut = 0;
+  let unpriced = 0;
   for (const row of rows) {
-    const amount = row.legs[0]?.amount ?? 0;
+    if (row.tx.kind !== 'income' && row.tx.kind !== 'expense') continue;
+    if (row.homeAmount === null) {
+      unpriced += 1;
+      continue;
+    }
+    const amount = row.homeAmount;
     if (row.tx.kind === 'income' && amount > 0) moneyIn += amount;
     else if (row.tx.kind === 'expense') moneyOut -= amount;
   }
-  return { moneyIn, moneyOut };
+  return { moneyIn, moneyOut, unpriced };
 }
 
 /** The longest name among this month's money in, and how many others: "Salary and 2 more". */
 function incomeSources(rows: readonly TransactionRow[]): string | null {
   const byName = new Map<string, number>();
   for (const row of rows) {
-    const amount = row.legs[0]?.amount ?? 0;
+    const amount = row.homeAmount ?? 0;
     if (row.tx.kind !== 'income' || amount <= 0) continue;
     const name = row.category?.name ?? transactionTitle(row);
     byName.set(name, (byName.get(name) ?? 0) + amount);
@@ -201,6 +214,11 @@ export default function Activity() {
                 note={sources}
               />
             </View>
+            {totals.unpriced > 0 && (
+              <Text style={styles.waitingText}>
+                {totals.unpriced} {totals.unpriced === 1 ? 'entry' : 'entries'} in another currency left out until the exchange rate loads.
+              </Text>
+            )}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll} contentContainerStyle={styles.quick} keyboardShouldPersistTaps="handled">
               {(
                 [

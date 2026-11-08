@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { BUDGET_SORTS, addMonths, combineBudgets, paise, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
+import { BUDGET_SORTS, addMonths, budgetPace, combineBudgets, paise, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
 import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatWholeRupees } from '@/components/format';
+import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
 import { ErrorText, Button, MoneyCard, ProgressBar, colors, figures, radius } from '@/components/ui';
 import {
@@ -91,7 +92,7 @@ export default function Budgets() {
     if (missing.length === 0) return Alert.alert('Nothing to suggest', 'Every category with spending in the last 3 months already has a budget.');
     Alert.alert(
       'Use suggested budgets?',
-      `Sets ${missing.length} budgets from your average spending over the last 3 months, rounded up to ₹500. They apply to every month, and you can change each one.`,
+      `Sets ${missing.length} budgets from your average spending over the last 3 months, rounded up to ${roundingText()}. They apply to every month, and you can change each one.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -189,6 +190,11 @@ export default function Budgets() {
               <Text style={styles.meta}>
                 Not counted as spending: {overview.moved.map((m) => `${m.category.name} ${rupees(m.amount)}`).join(', ')}. This money left your accounts
                 but wasn't spent.
+              </Text>
+            )}
+            {overview.missingRates.length > 0 && (
+              <Text style={styles.meta}>
+                Spends in {overview.missingRates.join(', ')} are left out until the exchange rate loads.
               </Text>
             )}
             <View style={styles.actions}>
@@ -316,7 +322,13 @@ function PaceNote({ line, month }: { line: BudgetLine; month: MonthKey }) {
 }
 
 function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; elapsed: number; childBudgets: boolean; open: boolean; onToggle: () => void; onSet: () => void }) {
-  const { line, month, sub } = props;
+  const { month, sub } = props;
+  // BUD-2: a category budgeted through its sub-categories paces against their budgets added up.
+  const childLimit = props.childBudgets ? sub.reduce((sum, c) => sum + (c.limit ?? 0), 0) : 0;
+  const line: BudgetLine =
+    props.childBudgets && props.line.limit === null && childLimit > 0
+      ? { ...props.line, limit: paise(childLimit), pace: budgetPace(props.line.spent, paise(childLimit), props.elapsed) }
+      : props.line;
   const category = line.category!;
   const style = categoryStyle(category);
   const status = line.pace?.status ?? 'ok';
@@ -344,7 +356,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
       </View>
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} marker={props.elapsed} />}
       <PaceNote line={line} month={month} />
-      {props.childBudgets && <Text style={styles.meta}>Budgets are on its sub-categories</Text>}
+      {props.childBudgets && <Text style={styles.meta}>Its sub-category budgets added up</Text>}
       {props.open && (
         <View style={styles.children}>
           {sub.map((child) => (

@@ -27,6 +27,7 @@ export function toRule(row: LocalRule): Rule {
     autoConfirm: row.autoConfirm === 1,
     hits: row.hits,
     misses: row.misses,
+    note: row.note,
   };
 }
 
@@ -70,7 +71,7 @@ export async function createRule(input: { match: RuleMatch | PatternMatch; categ
 
 export async function updateRule(
   id: string,
-  changes: Partial<{ match: RuleMatch | PatternMatch; categoryId: string; status: RuleStatus; autoConfirm: boolean }>,
+  changes: Partial<{ match: RuleMatch | PatternMatch; categoryId: string; status: RuleStatus; autoConfirm: boolean; note: string | null }>,
 ): Promise<void> {
   const db = await getDb();
   db.update(rules)
@@ -79,6 +80,7 @@ export async function updateRule(
       ...(changes.categoryId ? { categoryAccountId: changes.categoryId } : {}),
       ...(changes.status ? { status: changes.status } : {}),
       ...(changes.autoConfirm !== undefined ? { autoConfirm: changes.autoConfirm ? 1 : 0 } : {}),
+      ...(changes.note !== undefined ? { note: changes.note?.trim().slice(0, 200) || null } : {}),
       dirty: 1,
       rev: sql`${rules.rev} + 1`,
     })

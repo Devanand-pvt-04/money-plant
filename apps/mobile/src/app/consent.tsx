@@ -1,12 +1,14 @@
 import { type ComponentProps, useEffect, useState } from 'react';
-import { PermissionsAndroid, Platform, StyleSheet, Text, View } from 'react-native';
+import { PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { addMonthsToDate, dateKey } from '@money-plant/core';
+import { addMonthsToDate, dateKey, type CurrencyCode } from '@money-plant/core';
+import { CurrencyPicker, currencyLabel } from '@/components/currency-picker';
 import { FormScroll } from '@/components/keyboard';
-import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, colors, radius } from '@/components/ui';
 import { importRange, type ImportProgress } from '@/lib/capture';
 import { agreedBefore, giveConsent } from '@/lib/consent';
+import { setHomeCurrency, useHomeCurrency } from '@/lib/home-currency';
 import { getMe, updateMe } from '@/lib/me';
 import { signOut } from '@/lib/session';
 import { startSetup } from '@/lib/setup';
@@ -17,8 +19,8 @@ type Icon = ComponentProps<typeof Feather>['name'];
 const POINTS: { icon: Icon; title: string; body: string }[] = [
   {
     icon: 'message-square',
-    title: 'Bank SMS stay on this phone',
-    body: 'With your permission, the app reads messages from banks and card companies only. The message text never leaves the phone; only the amount, date, account and payee are saved.',
+    title: 'Payment messages stay on this phone',
+    body: 'With your permission, the app checks SMS from banks and other businesses, never from people, and payment notifications from apps you choose. It reads only the ones about money, on this phone. The message text never leaves the phone; only the amount, date, account and payee are saved.',
   },
   {
     icon: 'cloud',
@@ -145,7 +147,7 @@ function Consent(props: { returning: boolean; stepLabel: string | null; onAgree:
       <Text style={styles.title}>{props.returning ? 'What changed' : 'Your data'}</Text>
       <Text style={styles.subtitle}>
         {props.returning
-          ? 'Money Plant is opening up to friends, so the notes below now say who runs the server. Please read them once more.'
+          ? 'Money Plant now reads payment messages from any bank, and is opening up to friends, so the notes below say more. Please read them once more.'
           : "Money Plant fills your ledger mostly from bank SMS. Here's what happens to your data."}
       </Text>
       {POINTS.map((p) => (
@@ -172,6 +174,10 @@ function Consent(props: { returning: boolean; stepLabel: string | null; onAgree:
 function Profile({ stepLabel, onNext }: { stepLabel: string; onNext: () => Promise<unknown> }) {
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
+  // ACC-11: the currency totals show in, picked here and changeable in Profile.
+  const home = useHomeCurrency();
+  const [currency, setCurrency] = useState<CurrencyCode>(home);
+  const [pickingCurrency, setPickingCurrency] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -187,6 +193,7 @@ function Profile({ stepLabel, onNext }: { stepLabel: string; onNext: () => Promi
     setError(null);
     try {
       await updateMe({ name, vpa });
+      if (currency !== home) await setHomeCurrency(currency);
       await onNext();
     } catch (e) {
       setError(e instanceof Error ? `${e.message}. Saving needs the internet; you can also skip this for now.` : String(e));
@@ -201,6 +208,27 @@ function Profile({ stepLabel, onNext }: { stepLabel: string; onNext: () => Promi
       <Text style={styles.subtitle}>Friends see your name on IOUs you share, and your UPI ID lets them pay you back in one tap.</Text>
       <Field label="Your name" value={name} onChangeText={setName} placeholder="Ravi" maxLength={80} />
       <Field label="Your UPI ID (optional)" value={vpa} onChangeText={setVpa} placeholder="ravi@okhdfcbank" autoCapitalize="none" autoCorrect={false} />
+      <Text style={styles.fieldLabel}>Your main currency</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Main currency: ${currencyLabel(currency)}`}
+        onPress={() => setPickingCurrency(true)}
+        style={({ pressed }) => [styles.currencyRow, pressed && styles.pressed]}
+      >
+        <Text style={styles.currencyText}>{currencyLabel(currency)}</Text>
+        <Feather name="chevron-down" size={18} color={colors.muted} />
+      </Pressable>
+      <Text style={styles.hint}>Totals and budgets show in it. Accounts in other currencies are converted at daily rates.</Text>
+      <CurrencyPicker
+        visible={pickingCurrency}
+        title="Main currency"
+        selected={currency}
+        onClose={() => setPickingCurrency(false)}
+        onPick={(code) => {
+          setCurrency(code);
+          setPickingCurrency(false);
+        }}
+      />
       {error && <ErrorText>{error}</ErrorText>}
       <View style={styles.actions}>
         <Button title="Continue" onPress={save} loading={busy} disabled={!name.trim()} />
@@ -248,7 +276,7 @@ function Sms({ stepLabel, onDone }: { stepLabel: string; onDone: () => Promise<u
       <Text style={styles.step}>{stepLabel}</Text>
       <Text style={styles.title}>Read your bank SMS</Text>
       <Text style={styles.subtitle}>
-        Money Plant reads messages from ICICI, HDFC, HSBC, SBI and slice only, and finds your accounts and cards in them. The text never leaves this phone.
+        Money Plant checks messages from banks and other businesses, never from people, and reads only the ones about money. It finds your accounts and cards in them, and asks you about a sender it doesn't know yet. The text never leaves this phone.
       </Text>
       {!allowed ? (
         <Button title="Allow reading SMS" onPress={() => void allow()} />
@@ -291,6 +319,20 @@ const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0, gap: 4 },
   pointTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   body: { fontSize: 14, color: colors.muted, lineHeight: 20 },
+  fieldLabel: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
+  currencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  currencyText: { flex: 1, fontSize: 15, color: colors.text },
+  pressed: { backgroundColor: colors.pressed },
+  hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   welcomeText: { color: colors.text, fontSize: 15 },
   actions: { marginTop: 8, gap: 12 },
 });

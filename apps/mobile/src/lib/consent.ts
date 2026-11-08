@@ -4,8 +4,9 @@ import { kvGet, kvSet } from './kv';
 /** Bumped when what the consent screen says changes, so it is shown again. */
 // v2: AI now runs (decision 0012), so everyone reads the AI point once more.
 // v3: the point on what Deva, who runs the server, can see (decision 0016).
-const CONSENT_KEY = 'consent.v3';
-const EARLIER_KEYS = ['consent.v2', 'consent.v1'];
+// v4 (decision 0017): SMS from any business sender and notifications from apps the user approves.
+const CONSENT_KEY = 'consent.v4';
+const EARLIER_KEYS = ['consent.v3', 'consent.v2', 'consent.v1'];
 
 const listeners = new Set<(given: boolean) => void>();
 
