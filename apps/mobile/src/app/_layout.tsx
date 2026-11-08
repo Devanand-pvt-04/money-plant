@@ -101,6 +101,8 @@ export default function RootLayout() {
     const url = content.data?.url;
     if (typeof url !== 'string' || handledResponse.current === identifier) return;
     handledResponse.current = identifier;
+    // Android keeps the last tapped notification across launches; clearing it stops every cold start reopening that screen.
+    Notifications.clearLastNotificationResponse();
     router.push(url as never);
   }, [lastResponse, loading, session, consented]);
 
