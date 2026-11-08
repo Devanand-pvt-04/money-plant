@@ -25,9 +25,9 @@ export function UpcomingRow({ upcoming, first }: { upcoming: UpcomingPayment; fi
           {status} · {formatDate(`${item.nextDue}T12:00:00`)}
           {accountName ? ` · ${accountName}` : ''}
         </Text>
-        {short !== null && <Text style={styles.warn}>May be short by {formatAmount(short)}</Text>}
+        {short !== null && <Text style={styles.warn}>May be short by {formatAmount(short, item.currency)}</Text>}
       </View>
-      <Text style={styles.amount}>{formatAmount(item.amount)}</Text>
+      <Text style={styles.amount}>{formatAmount(item.amount, item.currency)}</Text>
       <Feather name="chevron-right" size={18} color={colors.muted} />
     </Pressable>
   );
@@ -38,7 +38,7 @@ export function Suggestion({ item }: { item: RecurringPayment }) {
   return (
     <View style={styles.suggestion}>
       <Text style={styles.suggestionTitle}>
-        {item.name}: {formatAmount(item.amount)} {CADENCE_LABELS[item.cadence].toLowerCase()}?
+        {item.name}: {formatAmount(item.amount, item.currency)} {CADENCE_LABELS[item.cadence].toLowerCase()}?
       </Text>
       <Text style={styles.suggestionText}>
         You paid this on a steady schedule. Track it to get reminders; next one around {formatDate(`${item.nextDue}T12:00:00`)}.

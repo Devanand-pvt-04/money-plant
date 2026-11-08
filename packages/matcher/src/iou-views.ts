@@ -15,6 +15,8 @@ export interface IouRow {
   personAccountId: string;
   direction: IouDirection;
   amountPaise: number;
+  /** INR when left out (decision 0017). */
+  currency?: string;
   reason: string | null;
   occurredOn: string;
   dueDate: string | null;
@@ -48,6 +50,8 @@ export interface IouView extends Iou {
   /** The address the IOU is shared with, for the owner. */
   sharedWith: string | null;
   outstanding: Paise;
+  /** The IOU's currency (decision 0017). */
+  currency: string;
   payments: IouPayment[];
 }
 
@@ -99,6 +103,7 @@ export function iouView(
     otherVpa: role === 'owner' ? (person?.vpa ?? row.counterpartyVpa) : (row.ownerVpa ?? person?.vpa ?? null),
     sharedWith: role === 'owner' ? row.counterpartyEmail : null,
     outstanding: outstanding(base, payments),
+    currency: row.currency ?? 'INR',
     payments,
   };
 }

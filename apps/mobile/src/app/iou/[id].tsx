@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
-import { formatRupees, isDateKey, parseRupees } from '@money-plant/core';
+import { formatMoney, isDateKey, paise, parseMoney } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
 import { FormScroll } from '@/components/keyboard';
 import { DateField, DateTimeField } from '@/components/date-fields';
@@ -64,10 +64,10 @@ export default function IouDetail() {
         <Initial name={view.otherName} size={56} />
         <Text style={styles.title}>{view.direction === 'lent' ? `${view.otherName} owes you` : `You owe ${view.otherName}`}</Text>
         <Text style={[styles.heroAmount, view.direction === 'lent' && open && { color: colors.primary }]}>
-          {formatAmount(view.state === 'awaiting_me' ? view.amount : view.outstanding)}
+          {formatAmount(view.state === 'awaiting_me' ? view.amount : view.outstanding, view.currency)}
         </Text>
         <Text style={styles.meta}>
-          {view.outstanding === 0 ? 'Settled' : view.outstanding !== view.amount ? `Left of ${formatAmount(view.amount)}` : (view.reason ?? '')}
+          {view.outstanding === 0 ? 'Settled' : view.outstanding !== view.amount ? `Left of ${formatAmount(view.amount, view.currency)}` : (view.reason ?? '')}
           {dueText(view, day) ? ` · ${dueText(view, day)}` : ''}
         </Text>
       </View>
@@ -91,7 +91,7 @@ export default function IouDetail() {
         <View style={styles.actions}>
           {view.direction === 'borrowed' &&
             (link ? (
-              <Button title={`Pay ${formatAmount(view.outstanding)} with UPI`} onPress={() => openUpiLink(link).catch(fail)} />
+              <Button title={`Pay ${formatAmount(view.outstanding, view.currency)} with UPI`} onPress={() => openUpiLink(link).catch(fail)} />
             ) : (
               <Text style={styles.small}>Add {view.otherName}'s UPI ID on their page to pay them from here.</Text>
             ))}
@@ -116,7 +116,7 @@ export default function IouDetail() {
                 <Text style={styles.lineText}>
                   {formatDateTime(p.paidAt)} · {p.byMe ? 'you recorded' : `${view.otherName} recorded`}
                 </Text>
-                <Text style={styles.lineAmount}>{formatAmount(p.amount)}</Text>
+                <Text style={styles.lineAmount}>{formatAmount(p.amount, view.currency)}</Text>
               </View>
             ))}
           </Card>
@@ -126,7 +126,7 @@ export default function IouDetail() {
       <SectionTitle>Details</SectionTitle>
       <Card style={styles.list}>
         <Text style={styles.lineText}>
-          {view.direction === 'lent' ? 'Lent' : 'Borrowed'} {formatAmount(view.amount)} on {formatDate(`${view.occurredOn}T12:00:00`)}
+          {view.direction === 'lent' ? 'Lent' : 'Borrowed'} {formatAmount(view.amount, view.currency)} on {formatDate(`${view.occurredOn}T12:00:00`)}
         </Text>
         {view.reason && <Text style={styles.lineText}>For {view.reason}</Text>}
         {view.transactionId && (
@@ -175,7 +175,7 @@ function Respond({ view, accounts, onError }: { view: IouView; accounts: Account
   return (
     <View style={styles.respond}>
       <Text style={styles.bannerText}>
-        {view.otherName} says {view.direction === 'borrowed' ? 'you borrowed' : 'you lent them'} {formatAmount(view.amount)}
+        {view.otherName} says {view.direction === 'borrowed' ? 'you borrowed' : 'you lent them'} {formatAmount(view.amount, view.currency)}
         {view.reason ? ` for ${view.reason}` : ''} on {formatDate(`${view.occurredOn}T12:00:00`)}. Is that right?
       </Text>
       <Text style={styles.small}>{view.direction === 'borrowed' ? 'The money came into' : 'The money went out from'}</Text>
@@ -200,12 +200,13 @@ function Respond({ view, accounts, onError }: { view: IouView; accounts: Account
 
 /** IOU-4 by hand: cash, or an account the app doesn't read. */
 function Repayment({ view, accounts, onDone, onError }: { view: IouView; accounts: AccountBalance[]; onDone: () => void; onError: (e: unknown) => void }) {
-  const [amount, setAmount] = useState(formatRupees(view.outstanding, { symbol: false }).replace(/,/g, ''));
+  const [amount, setAmount] = useState(formatMoney(view.outstanding, view.currency, { symbol: false }).replace(/,/g, ''));
   const [accountId, setAccountId] = useState<string | null>(null);
   const [paidAt, setPaidAt] = useState(() => new Date().toISOString());
   const [busy, setBusy] = useState(false);
   async function save() {
-    const parsed = parseRupees(amount);
+    const minor = parseMoney(amount, view.currency);
+    const parsed = minor === null ? null : paise(minor);
     if (parsed === null || parsed <= 0) return onError(new Error('Enter the amount as a number above zero'));
     if (!accountId) return onError(new Error(view.direction === 'lent' ? 'Pick where the money came in' : 'Pick where you paid from'));
     setBusy(true);

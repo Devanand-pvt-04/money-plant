@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
-import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, paise, reconcile, type AccountType, type Paise, type Reconciliation } from '@money-plant/core';
+import { ACCOUNT_TYPE_LABELS, convertOn, DEFAULT_CURRENCY, LIABILITY_TYPES, paise, reconcile, type AccountType, type CurrencyCode, type Paise, type Reconciliation } from '@money-plant/core';
 import {
   accountTypes,
   accounts,
@@ -21,17 +21,23 @@ import { marketValues } from './demat';
 import { getDb } from './db';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
 import { notifyLedgerChange } from './events';
+import { loadRates, refreshTodayRates, todayKey } from './fx';
+import { homeCurrency } from './home-currency';
 
 /** Accounts that hold the user's money, as opposed to category and people accounts. */
-const NON_OWNED: AccountType[] = ['category', 'person'];
+const NON_OWNED: AccountType[] = ['category', 'person', 'exchange'];
 
 export interface AccountBalance {
   account: LocalAccount;
   /** Opening balance plus every posting, never a stored total. */
   balance: Paise;
   reconciliation: Reconciliation | null;
-  /** What it is worth today: the balance, plus interest earned so far on an FD or RD, or a fund at today's NAV (NW-1). */
+  /** What it is worth today: the balance, plus interest earned so far on an FD or RD, or a fund at today's NAV (NW-1). In `currency`. */
   value: Paise;
+  /** The account's currency (ACC-12); balance and value are in it. */
+  currency: CurrencyCode;
+  /** The value in the home currency at today's rate (NW-7), or null while no rate is known. */
+  homeValue: Paise | null;
   /** "Credit card", or the custom type's name (ACC-6). */
   typeLabel: string;
   liability: boolean;
@@ -92,15 +98,36 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
   const funds = await fundValues(balanceMap);
   const markets = await marketValues(balanceMap);
   const schemes = await schemeValues();
+  // NW-7: each account's value in the home currency, at today's rate.
+  const home = homeCurrency();
+  const currencies = [...new Set([...rows.map((row) => row.currency), home])];
+  // Fetched in the background; screens reload when new rates arrive.
+  refreshTodayRates(currencies).then((fresh) => fresh && notifyLedgerChange(), () => {});
+  const rates = await loadRates(currencies);
+  const today = todayKey();
   return result.map((r) => {
     const valued = funds.get(r.account.id) ?? markets.get(r.account.id) ?? schemes.get(r.account.id);
-    return valued ? { ...r, value: valued.value } : r;
+    const value = valued ? valued.value : r.value;
+    const currency = r.account.currency;
+    const converted = convertOn(rates, value, currency, home, today);
+    return { ...r, value, currency, homeValue: converted === null ? null : paise(converted) };
   });
 }
 
-/** NW-1: balances are signed, so liabilities already count as negative; deposits and funds count at their value today. */
+/** The value counted in totals: in the home currency, or 0 while no rate is known. */
+export const homeValueOf = (b: AccountBalance): number => b.homeValue ?? 0;
+
+/**
+ * NW-1: balances are signed, so liabilities already count as negative; deposits and funds count at their value today.
+ * NW-7: in the home currency; an account with no known rate yet counts as 0 (see `missingRates`).
+ */
 export function netWorth(balances: readonly AccountBalance[]): Paise {
-  return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + b.value, 0));
+  return paise(balances.filter((b) => b.inNetWorth).reduce((sum, b) => sum + homeValueOf(b), 0));
+}
+
+/** Accounts left out of totals because their currency has no rate yet. */
+export function missingRates(balances: readonly AccountBalance[]): AccountBalance[] {
+  return balances.filter((b) => b.inNetWorth && b.homeValue === null && b.value !== 0);
 }
 
 export interface TransactionRow {
@@ -110,7 +137,7 @@ export interface TransactionRow {
   /** For AI-categorised entries: how sure the AI was (CAT-6). */
   aiConfidence: number | null;
   /** The posting on the user's own account(s), for display. */
-  legs: { accountId: string; accountName: string; amount: Paise }[];
+  legs: { accountId: string; accountName: string; amount: Paise; currency: CurrencyCode }[];
   /** Names of every account the postings touch, including categories. */
   accountNames: Record<string, string>;
 }
@@ -149,7 +176,7 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
       aiConfidence: tx.categoryReason === 'ai' && tx.counterparty ? (merchants.get(normaliseMerchant(tx.counterparty)) ?? null) : null,
       legs: tx.postings
         .filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'))
-        .map((p) => ({ accountId: p.accountId, accountName: byId.get(p.accountId)?.name ?? 'Unknown account', amount: p.amount })),
+        .map((p) => ({ accountId: p.accountId, accountName: byId.get(p.accountId)?.name ?? 'Unknown account', amount: p.amount, currency: p.currency ?? DEFAULT_CURRENCY })),
       accountNames: Object.fromEntries(tx.postings.map((p) => [p.accountId, byId.get(p.accountId)?.name ?? 'Unknown account'])),
     };
   });

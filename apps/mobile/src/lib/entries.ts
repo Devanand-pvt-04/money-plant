@@ -1,11 +1,12 @@
 import * as Crypto from 'expo-crypto';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
-import { paise, type Paise } from '@money-plant/core';
+import { DEFAULT_CURRENCY, currencyInfo, paise, type CurrencyCode, type Paise } from '@money-plant/core';
 import { normaliseMerchant, ruleFromEntry, ruleMatches, type RuleMatch } from '@money-plant/categoriser';
 import { accounts, transactions } from '@money-plant/db-schema';
 import { rebaseOpening, type LedgerTransaction, type UserSetField } from '@money-plant/matcher';
 import { entryFeatures, ownedAccountIds, recategoriseHistory, toInput } from './categories';
 import { getDb } from './db';
+import { derivedId } from './ids';
 import { notifyLedgerChange } from './events';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
 import { countRuleOutcome, createRule, learnPatterns, listRules, updateRule } from './rules-store';
@@ -19,6 +20,27 @@ async function load(id: string): Promise<LedgerTransaction> {
   const [tx] = loadTransactions(db, db.select().from(transactions).where(eq(transactions.id, id)).all());
   if (!tx) throw new Error('Entry not found');
   return tx;
+}
+
+/** An account's currency (ACC-12); INR for one that isn't found. */
+function accountCurrency(db: Awaited<ReturnType<typeof getDb>>, id: string): CurrencyCode {
+  return db.select({ currency: accounts.currency }).from(accounts).where(eq(accounts.id, id)).get()?.currency ?? DEFAULT_CURRENCY;
+}
+
+/**
+ * The hidden account that balances transfers between currencies (LED-11,
+ * decision 0017). One per user, with an id derived from the user's id, so
+ * every device makes the same one.
+ */
+async function exchangeAccountId(db: Awaited<ReturnType<typeof getDb>>): Promise<string> {
+  const id = await derivedId('system:exchange');
+  const existing = db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, id)).get();
+  if (!existing) {
+    db.insert(accounts)
+      .values({ id, type: 'exchange', name: 'Currency exchange', institution: null, last4: null, openingBalancePaise: 0, createdAt: new Date().toISOString(), dirty: 1 })
+      .run();
+  }
+  return id;
 }
 
 const withField = (fields: readonly UserSetField[], ...add: UserSetField[]) => [...new Set([...fields, ...add])];
@@ -174,6 +196,12 @@ export async function editEntry(id: string, edit: EntryEdit): Promise<void> {
     if (edit.accountId !== undefined) {
       if (!owned.has(edit.accountId)) throw new Error('Pick one of your accounts');
       const own = next.postings.find((p) => owned.has(p.accountId) && (tx.kind !== 'transfer' || p.amount < 0));
+      // An account only holds its own currency (ACC-12), so a dollar entry can't move to a rupee account.
+      const postingCurrency = own?.currency ?? DEFAULT_CURRENCY;
+      const target = accountCurrency(db, edit.accountId);
+      if (own && own.accountId !== edit.accountId && target !== postingCurrency) {
+        throw new Error(`This entry is in ${postingCurrency}. Pick an account in ${postingCurrency}, or remove it and add it again in ${target}.`);
+      }
       if (own && own.accountId !== edit.accountId) {
         own.accountId = edit.accountId;
         touched.add(edit.accountId);
@@ -232,6 +260,8 @@ export async function addManualEntry(entry: ManualEntry): Promise<string> {
   const occurredAt = entry.occurredAt ?? new Date().toISOString();
   const signed = paise(entry.direction === 'debit' ? -entry.amount : entry.amount);
   const counterparty = entry.counterparty?.trim() || null;
+  // In the account's currency; the category takes the same currency (decision 0017).
+  const currency = accountCurrency(db, entry.accountId);
   writeTransaction(db, {
     id,
     occurredAt,
@@ -245,8 +275,8 @@ export async function addManualEntry(entry: ManualEntry): Promise<string> {
     userSetFields: ['category', 'amount', 'account', 'occurredAt', ...(counterparty ? (['counterparty'] as const) : [])],
     note: entry.note?.trim() || null,
     postings: [
-      { id: Crypto.randomUUID(), accountId: entry.accountId, amount: signed },
-      { id: Crypto.randomUUID(), accountId: entry.categoryId, amount: paise(-signed) },
+      { id: Crypto.randomUUID(), accountId: entry.accountId, amount: signed, currency },
+      { id: Crypto.randomUUID(), accountId: entry.categoryId, amount: paise(-signed), currency },
     ],
     sources: [
       {
@@ -255,7 +285,7 @@ export async function addManualEntry(entry: ManualEntry): Promise<string> {
         sender: null,
         externalRef: null,
         fingerprint: `manual:${id}`,
-        parsedFields: { direction: entry.direction, amount: entry.amount, counterparty },
+        parsedFields: { direction: entry.direction, amount: entry.amount, currency, counterparty },
         receivedAt: new Date().toISOString(),
         confidence: 1,
         rawText: null,
@@ -270,8 +300,13 @@ export async function addManualEntry(entry: ManualEntry): Promise<string> {
 export interface ManualTransfer {
   fromId: string;
   toId: string;
-  /** Positive. */
+  /** Positive, in the from account's currency. */
   amount: Paise;
+  /**
+   * Positive, in the to account's currency: what arrived. Needed when the two
+   * accounts' currencies differ (LED-11); ignored when they match.
+   */
+  received?: Paise;
   note?: string | null;
   occurredAt?: string;
 }
@@ -288,6 +323,29 @@ export async function addManualTransfer(entry: ManualTransfer): Promise<string> 
   const owned = ownedAccountIds(db);
   if (!owned.has(entry.fromId) || !owned.has(entry.toId)) throw new Error('Pick two of your accounts');
   const id = Crypto.randomUUID();
+  const fromCurrency = accountCurrency(db, entry.fromId);
+  const toCurrency = accountCurrency(db, entry.toId);
+  const crossCurrency = fromCurrency !== toCurrency;
+  // LED-11: between currencies, both real amounts are kept, and the exchange account balances each currency.
+  let legs: LedgerTransaction['postings'];
+  if (crossCurrency) {
+    const received = entry.received;
+    if (received === undefined || !Number.isSafeInteger(received) || received <= 0) {
+      throw new Error(`Enter how much ${currencyInfo(toCurrency).name} arrived`);
+    }
+    const exchange = await exchangeAccountId(db);
+    legs = [
+      { id: Crypto.randomUUID(), accountId: entry.fromId, amount: paise(-entry.amount), currency: fromCurrency },
+      { id: Crypto.randomUUID(), accountId: exchange, amount: entry.amount, currency: fromCurrency },
+      { id: Crypto.randomUUID(), accountId: exchange, amount: paise(-received), currency: toCurrency },
+      { id: Crypto.randomUUID(), accountId: entry.toId, amount: received, currency: toCurrency },
+    ];
+  } else {
+    legs = [
+      { id: Crypto.randomUUID(), accountId: entry.fromId, amount: paise(-entry.amount), currency: fromCurrency },
+      { id: Crypto.randomUUID(), accountId: entry.toId, amount: entry.amount, currency: toCurrency },
+    ];
+  }
   writeTransaction(db, {
     id,
     occurredAt: entry.occurredAt ?? new Date().toISOString(),
@@ -300,10 +358,7 @@ export async function addManualTransfer(entry: ManualTransfer): Promise<string> 
     categoryRuleId: null,
     userSetFields: ['kind', 'amount', 'account', 'occurredAt'],
     note: entry.note?.trim() || null,
-    postings: [
-      { id: Crypto.randomUUID(), accountId: entry.fromId, amount: paise(-entry.amount) },
-      { id: Crypto.randomUUID(), accountId: entry.toId, amount: entry.amount },
-    ],
+    postings: legs,
     sources: [
       {
         id: Crypto.randomUUID(),
@@ -311,7 +366,12 @@ export async function addManualTransfer(entry: ManualTransfer): Promise<string> 
         sender: null,
         externalRef: null,
         fingerprint: `manual:${id}`,
-        parsedFields: { direction: 'transfer', amount: entry.amount },
+        parsedFields: {
+          direction: 'transfer',
+          amount: entry.amount,
+          currency: fromCurrency,
+          ...(crossCurrency ? { received: entry.received, receivedCurrency: toCurrency } : {}),
+        },
         receivedAt: new Date().toISOString(),
         confidence: 1,
         rawText: null,

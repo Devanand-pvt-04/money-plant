@@ -50,13 +50,22 @@ export async function requestRates(currencies: readonly CurrencyCode[], dates: r
   return true;
 }
 
-/** Today's rates for these currencies, fetched at most every 6 hours. */
-export async function refreshTodayRates(currencies: readonly CurrencyCode[]): Promise<void> {
-  if (!currencies.some((c) => c !== DEFAULT_CURRENCY)) return;
+/**
+ * Today's rates for these currencies, fetched at most every 6 hours, or
+ * sooner when a currency is new. True when new rates were stored.
+ */
+export async function refreshTodayRates(currencies: readonly CurrencyCode[]): Promise<boolean> {
+  const wanted = [...new Set(currencies)].filter((c) => c !== DEFAULT_CURRENCY).sort();
+  if (wanted.length === 0) return false;
   const fetched = await kvGet(TODAY_FETCHED_KEY);
-  if (fetched && Date.now() - Date.parse(fetched) < TODAY_EVERY_MS) return;
-  if (await requestRates(currencies, [todayKey()])) await kvSet(TODAY_FETCHED_KEY, new Date().toISOString());
+  const [at, list] = fetched?.split('|') ?? [];
+  if (at && list === wanted.join(',') && Date.now() - Date.parse(at) < TODAY_EVERY_MS) return false;
+  if (!(await requestRates(wanted, [todayKey()]))) return false;
+  await kvSet(TODAY_FETCHED_KEY, `${new Date().toISOString()}|${wanted.join(',')}`);
+  return true;
 }
+
+export { todayKey };
 
 /** Every stored rate for these currencies, for rateOn and convertOn in @money-plant/core. */
 export async function loadRates(currencies: readonly CurrencyCode[]): Promise<FxRateRow[]> {

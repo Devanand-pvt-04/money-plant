@@ -44,8 +44,15 @@ const CHANNEL_IN: Record<string, string> = {
 export function displayAmount({ tx, legs }: TransactionRow): { text: string; color: string } {
   // Someone else paid (SPL-2): no account of the user's moved, so show their share as money out.
   const amount = legs[0]?.amount ?? -tx.postings.reduce((sum, p) => sum + Math.max(0, p.amount), 0);
-  if (tx.kind === 'transfer') return { text: formatAmount(Math.abs(amount)), color: colors.muted };
-  return { text: formatSigned(amount), color: amount > 0 ? colors.primary : colors.text };
+  // Each entry shows in its own currency (decision 0017).
+  const currency = legs[0]?.currency ?? tx.postings[0]?.currency ?? 'INR';
+  if (tx.kind === 'transfer') {
+    // Between currencies: what left and what arrived, "₹83,500 → $1,000".
+    const into = legs.find((leg) => leg.amount > 0 && leg.currency !== currency);
+    const text = into ? `${formatAmount(Math.abs(amount), currency)} → ${formatAmount(into.amount, into.currency)}` : formatAmount(Math.abs(amount), currency);
+    return { text, color: colors.muted };
+  }
+  return { text: formatSigned(amount, currency), color: amount > 0 ? colors.primary : colors.text };
 }
 
 /**

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
-import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, paise, parseRupees, type AccountType } from '@money-plant/core';
+import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, currencyInfo, paise, parseMoney, type AccountType } from '@money-plant/core';
 import { createAccount } from '@/lib/accounts';
+import { homeCurrency } from '@/lib/home-currency';
 import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { syncNow } from '@/lib/sync';
 import { formatAmount } from './format';
@@ -73,7 +74,7 @@ export function AccountPicker(props: {
                   <Text style={styles.name}>{accountLabel(item.account)}</Text>
                   <Text style={styles.meta}>{item.typeLabel}</Text>
                 </View>
-                <Text style={[styles.balance, item.balance < 0 && styles.owed]}>{formatAmount(item.balance)}</Text>
+                <Text style={[styles.balance, item.balance < 0 && styles.owed]}>{formatAmount(item.balance, item.account.currency)}</Text>
               </Pressable>
             )}
             ListEmptyComponent={<Text style={styles.meta}>No accounts yet.</Text>}
@@ -94,10 +95,14 @@ function NewAccount(props: { onCancel: () => void; onCreated: (id: string) => vo
   const [balance, setBalance] = useState('');
   const [saving, setSaving] = useState(false);
   const liability = LIABILITY_TYPES.has(type);
+  const symbol = currencyInfo(homeCurrency()).symbol.trim();
 
   async function save() {
-    const amount = parseRupees(balance.trim() === '' ? '0' : balance);
-    if (amount === null) return Alert.alert('Check the balance', 'Enter it as a number, for example 12,500.50');
+    // A new account from a picker is in the home currency; the Add account screen offers others (ACC-12).
+    const currency = homeCurrency();
+    const parsed = parseMoney(balance.trim() === '' ? '0' : balance, currency);
+    if (parsed === null) return Alert.alert('Check the balance', 'Enter it as a number, for example 12,500.50');
+    const amount = paise(parsed);
     setSaving(true);
     try {
       const id = await createAccount({
@@ -106,6 +111,7 @@ function NewAccount(props: { onCancel: () => void; onCreated: (id: string) => vo
         institution: null,
         last4: null,
         openingBalance: liability ? paise(-Math.abs(amount)) : amount,
+        currency,
       });
       syncNow().catch(() => {});
       props.onCreated(id);
@@ -143,7 +149,7 @@ function NewAccount(props: { onCancel: () => void; onCreated: (id: string) => vo
       <TextInput
         value={balance}
         onChangeText={setBalance}
-        placeholder={liability ? 'Amount you owe now (₹)' : 'Balance now (₹), optional'}
+        placeholder={liability ? `Amount you owe now (${symbol})` : `Balance now (${symbol}), optional`}
         placeholderTextColor={colors.placeholder}
         style={styles.input}
         keyboardType="decimal-pad"

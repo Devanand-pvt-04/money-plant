@@ -343,7 +343,7 @@ export function ownedAccountIds(db: Database): Set<string> {
       .select({ id: accounts.id, type: accounts.type })
       .from(accounts)
       .all()
-      .filter((a) => a.type !== 'category' && a.type !== 'person')
+      .filter((a) => a.type !== 'category' && a.type !== 'person' && a.type !== 'exchange')
       .map((a) => a.id),
   );
 }
