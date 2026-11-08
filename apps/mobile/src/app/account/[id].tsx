@@ -126,16 +126,17 @@ function when(iso: string): string {
   return d.toDateString() === now.toDateString() ? formatTime(iso) : formatDate(iso).replace(/ \d{4}$/, d.getFullYear() === now.getFullYear() ? '' : ` ${d.getFullYear()}`);
 }
 
-/** LED-7: whether the ledger matches the bank's latest SMS balance. */
+/** LED-7: whether the ledger matches the latest balance the bank reported, by SMS or statement. */
 function Reconciled({ reconciliation }: { reconciliation: NonNullable<AccountBalance['reconciliation']> }) {
   const { flagged, latest } = reconciliation;
+  const said = `the bank's ${latest.anchor.from === 'statement' ? 'statement' : 'SMS'} of ${when(latest.anchor.observedAt)}`;
   return (
     <View style={styles.reconciled}>
       <Feather name={flagged ? 'alert-circle' : 'check'} size={14} color={flagged ? colors.heroWarning : colors.heroAccent} />
       <Text style={[styles.reconciledText, flagged && { color: colors.heroWarning }]}>
         {flagged
-          ? `Off by ${formatRupees(paise(Math.abs(latest.gap)))} from the bank's SMS of ${when(latest.anchor.observedAt)}`
-          : `Matches the bank's SMS of ${when(latest.anchor.observedAt)}`}
+          ? `Off by ${formatRupees(paise(Math.abs(latest.gap)))} from ${said}`
+          : `Matches ${said}`}
       </Text>
     </View>
   );
