@@ -4,7 +4,7 @@ import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { formatRupees, isDateKey, parseRupees } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
 import { FormScroll } from '@/components/keyboard';
-import { DateField } from '@/components/date-fields';
+import { DateField, DateTimeField } from '@/components/date-fields';
 import { formatAmount, formatDate, formatDateTime } from '@/components/format';
 import { dueText } from '@/components/people-rows';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, colors, radius } from '@/components/ui';
@@ -202,16 +202,15 @@ function Respond({ view, accounts, onError }: { view: IouView; accounts: Account
 function Repayment({ view, accounts, onDone, onError }: { view: IouView; accounts: AccountBalance[]; onDone: () => void; onError: (e: unknown) => void }) {
   const [amount, setAmount] = useState(formatRupees(view.outstanding, { symbol: false }).replace(/,/g, ''));
   const [accountId, setAccountId] = useState<string | null>(null);
-  const [paidOn, setPaidOn] = useState(today());
+  const [paidAt, setPaidAt] = useState(() => new Date().toISOString());
   const [busy, setBusy] = useState(false);
   async function save() {
     const parsed = parseRupees(amount);
     if (parsed === null || parsed <= 0) return onError(new Error('Enter the amount as a number above zero'));
     if (!accountId) return onError(new Error(view.direction === 'lent' ? 'Pick where the money came in' : 'Pick where you paid from'));
-    if (!isDateKey(paidOn.trim())) return onError(new Error('Enter the date as YYYY-MM-DD'));
     setBusy(true);
     try {
-      await recordRepayment(view.id, { amount: parsed, accountId, paidOn: paidOn.trim() });
+      await recordRepayment(view.id, { amount: parsed, accountId, paidAt });
       onDone();
     } catch (e) {
       onError(e);
@@ -228,7 +227,7 @@ function Repayment({ view, accounts, onDone, onError }: { view: IouView; account
           <Chip key={b.account.id} label={b.account.name} selected={accountId === b.account.id} onPress={() => setAccountId(b.account.id)} />
         ))}
       </Chips>
-      <DateField label="Date" value={paidOn} onChange={(key) => key && setPaidOn(key)} max={today()} style={styles.date} />
+      <DateTimeField label="When" value={paidAt} onChange={setPaidAt} style={styles.date} />
       <Text style={styles.small}>Only for money the app didn't see in your SMS, so it isn't counted twice.</Text>
       <View style={styles.actions}>
         <Button title="Save repayment" onPress={save} loading={busy} />

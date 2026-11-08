@@ -126,7 +126,7 @@ The MVP has 66 requirements across 11 areas. "Must" items block the first releas
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| IOU-1 | Record money lent or borrowed: person, amount, reason, date, optional due date. From a bank entry, the payee is offered as the person but is only added as one if the user keeps them, since a loan is often paid to a shop on a friend's behalf. A person nothing refers to can be removed | Must |
+| IOU-1 | Record money lent or borrowed: person, amount, reason, date and time (now by default), optional due date. A repayment recorded by hand also takes a time. From a bank entry, the payee is offered as the person but is only added as one if the user keeps them, since a loan is often paid to a shop on a friend's behalf. A person nothing refers to can be removed | Must |
 | IOU-2 | If the other person uses the app, they see the same IOU and can confirm it | Must |
 | IOU-3 | Settle with a UPI pay link that opens the user's chosen UPI app | Must |
 | IOU-4 | Mark an IOU settled automatically when the matching payment SMS arrives; partial payments reduce the balance. A payment is matched by UPI ID, the exact name, or a bank name the user linked to the person before ("GOBAL NAIR" is Gobal). When it isn't matched, the user can say "Paid me back" (or "I paid back") on the entry: it settles their open IOUs with that bank entry, adds no new entry, and remembers the payee's name and UPI ID for next time. Review asks "Is this Gobal paying you back?" when exactly one person has an open IOU of exactly that amount | Must |

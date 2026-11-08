@@ -207,7 +207,10 @@ async function manualEntry(input: { personId: string; accountId: string; ownAmou
   return id;
 }
 
-async function entryFor(link: EntryLink | null, input: { personId: string; personName: string; direction: IouDirection; amount: Paise; reason: string | null; occurredOn: DateKey }): Promise<string | null> {
+async function entryFor(
+  link: EntryLink | null,
+  input: { personId: string; personName: string; direction: IouDirection; amount: Paise; reason: string | null; occurredOn: DateKey; occurredAt?: string },
+): Promise<string | null> {
   if (!link) return null;
   if ('existingId' in link) {
     const tx = await convertEntry(link.existingId, input.personId, { direction: input.direction, amount: input.amount, repayment: false });
@@ -222,8 +225,8 @@ async function entryFor(link: EntryLink | null, input: { personId: string; perso
     ownAmount: paise(input.direction === 'lent' ? -input.amount : input.amount),
     counterparty: input.personName,
     note: input.reason,
-    // Noon on the day, so the entry sits on that date in any time zone.
-    occurredAt: new Date(`${input.occurredOn}T12:00:00`).toISOString(),
+    // The time the user picked. A friend's IOU has only a date: noon keeps it on that date in any time zone.
+    occurredAt: input.occurredAt ?? new Date(`${input.occurredOn}T12:00:00`).toISOString(),
   });
 }
 
@@ -235,6 +238,8 @@ export interface NewIou {
   amount: Paise;
   reason: string | null;
   occurredOn: DateKey;
+  /** When the money moved, for the ledger entry made by hand. The IOU itself keeps only the date. */
+  occurredAt?: string;
   dueDate: DateKey | null;
 }
 
@@ -367,12 +372,12 @@ async function releaseEntry(transactionId: string, personId: string): Promise<vo
  * IOU-4, by hand: the user records a repayment the app didn't see (cash, or
  * an account without SMS). Creates the entry and the payment record.
  */
-export async function recordRepayment(id: string, input: { amount: Paise; accountId: string; paidOn: DateKey }): Promise<void> {
+export async function recordRepayment(id: string, input: { amount: Paise; accountId: string; paidAt: string }): Promise<void> {
   const view = await getIou(id);
   if (!view || !view.personId) throw new Error('IOU not found');
   if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Enter an amount above zero');
   if (input.amount > view.outstanding) throw new Error(`Only ${formatAmount(view.outstanding)} is still owed`);
-  const paidAt = new Date(`${input.paidOn}T12:00:00`).toISOString();
+  const paidAt = input.paidAt;
   const transactionId = await manualEntry({
     personId: view.personId,
     accountId: input.accountId,
