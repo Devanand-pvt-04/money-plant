@@ -1,10 +1,13 @@
 import * as Crypto from 'expo-crypto';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { addDays, paise, startOfDate, type Paise } from '@money-plant/core';
+import { balanceAnchors } from '@money-plant/db-schema';
 import { digitsMatch, ingestStatementRow, institutionBank, rebaseOpening, type IngestResult } from '@money-plant/matcher';
 import { parseStatementRow, type BankId, type ParsedStatementRow, type StatementRowInput } from '@money-plant/parser';
 import { pipelineCategoriser } from './categories';
 import { notifyLedgerChange } from './events';
 import { listAccountBalances, type AccountBalance } from './ledger';
+import { getDb } from './db';
 import { SqliteLedgerStore } from './ledger-store';
 import { PdfError, sendPdf, type PdfFile } from './pdf-service';
 
@@ -78,6 +81,7 @@ export async function importStatement(rows: readonly ParsedStatementRow[], accou
   const seen = new Map<string, number>();
   const result: StatementImportResult = { matched: 0, transfers: 0, added: 0, skipped: 0 };
   let closing: { sourceId: string; balance: Paise; date: string } | null = null;
+  const startedAt = Date.now();
 
   for (const row of rows) {
     // Two identical rows on one day are two payments; the count keeps their fingerprints apart.
@@ -86,7 +90,8 @@ export async function importStatement(rows: readonly ParsedStatementRow[], accou
     seen.set(key, n + 1);
     const fingerprint = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `statement|${key}|${n}`);
     const day = startOfDate(row.date);
-    const noon = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12);
+    // A statement downloaded today ends now, not at midnight: today's rows can't be later than the import.
+    const noon = new Date(Math.min(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12).getTime(), startedAt));
     const sourceId = Crypto.randomUUID();
     const outcome: IngestResult = await ingestStatementRow(
       ctx,
@@ -103,7 +108,14 @@ export async function importStatement(rows: readonly ParsedStatementRow[], accou
 
   if (closing) {
     // The balance at the end of the statement's last day, after every payment that day.
-    const observedAt = new Date(startOfDate(addDays(closing.date, 1)).getTime() - 1000).toISOString();
+    // For a statement that ends today, that is now: SMS later today come after it.
+    const observedAt = new Date(Math.min(startOfDate(addDays(closing.date, 1)).getTime() - 1000, startedAt)).toISOString();
+    // A statement for the same days imported before read this moment with fewer rows; the new reading replaces it.
+    const db = await getDb();
+    db.update(balanceAnchors)
+      .set({ deletedAt: new Date().toISOString(), dirty: 1, rev: sql`${balanceAnchors.rev} + 1` })
+      .where(and(eq(balanceAnchors.accountId, accountId), eq(balanceAnchors.observedAt, observedAt), isNull(balanceAnchors.deletedAt)))
+      .run();
     await store.addAnchor({ id: Crypto.randomUUID(), accountId, balance: closing.balance, observedAt, sourceId: closing.sourceId });
     const ref = await store.getBalanceRef(accountId);
     // Like SMS anchors: the earliest one the bank reported is the reference.
