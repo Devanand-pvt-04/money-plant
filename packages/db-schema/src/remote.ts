@@ -118,6 +118,8 @@ export interface RemotePosting {
   transaction_id: string;
   account_id: string;
   amount_paise: number;
+  /** Minor units' currency (decision 0017). Missing before the currencies migration: INR. */
+  currency?: string;
   created_at: string;
   deleted_at: string | null;
 }
@@ -153,7 +155,7 @@ export interface TransactionPush {
   split_group_id: string | null;
   created_at: string;
   deleted_at: string | null;
-  postings: { id: string; account_id: string; amount_paise: number; created_at: string }[];
+  postings: { id: string; account_id: string; amount_paise: number; currency: string; created_at: string }[];
   sources: {
     id: string;
     kind: string;
@@ -195,6 +197,7 @@ export function toTransactionPush(
       id: p.id,
       account_id: p.accountId,
       amount_paise: p.amountPaise,
+      currency: p.currency,
       created_at: p.createdAt,
     })),
     sources: txSources.map((s) => ({
@@ -243,6 +246,7 @@ export function fromRemoteTransaction(row: RemoteTransaction): {
         transactionId: row.id,
         accountId: p.account_id,
         amountPaise: Number(p.amount_paise),
+        currency: p.currency ?? 'INR',
         createdAt: iso(p.created_at),
       })),
     sources: row.sources
@@ -435,6 +439,7 @@ export interface RemoteRecurring {
   vpa: string | null;
   merchant: string | null;
   amount_paise: number;
+  currency?: string;
   cadence: Cadence;
   anchor_day: number | null;
   next_due: string;
@@ -457,6 +462,7 @@ export function toRemoteRecurring(row: LocalRecurring): Omit<RemoteRecurring, 'u
     vpa: row.vpa,
     merchant: row.merchant,
     amount_paise: row.amountPaise,
+    currency: row.currency,
     cadence: row.cadence,
     anchor_day: row.anchorDay,
     next_due: row.nextDue,
@@ -479,6 +485,7 @@ export function fromRemoteRecurring(row: RemoteRecurring): LocalRecurring {
     vpa: row.vpa,
     merchant: row.merchant,
     amountPaise: Number(row.amount_paise),
+    currency: row.currency ?? 'INR',
     cadence: row.cadence,
     anchorDay: row.anchor_day === null ? null : Number(row.anchor_day),
     nextDue: row.next_due,
@@ -506,6 +513,7 @@ export interface RemoteIou {
   person_account_id: string;
   direction: LocalIou['direction'];
   amount_paise: number;
+  currency?: string;
   reason: string | null;
   occurred_on: string;
   due_date: string | null;
@@ -535,6 +543,7 @@ export function toRemoteIou(row: LocalIou) {
     person_account_id: row.personAccountId,
     direction: row.direction,
     amount_paise: row.amountPaise,
+    currency: row.currency,
     reason: row.reason,
     occurred_on: row.occurredOn,
     due_date: row.dueDate,
@@ -555,6 +564,7 @@ export function fromRemoteIou(row: RemoteIou): LocalIou {
     personAccountId: row.person_account_id,
     direction: row.direction,
     amountPaise: Number(row.amount_paise),
+    currency: row.currency ?? 'INR',
     reason: row.reason,
     occurredOn: row.occurred_on,
     dueDate: row.due_date,
@@ -580,6 +590,7 @@ export interface RemoteIouPayment {
   user_id: string;
   iou_id: string;
   amount_paise: number;
+  currency?: string;
   paid_at: string;
   transaction_id: string | null;
   created_at: string;
@@ -592,6 +603,7 @@ export function toRemoteIouPayment(row: LocalIouPayment): Omit<RemoteIouPayment,
     id: row.id,
     iou_id: row.iouId,
     amount_paise: row.amountPaise,
+    currency: row.currency,
     paid_at: row.paidAt,
     transaction_id: row.transactionId,
     created_at: row.createdAt,
@@ -605,6 +617,7 @@ export function fromRemoteIouPayment(row: RemoteIouPayment): LocalIouPayment {
     userId: row.user_id,
     iouId: row.iou_id,
     amountPaise: Number(row.amount_paise),
+    currency: row.currency ?? 'INR',
     paidAt: iso(row.paid_at),
     transactionId: row.transaction_id,
     createdAt: iso(row.created_at),

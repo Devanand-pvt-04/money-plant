@@ -95,8 +95,8 @@ describe('transaction push', () => {
     rev: 3,
   };
   const postingRows = [
-    { id: 'p-1', transactionId: 'tx-1', accountId: 'hdfc', amountPaise: -45000, createdAt: tx.createdAt },
-    { id: 'p-2', transactionId: 'tx-1', accountId: 'food', amountPaise: 45000, createdAt: tx.createdAt },
+    { id: 'p-1', transactionId: 'tx-1', accountId: 'hdfc', amountPaise: -45000, currency: 'INR', createdAt: tx.createdAt },
+    { id: 'p-2', transactionId: 'tx-1', accountId: 'food', amountPaise: 45000, currency: 'INR', createdAt: tx.createdAt },
   ];
   const sourceRows = [
     {
@@ -119,6 +119,7 @@ describe('transaction push', () => {
     const json = JSON.stringify(payload);
     expect(json).not.toContain('raw');
     expect(json).not.toContain('Sent Rs.450.00');
+    expect(payload.postings.map((p) => p.currency)).toEqual(['INR', 'INR']);
     expect(payload.sources[0]!.parsed_fields).toEqual({ amount: 45000, direction: 'debit' });
     expect(payload).toMatchObject({ category_reason: 'user', user_set_fields: ['category'], note: 'Team lunch', split_group_id: 'group-1' });
   });
@@ -142,12 +143,14 @@ describe('transaction push', () => {
       deleted_at: null,
       postings: [
         { id: 'p-1', transaction_id: 'tx-1', account_id: 'hdfc', amount_paise: '-45000' as unknown as number, created_at: tx.createdAt, deleted_at: null },
-        { id: 'p-2', transaction_id: 'tx-1', account_id: 'food', amount_paise: 45000, created_at: tx.createdAt, deleted_at: null },
+        { id: 'p-2', transaction_id: 'tx-1', account_id: 'food', amount_paise: 45000, currency: 'USD', created_at: tx.createdAt, deleted_at: null },
         { id: 'p-old', transaction_id: 'tx-1', account_id: 'misc', amount_paise: 45000, created_at: tx.createdAt, deleted_at: '2026-10-21T10:04:00.000Z' },
       ],
       sources: [],
     });
     expect(pulled.postings.map((p) => p.amountPaise)).toEqual([-45000, 45000]);
+    // Postings from before the currencies migration have no currency: they are INR (decision 0017).
+    expect(pulled.postings.map((p) => p.currency)).toEqual(['INR', 'USD']);
     expect(pulled.transaction.dirty).toBe(0);
     expect(pulled.transaction.userSetFields).toBe('["counterparty"]');
     // Rows from before group expenses have no split_group_id.
@@ -213,6 +216,7 @@ describe('recurring mapping', () => {
       vpa: null,
       merchant: 'netflix',
       amountPaise: 64900,
+      currency: 'INR',
       cadence: 'monthly' as const,
       anchorDay: 25,
       nextDue: '2026-10-25',
