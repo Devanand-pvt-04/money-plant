@@ -19,8 +19,8 @@ type Icon = ComponentProps<typeof Feather>['name'];
 const POINTS: { icon: Icon; title: string; body: string }[] = [
   {
     icon: 'message-square',
-    title: 'Bank SMS stay on this phone',
-    body: 'With your permission, the app reads messages from banks and card companies only. The message text never leaves the phone; only the amount, date, account and payee are saved.',
+    title: 'Payment messages stay on this phone',
+    body: 'With your permission, the app checks SMS from banks and other businesses, never from people, and payment notifications from apps you choose. It reads only the ones about money, on this phone. The message text never leaves the phone; only the amount, date, account and payee are saved.',
   },
   {
     icon: 'cloud',
@@ -147,7 +147,7 @@ function Consent(props: { returning: boolean; stepLabel: string | null; onAgree:
       <Text style={styles.title}>{props.returning ? 'What changed' : 'Your data'}</Text>
       <Text style={styles.subtitle}>
         {props.returning
-          ? 'Money Plant is opening up to friends, so the notes below now say who runs the server. Please read them once more.'
+          ? 'Money Plant now reads payment messages from any bank, and is opening up to friends, so the notes below say more. Please read them once more.'
           : "Money Plant fills your ledger mostly from bank SMS. Here's what happens to your data."}
       </Text>
       {POINTS.map((p) => (
@@ -276,7 +276,7 @@ function Sms({ stepLabel, onDone }: { stepLabel: string; onDone: () => Promise<u
       <Text style={styles.step}>{stepLabel}</Text>
       <Text style={styles.title}>Read your bank SMS</Text>
       <Text style={styles.subtitle}>
-        Money Plant reads messages from ICICI, HDFC, HSBC, SBI and slice only, and finds your accounts and cards in them. The text never leaves this phone.
+        Money Plant checks messages from banks and other businesses, never from people, and reads only the ones about money. It finds your accounts and cards in them, and asks you about a sender it doesn't know yet. The text never leaves this phone.
       </Text>
       {!allowed ? (
         <Button title="Allow reading SMS" onPress={() => void allow()} />

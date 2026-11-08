@@ -7,8 +7,8 @@ import android.os.Bundle
 import android.provider.Telephony
 
 /**
- * Receives every incoming SMS, keeps only those from bank-like senders and
- * passes them to the capture task. Receiving an SMS puts the app on Android's
+ * Receives every incoming SMS, keeps only money messages from business
+ * senders (CAP-11) and passes them to the capture task. Receiving an SMS puts the app on Android's
  * temporary allowlist, so starting the service from here is allowed.
  */
 class SmsReceiver : BroadcastReceiver() {
@@ -21,7 +21,8 @@ class SmsReceiver : BroadcastReceiver() {
     val sentAt = linkedMapOf<String, Long>()
     for (part in parts) {
       val sender = part?.displayOriginatingAddress ?: continue
-      if (!Allowlists.isCandidateBankSender(sender)) continue
+      // Phone numbers are people: their messages are never read.
+      if (!Allowlists.isBusinessSender(sender)) continue
       bySender.getOrPut(sender) { StringBuilder() }.append(part.displayMessageBody ?: "")
       // The service centre timestamp, which the SMS inbox stores as date_sent.
       sentAt.putIfAbsent(sender, part.timestampMillis)
@@ -29,6 +30,8 @@ class SmsReceiver : BroadcastReceiver() {
     val receivedAt = System.currentTimeMillis()
 
     for ((sender, body) in bySender) {
+      // Only whole messages about money, from senders the user hasn't ignored.
+      if (!Allowlists.isMoneySms(context, sender, body.toString())) continue
       val extras = Bundle().apply {
         putString("kind", "sms")
         putString("sender", sender)

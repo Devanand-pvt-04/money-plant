@@ -1,14 +1,18 @@
 import * as Crypto from 'expo-crypto';
-import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { addDays, addMonthsToDate, convert, dateKey, DEFAULT_CURRENCY, paise, RATE_SCALE, rateOn, startOfDate, type DateKey } from '@money-plant/core';
-import { captureLog, pendingNotifications, sources, transactions } from '@money-plant/db-schema';
+import { and, asc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { addDays, addMonthsToDate, convertOn, dateKey, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey } from '@money-plant/core';
+import { accounts, captureLog, pendingNotifications, sources, transactions } from '@money-plant/db-schema';
 import { ingestNotification, ingestSms, type IngestResult, type PipelineContext } from '@money-plant/matcher';
 import {
   BANK_SENDER_TOKENS,
   normaliseSender,
   parseNotification,
   parsePreDebit,
+  identifyBankSender,
+  parseAnySms,
+  parseBankText,
   parseSms,
+  UPI_APP_PACKAGES,
   type ParsedTransaction,
 } from '@money-plant/parser';
 import { readInbox, type CaptureTaskData } from '../../modules/sms-reader';
@@ -24,6 +28,7 @@ import { ensureBalanceRefs } from './ledger';
 import { loadRates, requestRates } from './fx';
 import { localDay } from './home-money';
 import { kvGet, kvSet } from './kv';
+import { appChoices, appSender, noteAppCandidate, senderChoices, setSenderReplay, syncCaptureFilters } from './senders';
 import { SqliteLedgerStore } from './ledger-store';
 import { supabase } from './supabase';
 import { syncNow } from './sync';
@@ -59,26 +64,115 @@ async function fingerprintOf(...parts: (string | number)[]): Promise<string> {
 }
 
 /**
- * CAP-10: an Indian bank SMS with a foreign amount ("USD 25.00 spent on your
- * card") becomes rupees at that day's rate, with what the message said kept
- * beside it; the statement later replaces the estimate. Null while no rate
- * is known (offline): the message waits with the failed ones and is read
- * again on the next retry.
+ * The amount in the account's currency (CAP-10, CAP-11). An Indian bank SMS
+ * with a foreign amount ("USD 25.00 spent on your card") becomes rupees at
+ * that day's rate, with what the message said kept beside it; the statement
+ * later replaces the estimate. A linked sender's amounts become its
+ * account's currency the same way. A message without a currency is in
+ * `fallback`. Null while no rate is known (offline): the message waits with
+ * the failed ones and is read again on the next retry.
  */
-async function inRupees(parsed: ParsedTransaction, receivedAt: string): Promise<ParsedTransaction | null> {
-  const { currency, ...rest } = parsed;
-  if (!currency || currency === DEFAULT_CURRENCY) return parsed;
+async function inCurrency(parsed: ParsedTransaction, receivedAt: string, target: CurrencyCode, fallback: CurrencyCode): Promise<ParsedTransaction | null> {
+  const { currency: given, ...rest } = parsed;
+  const currency = given ?? fallback;
+  if (currency === target) return rest;
   const day = localDay(receivedAt);
-  let rates = await loadRates([currency]);
-  if (!rates.some((r) => r.date === day) && (await requestRates([currency], [day]).catch(() => false))) rates = await loadRates([currency]);
-  const rate = rateOn(rates, currency, day);
-  if (rate === null) return null;
-  const amount = convert(parsed.amount, currency, DEFAULT_CURRENCY, { from: rate, to: RATE_SCALE });
+  const wanted = [currency, target];
+  let rates = await loadRates(wanted);
+  const known = (c: CurrencyCode) => c === DEFAULT_CURRENCY || rates.some((r) => r.currency === c && r.date === day);
+  if (!wanted.every(known) && (await requestRates(wanted, [day]).catch(() => false))) rates = await loadRates(wanted);
+  const amount = convertOn(rates, parsed.amount, currency, target, day);
+  if (amount === null) return null;
   return { ...rest, amount: paise(amount), foreign: { amount: parsed.amount, currency } };
 }
 
+/** A message to read: an SMS, or the text of a notification from an app the user approved (CAP-12). */
+interface IncomingMessage {
+  /** The capture log's sender: the normalised SMS header, or appSender(package). */
+  key: string;
+  channel: 'sms' | 'notification';
+  /** The SMS sender as the phone stores it; null for an app. */
+  address: string | null;
+  body: string;
+  receivedAt: string;
+  fingerprint: string;
+}
+
+function logCapture(db: Awaited<ReturnType<typeof getDb>>, message: IncomingMessage, status: 'parsed' | 'ignored' | 'failed' | 'waiting', reason: string | null) {
+  db.insert(captureLog)
+    .values({
+      fingerprint: message.fingerprint,
+      channel: message.channel,
+      sender: message.key,
+      receivedAt: message.receivedAt,
+      status,
+      reason,
+      // Kept on this phone only, so failed and waiting messages can be read again or shared anonymised (CAP-8, CAP-9).
+      rawText: status === 'failed' || status === 'waiting' ? message.body : null,
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
 /**
- * Runs one bank SMS through the pipeline. The text stays on the phone: only
+ * Reads one message into the ledger. Known banks use their tuned rules and
+ * find the account from the message. Any other business sender (CAP-11)
+ * goes through the general reader and waits, unread into the ledger, until
+ * the user links it to an account in Review; then it posts there.
+ */
+async function readMessage(message: IncomingMessage): Promise<IngestResult | null> {
+  const db = await getDb();
+  const tuned = message.address !== null && identifyBankSender(message.address) !== null;
+  const result = message.address !== null ? parseAnySms({ sender: message.address, body: message.body }) : parseBankText(null, message.body);
+  if (result.status === 'ignored' && result.reason === 'unknown_sender') return null;
+
+  let accountId: string | undefined;
+  let target: CurrencyCode = DEFAULT_CURRENCY;
+  if (!tuned) {
+    const choice = (await senderChoices())[message.key];
+    if (choice && 'ignored' in choice) {
+      logCapture(db, message, 'ignored', 'ignored_sender');
+      return null;
+    }
+    if (!choice) {
+      // Asked about in Review: "New sender: ENBD. Which account is this?"
+      if (result.status === 'ignored') logCapture(db, message, 'ignored', result.reason);
+      else logCapture(db, message, 'waiting', 'new_sender');
+      return null;
+    }
+    const account = db.select({ id: accounts.id, currency: accounts.currency }).from(accounts).where(eq(accounts.id, choice.accountId)).get();
+    if (!account) {
+      logCapture(db, message, 'waiting', 'new_sender');
+      return null;
+    }
+    accountId = account.id;
+    target = account.currency;
+  }
+
+  if (result.status !== 'parsed') {
+    logCapture(db, message, result.status, result.reason);
+    return null;
+  }
+  // Indian banks write rupees unless they say otherwise; a linked sender, its account's currency.
+  const converted = await inCurrency(result.transaction, message.receivedAt, target, target);
+  if (!converted) {
+    logCapture(db, message, 'failed', 'no_rate');
+    return null;
+  }
+  const outcome = await ingestSms(await context(), {
+    parsed: converted,
+    sender: message.key,
+    receivedAt: message.receivedAt,
+    fingerprint: message.fingerprint,
+    rawText: message.body,
+    ...(accountId ? { accountId } : {}),
+  });
+  logCapture(db, message, 'parsed', result.transaction.template);
+  return outcome;
+}
+
+/**
+ * Runs one SMS through the pipeline. The text stays on the phone: only
  * the parsed fields are written to rows that sync. Failures keep the text in
  * the local capture log so the user can see what the parser missed (CAP-8).
  */
@@ -101,37 +195,42 @@ async function captureSmsNow(message: SmsMessage): Promise<IngestResult | null> 
       .run();
     return null;
   }
-
-  const parsedSms = parseSms({ sender: message.sender, body: message.body });
-  if (parsedSms.status === 'ignored' && parsedSms.reason === 'unknown_sender') return null;
-  const converted = parsedSms.status === 'parsed' ? await inRupees(parsedSms.transaction, receivedAt) : null;
-  const result: typeof parsedSms | { status: 'failed'; reason: 'no_rate' } =
-    parsedSms.status === 'parsed' && !converted ? { status: 'failed', reason: 'no_rate' } : parsedSms;
-
-  let outcome: IngestResult | null = null;
-  if (result.status === 'parsed' && converted) {
-    outcome = await ingestSms(await context(), {
-      parsed: converted,
-      sender,
-      receivedAt,
-      fingerprint,
-      rawText: message.body,
-    });
-  }
-  db.insert(captureLog)
-    .values({
-      fingerprint,
-      channel: 'sms',
-      sender,
-      receivedAt,
-      status: result.status,
-      reason: result.status === 'parsed' ? result.transaction.template : result.reason,
-      rawText: result.status === 'failed' ? message.body : null,
-    })
-    .onConflictDoNothing()
-    .run();
-  return outcome;
+  return readMessage({ key: sender, channel: 'sms', address: message.sender, body: message.body, receivedAt, fingerprint });
 }
+
+/** Reads the messages that waited for a sender the user just linked (CAP-11). */
+async function replaySender(sender: string): Promise<number> {
+  const db = await getDb();
+  const rows = db
+    .select()
+    .from(captureLog)
+    .where(and(eq(captureLog.sender, sender), eq(captureLog.status, 'waiting')))
+    .orderBy(asc(captureLog.receivedAt))
+    .all();
+  let read = 0;
+  for (const row of rows) {
+    if (!row.rawText) continue;
+    const body = row.rawText;
+    db.delete(captureLog).where(eq(captureLog.fingerprint, row.fingerprint)).run();
+    const outcome = await serial(() =>
+      readMessage({
+        key: row.sender,
+        channel: row.channel,
+        address: row.channel === 'sms' ? row.sender : null,
+        body,
+        receivedAt: row.receivedAt,
+        fingerprint: row.fingerprint,
+      }),
+    );
+    if (outcome) read++;
+  }
+  if (read > 0) {
+    await refreshRecurring().catch(reportBackground('recurring'));
+    notifyLedgerChange();
+  }
+  return read;
+}
+setSenderReplay(replaySender);
 
 export function captureSms(message: SmsMessage): Promise<IngestResult | null> {
   return serial(() => captureSmsNow(message));
@@ -139,6 +238,17 @@ export function captureSms(message: SmsMessage): Promise<IngestResult | null> {
 
 export function captureNotification(input: { packageName: string; title: string; text: string; receivedAt: number }) {
   return serial(async () => {
+    if (!UPI_APP_PACKAGES[input.packageName]) {
+      // CAP-12: an app the user approved. Read like a business SMS, under the app's name.
+      const body = `${input.title}\n${input.text}`.trim();
+      const fingerprint = await fingerprintOf('notification', input.packageName, input.receivedAt, input.title, input.text);
+      const db = await getDb();
+      if (db.select({ status: captureLog.status }).from(captureLog).where(eq(captureLog.fingerprint, fingerprint)).get()) return null;
+      const apps = await appChoices();
+      if (apps[input.packageName]?.state !== 'approved') return null;
+      await readMessage({ key: appSender(input.packageName), channel: 'notification', address: null, body, receivedAt: new Date(input.receivedAt).toISOString(), fingerprint });
+      return null;
+    }
     const parsed = parseNotification(input);
     if (!parsed) return null;
     const fingerprint = await fingerprintOf('notification', input.packageName, input.receivedAt, input.title, input.text);
@@ -185,6 +295,8 @@ function runImport(
       await syncNow().catch(() => {});
     }
     await ensureBalanceRefs();
+    // The receiver's copy of ignored senders and approved apps is lost when Android clears app data.
+    await syncCaptureFilters().catch(reportBackground('capture-filters'));
     let since = from(stored === null ? null : Number(stored));
     let newest = stored === null ? 0 : Number(stored);
     const progress: ImportProgress = { read: 0, created: 0, merged: 0 };
@@ -300,30 +412,27 @@ export async function retryFailedMessages(): Promise<number> {
   let fixed = 0;
   for (const row of failed) {
     if (!row.rawText) continue;
-    const result = parseSms({ sender: row.sender, body: row.rawText });
-    if (result.status === 'failed') continue;
-    const converted = result.status === 'parsed' ? await inRupees(result.transaction, row.receivedAt) : null;
-    // A foreign spend still without a rate stays failed until the next retry (CAP-10).
-    if (result.status === 'parsed' && !converted) continue;
+    const body = row.rawText;
+    // Read again from scratch; a message that still fails or still has no rate is logged as failed again.
     db.delete(captureLog).where(eq(captureLog.fingerprint, row.fingerprint)).run();
-    if (converted) {
-      const rawText = row.rawText;
-      await serial(async () =>
-        ingestSms(await context(), { parsed: converted, sender: row.sender, receivedAt: row.receivedAt, fingerprint: row.fingerprint, rawText }),
+    try {
+      await serial(() =>
+        readMessage({
+          key: row.sender,
+          channel: row.channel,
+          address: row.channel === 'sms' ? row.sender : null,
+          body,
+          receivedAt: row.receivedAt,
+          fingerprint: row.fingerprint,
+        }),
       );
+    } catch (e) {
+      // Put it back as it was, so the message isn't lost.
+      db.insert(captureLog).values(row).onConflictDoNothing().run();
+      throw e;
     }
-    db.insert(captureLog)
-      .values({
-        fingerprint: row.fingerprint,
-        channel: 'sms',
-        sender: row.sender,
-        receivedAt: row.receivedAt,
-        status: result.status,
-        reason: result.status === 'parsed' ? result.transaction.template : result.reason,
-        rawText: null,
-      })
-      .onConflictDoNothing()
-      .run();
+    const now = db.select({ status: captureLog.status }).from(captureLog).where(eq(captureLog.fingerprint, row.fingerprint)).get();
+    if (now?.status === 'failed') continue;
     fixed++;
   }
   if (fixed > 0) notifyLedgerChange();
@@ -344,6 +453,10 @@ export async function runCaptureTask(data: CaptureTaskData): Promise<void> {
     await ensureBalanceRefs();
     if (data.kind === 'sms') {
       await captureSms({ sender: data.sender, body: data.body, receivedAt: data.receivedAt, sentAt: data.sentAt });
+    } else if (data.kind === 'app_candidate') {
+      // CAP-12: only the app's name came; Review asks once whether to read it.
+      await noteAppCandidate(data.packageName, data.appName);
+      return;
     } else {
       await captureNotification(data);
     }

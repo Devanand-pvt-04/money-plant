@@ -31,6 +31,41 @@ const BANK_PATTERNS: readonly [BankId, RegExp][] = [
  */
 export const BANK_SENDER_TOKENS: readonly string[] = ['HDFC', 'ICICI', 'HSBC', 'SBI', 'SLICE', 'SLCEIT'];
 
+/** A person's phone number: never read (CAP-11). Short codes of up to 6 digits are businesses. */
+export function isPhoneNumber(address: string): boolean {
+  const compact = address.trim().replace(/[\s-]/g, '');
+  return /^\+?\d{7,}$/.test(compact);
+}
+
+/**
+ * CAP-11: any business sender, not a fixed list: an alphanumeric header
+ * ("VM-AXISBK", "ENBD", "Revolut") or a short code of up to 6 digits.
+ */
+export function isBusinessSender(address: string): boolean {
+  const trimmed = address.trim();
+  if (!trimmed || isPhoneNumber(trimmed)) return false;
+  return /^\d{3,6}$/.test(trimmed) || /[A-Za-z]/.test(trimmed);
+}
+
+/**
+ * Words that say money moved. The native receiver has a copy in
+ * Allowlists.kt (a test checks they match), and reads only messages with
+ * one of these and an amount (CAP-11, CAP-12).
+ */
+export const MONEY_WORDS: readonly string[] = [
+  'debited', 'credited', 'spent', 'paid', 'received', 'withdrawn', 'withdrawal', 'purchase', 'deducted',
+  'sent', 'deposited', 'transferred', 'refund', 'refunded', 'reversed', 'charged', 'payment', 'txn', 'transaction',
+];
+
+const MONEY_WORD = new RegExp(String.raw`\b(?:${MONEY_WORDS.join('|')})\b`, 'i');
+// A number with a currency next to it: "Rs 450", "₹450", "$12.40", "AED 1,250.00", "1.234,56 EUR".
+const TAGGED_AMOUNT = /(?:\b(?:rs|inr|[a-z]{3})\.?|[₹$€£¥])\s?\d|\d[\d,.]*\s?(?:\b[a-z]{3}\b|[₹$€£¥])/i;
+
+/** What the native filter checks before any JavaScript sees a message: an amount and a money word. */
+export function looksLikeMoney(text: string): boolean {
+  return MONEY_WORD.test(text) && TAGGED_AMOUNT.test(text);
+}
+
 /** Which supported bank sent this SMS, or null for anyone else (including people). */
 export function identifyBankSender(address: string): BankId | null {
   const header = normaliseSender(address);

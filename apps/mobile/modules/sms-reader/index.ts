@@ -15,7 +15,9 @@ export interface InboxMessage {
 /** What the native receiver and notification listener hand to the "MoneyPlantCapture" task. */
 export type CaptureTaskData =
   | { kind: 'sms'; sender: string; body: string; receivedAt: number; sentAt: number }
-  | { kind: 'notification'; packageName: string; title: string; text: string; receivedAt: number };
+  | { kind: 'notification'; packageName: string; title: string; text: string; receivedAt: number }
+  /** CAP-12: an app not yet approved posted a money notification. Only its name is passed, never the text. */
+  | { kind: 'app_candidate'; packageName: string; appName: string; receivedAt: number };
 
 interface SmsReaderNative {
   hasSmsPermission(): boolean;
@@ -23,6 +25,8 @@ interface SmsReaderNative {
   isNotificationAccessGranted(): boolean;
   openNotificationAccessSettings(): void;
   setSecureWindow?(on: boolean): Promise<void>;
+  /** From app 0.11.0 (CAP-11, CAP-12). */
+  setCaptureFilters?(ignoredSenders: string[], approvedApps: string[], deniedApps: string[]): void;
 }
 
 // Android only. The module is missing on iOS, in Expo Go and on the web.
@@ -34,7 +38,11 @@ export function hasSmsPermission(): boolean {
   return native?.hasSmsPermission() ?? false;
 }
 
-/** Bank-like SMS received after `sinceMillis`, oldest first. Filtering by sender happens natively. */
+/**
+ * Money SMS received after `sinceMillis`, oldest first. Filtering happens
+ * natively: from 0.11.0 any business sender (CAP-11), before that the bank
+ * names in `senderTokens`.
+ */
 export function readInbox(sinceMillis: number, senderTokens: readonly string[], limit = 5000): Promise<InboxMessage[]> {
   if (!native) return Promise.resolve([]);
   return native.readInbox(sinceMillis, [...senderTokens], limit);
@@ -51,6 +59,14 @@ export function openNotificationAccessSettings(): void {
 /** Hides the app's screens in the recent apps view, which also blocks screenshots. */
 export function setSecureWindow(on: boolean): Promise<void> {
   return native?.setSecureWindow?.(on) ?? Promise.resolve();
+}
+
+/** Whether this build reads any business sender and asks about new apps (0.11.0 and later). */
+export const readsAnySender = typeof native?.setCaptureFilters === 'function';
+
+/** Hands Settings → Capture's choices to the native receiver and listener. */
+export function setCaptureFilters(filters: { ignoredSenders: readonly string[]; approvedApps: readonly string[]; deniedApps: readonly string[] }): void {
+  native?.setCaptureFilters?.([...filters.ignoredSenders], [...filters.approvedApps], [...filters.deniedApps]);
 }
 
 export const CAPTURE_TASK_KEY = 'MoneyPlantCapture';

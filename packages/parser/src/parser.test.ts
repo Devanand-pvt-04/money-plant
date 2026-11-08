@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { identifyBankSender, normaliseSender } from './senders';
-import { parseBankText } from './sms';
+import { identifyBankSender, isBusinessSender, looksLikeMoney, normaliseSender } from './senders';
+import { parseAnySms, parseBankText } from './sms';
 import { cleanCounterparty } from './extract';
 import { parseNotification } from './notification';
 import { extractDate, parsePreDebitText } from './predebit';
@@ -166,5 +166,41 @@ describe('foreign-currency spends (CAP-10)', () => {
     const result = parseBankText('sbi', 'Your A/c XX1234 is debited by Rs 450 for UPI 512345678901.');
     expect(result.status === 'parsed' && result.transaction).toMatchObject({ amount: 45_000 });
     expect(result.status === 'parsed' && result.transaction.currency).toBeUndefined();
+  });
+});
+
+describe('any business sender (CAP-11)', () => {
+  it('tells businesses from people', () => {
+    expect(isBusinessSender('AD-ENBD')).toBe(true);
+    expect(isBusinessSender('Revolut')).toBe(true);
+    expect(isBusinessSender('57575')).toBe(true);
+    expect(isBusinessSender('+971501234567')).toBe(false);
+    expect(isBusinessSender('9876543210')).toBe(false);
+    expect(isBusinessSender('')).toBe(false);
+  });
+
+  it('only lets money messages through', () => {
+    expect(looksLikeMoney('Your card ending 1234 was charged AED 85.00 at CARREFOUR.')).toBe(true);
+    expect(looksLikeMoney('Paid 12,50 EUR to Lidl')).toBe(true);
+    expect(looksLikeMoney('Your parcel will arrive tomorrow between 9 and 12')).toBe(false);
+    expect(looksLikeMoney('Payment reminder for your order 4411')).toBe(false);
+  });
+
+  it('reads a bank abroad through the general reader', () => {
+    const result = parseAnySms({ sender: 'AD-ENBD', body: 'Purchase of AED 85.00 on your Credit Card ending 1234 at CARREFOUR was successful.' });
+    expect(result.status).toBe('parsed');
+    if (result.status !== 'parsed') return;
+    expect(result.transaction).toMatchObject({ bank: null, direction: 'debit', amount: 8500, currency: 'AED', accountLast: '1234', template: 'generic' });
+  });
+
+  it('reads European number styles with the code after the amount', () => {
+    const result = parseAnySms({ sender: 'N26', body: 'You paid 1.234,56 EUR to MEDIA MARKT with your card.' });
+    expect(result.status === 'parsed' && result.transaction).toMatchObject({ amount: 123_456, currency: 'EUR', direction: 'debit' });
+  });
+
+  it('keeps tuned rules for known banks and never reads phone numbers', () => {
+    const hdfc = parseAnySms({ sender: 'VM-HDFCBK', body: 'Sent Rs.450.00\nFrom HDFC Bank A/C *1234\nTo SWIGGY\nOn 21/10/26\nRef 629412345678' });
+    expect(hdfc.status === 'parsed' && hdfc.transaction.bank).toBe('hdfc');
+    expect(parseAnySms({ sender: '+919876543210', body: 'Sent Rs 450 to you' })).toEqual({ status: 'ignored', reason: 'unknown_sender' });
   });
 });

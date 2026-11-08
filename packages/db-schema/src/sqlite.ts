@@ -154,7 +154,7 @@ export const captureLog = sqliteTable(
     channel: text('channel').$type<'sms' | 'notification'>().notNull(),
     sender: text('sender').notNull(),
     receivedAt: text('received_at').notNull(),
-    status: text('status').$type<'parsed' | 'ignored' | 'failed'>().notNull(),
+    status: text('status').$type<'parsed' | 'ignored' | 'failed' | 'waiting'>().notNull(),
     reason: text('reason'),
     rawText: text('raw_text'),
   },

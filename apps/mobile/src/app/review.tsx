@@ -28,6 +28,8 @@ import { listRecurring } from '@/lib/recurring';
 import { listRules } from '@/lib/rules-store';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { useLedger } from '@/lib/use-ledger';
+import { captureQuestions, type CaptureQuestions } from '@/lib/senders';
+import { CaptureQuestionCards } from '@/components/capture-questions';
 import { useReviewTimer } from '@/lib/health';
 
 interface Proposal {
@@ -37,12 +39,13 @@ interface Proposal {
 }
 
 async function load() {
-  const [pending, balances, rules, names, recurring] = await Promise.all([
+  const [pending, balances, rules, names, recurring, questions] = await Promise.all([
     listTransactions({ pendingOnly: true }),
     listAccountBalances(),
     listRules(),
     categoryNames(),
     listRecurring(),
+    captureQuestions(),
   ]);
   const accountName = new Map(balances.map((b) => [b.account.id, b.account.name]));
   const proposals = rules
@@ -54,7 +57,7 @@ async function load() {
     }));
   const suggested = recurring.filter((r) => r.status === 'proposed');
   const guesses = await repaymentGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, RepaymentGuess>());
-  return { pending, gaps: balances.filter((b) => b.reconciliation?.flagged), proposals, suggested, guesses };
+  return { pending, gaps: balances.filter((b) => b.reconciliation?.flagged), proposals, suggested, guesses, questions };
 }
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
@@ -68,11 +71,14 @@ export default function Review() {
       proposals: [] as Proposal[],
       suggested: [] as RecurringPayment[],
       guesses: new Map<string, RepaymentGuess>(),
+      questions: { senders: [], apps: [] } as CaptureQuestions,
     },
     'review',
   );
   const { picker, change } = useCategoryChange();
-  const nothing = data.gaps.length === 0 && data.proposals.length === 0 && data.suggested.length === 0;
+  const [questionError, setQuestionError] = useState<string | null>(null);
+  const nothing =
+    data.gaps.length === 0 && data.proposals.length === 0 && data.suggested.length === 0 && data.questions.senders.length === 0 && data.questions.apps.length === 0;
 
   return (
     <>
@@ -88,6 +94,8 @@ export default function Review() {
                 {data.pending.length} left · {reviewTime(data.pending.length)}
               </Text>
             )}
+            <CaptureQuestionCards questions={data.questions} onError={setQuestionError} />
+            {questionError && <Text style={styles.count}>{questionError}</Text>}
             {data.proposals.map((p) => (
               <PatternCard key={p.rule.id} proposal={p} />
             ))}
