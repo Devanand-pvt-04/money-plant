@@ -17,6 +17,7 @@ import { pipelineCategoriser } from './categories';
 import { refreshIous } from './ious';
 import { applyPreDebitNotice, refreshRecurring } from './recurring';
 import { getDb } from './db';
+import { reportBackground } from './errors';
 import { notifyLedgerChange } from './events';
 import { ensureBalanceRefs } from './ledger';
 import { kvGet, kvSet } from './kv';
@@ -184,8 +185,8 @@ function runImport(
     // After the first import, catch-up starts where the picked range ends, even when it found nothing.
     if (stored === null) await kvSet(INBOX_CURSOR_KEY, String(Math.max(newest, Math.min(until ?? Date.now(), Date.now()))));
     if (progress.read > 0) {
-      await refreshRecurring().catch(() => {});
-      await refreshIous().catch(() => {});
+      await refreshRecurring().catch(reportBackground('recurring'));
+      await refreshIous().catch(reportBackground('ious'));
       notifyLedgerChange();
     }
     return progress;
@@ -319,13 +320,14 @@ export async function runCaptureTask(data: CaptureTaskData): Promise<void> {
       await captureNotification(data);
     }
     notifyLedgerChange();
-    await checkPaceAlerts().catch(() => {});
-    await refreshRecurring().catch(() => {});
-    await refreshIous().catch(() => {});
+    await checkPaceAlerts().catch(reportBackground('pace-alerts'));
+    await refreshRecurring().catch(reportBackground('recurring'));
+    await refreshIous().catch(reportBackground('ious'));
     await syncNow();
     await categoriseWithAi();
   } catch (e) {
-    // Keep message contents out of logs.
+    // Keep message contents out of logs and the error log: only the error's name and where it was thrown.
     console.warn('Capture task failed:', e instanceof Error ? e.name : 'unknown error');
+    reportBackground('capture', { withoutMessage: true })(e);
   }
 }

@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(31);
+select plan(55);
 
 -- ---- Structure ----
 
@@ -51,6 +51,9 @@ insert into auth.users (id, email, aud, role) values
   ('cccccccc-0000-4000-8000-000000000003', 'chitra@example.com', 'authenticated', 'authenticated');
 set local session_replication_role = origin;
 
+-- AI usage is written only by the service role; Asha has a row for this month.
+insert into ai_usage (user_id, month, calls) values ('aaaaaaaa-0000-4000-8000-000000000001', date_trunc('month', current_date)::date, 3);
+
 create function pg_temp.act_as(p_id uuid, p_email text) returns void language sql as $$
   select set_config('role', 'authenticated', true),
          set_config('request.jwt.claims', json_build_object('sub', p_id, 'email', p_email, 'role', 'authenticated')::text, true);
@@ -76,7 +79,31 @@ insert into ious (id, person_account_id, direction, amount_paise, occurred_on, c
 insert into app_errors (id, message, source, occurred_at) values
   ('a5000000-0000-4000-8000-000000000001', 'test', 'test', now());
 
+-- One row in every other table that holds her data.
+insert into account_types (id, name, class) values ('a6000000-0000-4000-8000-000000000001', 'Gold', 'asset');
+insert into balance_anchors (id, account_id, balance_paise, observed_at, source_id) values
+  ('a6000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001', 90000, now(), 'a3000000-0000-4000-8000-000000000001');
+insert into rules (id, kind, status, match, category_account_id) values
+  ('a6000000-0000-4000-8000-000000000003', 'rule', 'active', '{"kind":"rule"}', 'a0000000-0000-4000-8000-000000000002');
+insert into budgets (id, month, category_account_id, limit_paise) values
+  ('a6000000-0000-4000-8000-000000000004', date_trunc('month', current_date)::date, 'a0000000-0000-4000-8000-000000000002', 500000);
+insert into recurring (id, name, amount_paise, cadence, next_due, account_id, category_account_id, status, origin) values
+  ('a6000000-0000-4000-8000-000000000005', 'Netflix', 64900, 'monthly', current_date, 'a0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', 'active', 'manual');
+insert into split_groups (id, name, member_account_ids) values
+  ('a6000000-0000-4000-8000-000000000006', 'Flat', array['a0000000-0000-4000-8000-000000000003']::uuid[]);
+insert into deposits (id, account_id, kind, amount_paise, rate_bp, start_date, maturity_date) values
+  ('a6000000-0000-4000-8000-000000000007', 'a0000000-0000-4000-8000-000000000001', 'fd', 10000000, 725, current_date, current_date + 365);
+insert into holdings (id, account_id, scheme, units_e4, cost_paise, as_of) values
+  ('a6000000-0000-4000-8000-000000000008', 'a0000000-0000-4000-8000-000000000001', 'Index fund', 1234560, 5000000, current_date);
+insert into ai_jobs (id, kind) values ('a6000000-0000-4000-8000-000000000009', 'month_review');
+
 select is((select count(*)::int from accounts), 3, 'Asha reads her own accounts');
+select is(
+  (select count(*)::int from account_types) + (select count(*)::int from balance_anchors) + (select count(*)::int from rules)
+  + (select count(*)::int from budgets) + (select count(*)::int from recurring) + (select count(*)::int from split_groups)
+  + (select count(*)::int from deposits) + (select count(*)::int from holdings) + (select count(*)::int from ai_jobs)
+  + (select count(*)::int from ai_usage),
+  10, 'Asha reads her own row in each of the other tables');
 
 -- ---- Bala: can't see or touch Asha's ledger ----
 
@@ -107,6 +134,69 @@ select throws_ok(
 select throws_ok(
   $$insert into merchants (id, normalised_name, category_key, confidence, created_by) values ('b7000000-0000-4000-8000-000000000001', 'evil', 'food', 1, 'user_confirmed')$$,
   '42501', null, 'Bala cannot write to the shared merchant dictionary');
+
+-- Every other table: Bala reads none of Asha's rows, his updates change nothing,
+-- and he can't point his own rows at her accounts.
+select is((select count(*)::int from account_types), 0, 'Bala reads none of Asha''s account types');
+select is((select count(*)::int from balance_anchors), 0, 'Bala reads none of Asha''s balance anchors');
+select is((select count(*)::int from rules), 0, 'Bala reads none of Asha''s rules');
+select is((select count(*)::int from budgets), 0, 'Bala reads none of Asha''s budgets');
+select is((select count(*)::int from recurring), 0, 'Bala reads none of Asha''s recurring payments');
+select is((select count(*)::int from split_groups), 0, 'Bala reads none of Asha''s groups');
+select is((select count(*)::int from deposits), 0, 'Bala reads none of Asha''s deposits');
+select is((select count(*)::int from holdings), 0, 'Bala reads none of Asha''s holdings');
+select is((select count(*)::int from ai_jobs), 0, 'Bala reads none of Asha''s AI jobs');
+select is((select count(*)::int from ai_usage), 0, 'Bala reads none of Asha''s AI usage');
+
+update account_types set name = 'hacked' where id = 'a6000000-0000-4000-8000-000000000001';
+update balance_anchors set balance_paise = 1 where id = 'a6000000-0000-4000-8000-000000000002';
+update rules set status = 'paused' where id = 'a6000000-0000-4000-8000-000000000003';
+update budgets set limit_paise = 1 where id = 'a6000000-0000-4000-8000-000000000004';
+update recurring set amount_paise = 1 where id = 'a6000000-0000-4000-8000-000000000005';
+update split_groups set name = 'hacked' where id = 'a6000000-0000-4000-8000-000000000006';
+update deposits set amount_paise = 1 where id = 'a6000000-0000-4000-8000-000000000007';
+update holdings set units_e4 = 0 where id = 'a6000000-0000-4000-8000-000000000008';
+
+select throws_ok(
+  $$insert into account_types (id, user_id, name, class) values ('b6000000-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001', 'planted', 'asset')$$,
+  '42501', null, 'Bala cannot add an account type as Asha');
+select throws_ok(
+  $$insert into balance_anchors (id, account_id, balance_paise, observed_at, source_id) values
+    ('b6000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001', 1, now(), 'a3000000-0000-4000-8000-000000000001')$$,
+  '42501', null, 'Bala cannot anchor the balance of Asha''s account');
+select throws_ok(
+  $$insert into rules (id, kind, status, match, category_account_id) values
+    ('b6000000-0000-4000-8000-000000000003', 'rule', 'active', '{"kind":"rule"}', 'a0000000-0000-4000-8000-000000000002')$$,
+  '42501', null, 'Bala cannot add a rule on Asha''s category');
+select throws_ok(
+  $$insert into budgets (id, month, category_account_id, limit_paise) values
+    ('b6000000-0000-4000-8000-000000000004', date_trunc('month', current_date)::date, 'a0000000-0000-4000-8000-000000000002', 1)$$,
+  '42501', null, 'Bala cannot budget Asha''s category');
+select throws_ok(
+  $$insert into recurring (id, name, amount_paise, cadence, next_due, account_id, status, origin) values
+    ('b6000000-0000-4000-8000-000000000005', 'x', 1, 'monthly', current_date, 'a0000000-0000-4000-8000-000000000001', 'active', 'manual')$$,
+  '42501', null, 'Bala cannot add a recurring payment on Asha''s account');
+select throws_ok(
+  $$insert into split_groups (id, name, member_account_ids) values
+    ('b6000000-0000-4000-8000-000000000006', 'x', array['a0000000-0000-4000-8000-000000000003']::uuid[])$$,
+  '42501', null, 'Bala cannot put Asha''s people in a group');
+select throws_ok(
+  $$insert into deposits (id, account_id, kind, amount_paise, rate_bp, start_date, maturity_date) values
+    ('b6000000-0000-4000-8000-000000000007', 'a0000000-0000-4000-8000-000000000001', 'fd', 1, 1, current_date, current_date + 1)$$,
+  '42501', null, 'Bala cannot add a deposit on Asha''s account');
+select throws_ok(
+  $$insert into holdings (id, account_id, scheme, units_e4, cost_paise, as_of) values
+    ('b6000000-0000-4000-8000-000000000008', 'a0000000-0000-4000-8000-000000000001', 'x', 1, 1, current_date)$$,
+  '42501', null, 'Bala cannot add a holding on Asha''s account');
+select throws_ok(
+  $$insert into ai_jobs (id, user_id, kind) values ('b6000000-0000-4000-8000-000000000009', 'aaaaaaaa-0000-4000-8000-000000000001', 'month_review')$$,
+  '42501', null, 'Bala cannot queue an AI job as Asha');
+select throws_ok(
+  $$insert into ai_jobs (id, kind) values ('b6000000-0000-4000-8000-000000000010', 'categorise')$$,
+  '42501', null, 'categorise jobs come only from the categorise function');
+select throws_ok(
+  $$insert into ai_usage (user_id, month) values ('bbbbbbbb-0000-4000-8000-000000000002', date_trunc('month', current_date)::date)$$,
+  '42501', null, 'nobody signed in writes AI usage');
 
 -- The IOU Asha shared with Bala is visible to Bala, and only its answer is his to write.
 select is((select count(*)::int from ious), 1, 'Bala sees the IOU shared with his email');
@@ -147,6 +237,20 @@ select is((select sum(amount_paise)::bigint from postings where transaction_id =
 select is((select amount_paise from ious where id = 'a4000000-0000-4000-8000-000000000001'), 50000::bigint, 'Bala could not change the IOU amount');
 select isnt((select confirmed_at from ious where id = 'a4000000-0000-4000-8000-000000000001'), null, 'Bala''s confirmation was recorded');
 select is((select count(*)::int from accounts where user_id = 'aaaaaaaa-0000-4000-8000-000000000001'), 3, 'Chitra clearing her data left Asha''s accounts');
+select is(
+  (select array[name] from account_types where id = 'a6000000-0000-4000-8000-000000000001')
+  || (select array[split_groups.name] from split_groups where id = 'a6000000-0000-4000-8000-000000000006')
+  || (select array[status] from rules where id = 'a6000000-0000-4000-8000-000000000003'),
+  array['Gold', 'Flat', 'active'], 'Bala''s updates left Asha''s account type, group and rule as they were');
+select is(
+  array[
+    (select balance_paise from balance_anchors where id = 'a6000000-0000-4000-8000-000000000002'),
+    (select limit_paise from budgets where id = 'a6000000-0000-4000-8000-000000000004'),
+    (select amount_paise from recurring where id = 'a6000000-0000-4000-8000-000000000005'),
+    (select amount_paise from deposits where id = 'a6000000-0000-4000-8000-000000000007'),
+    (select units_e4 from holdings where id = 'a6000000-0000-4000-8000-000000000008')
+  ],
+  array[90000, 500000, 64900, 10000000, 1234560]::bigint[], 'Bala''s updates left Asha''s anchor, budget, recurring payment, deposit and holding as they were');
 
 select * from finish();
 rollback;

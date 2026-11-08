@@ -86,6 +86,11 @@ export default function Health() {
             )}
           </Card>
           {data.unchecked.length > 0 && <Text style={styles.hint}>Not checked yet, no balance from the bank: {data.unchecked.join(', ')}.</Text>}
+          {data.unsynced > 0 && (
+            <Text style={styles.hint}>
+              {data.unsynced === 1 ? '1 entry' : `${data.unsynced} entries`} couldn't sync: the server refused {data.unsynced === 1 ? 'it' : 'them'}. Everything else still syncs. Editing an entry tries it again; the error log has the reason.
+            </Text>
+          )}
 
           <View style={styles.actions}>
             <Button title="Send these numbers" variant="secondary" onPress={share} />
