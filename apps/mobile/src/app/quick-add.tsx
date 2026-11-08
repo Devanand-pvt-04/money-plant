@@ -3,7 +3,7 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { paise } from '@money-plant/core';
+import { currencyInfo, formatMoney, paise, parseMoney, type CurrencyCode } from '@money-plant/core';
 import { AccountPicker, accountIcon, accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatWhen, pickDateTime } from '@/components/date-fields';
@@ -19,24 +19,25 @@ import { quickAddDefaults, rememberAccount, type QuickAddDefaults } from '@/lib/
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'] as const;
 const MAX_RUPEE_DIGITS = 9;
 
-/** "1250.5" typed on the keypad as integer paise, without floating point. */
-function toPaise(text: string): number {
-  const [rupees = '', fraction = ''] = text.split('.');
-  return Number(rupees || '0') * 100 + Number(fraction.padEnd(2, '0').slice(0, 2));
+/** "1250.5" typed on the keypad as integer minor units of `currency`, without floating point. */
+function toMinor(text: string, currency: CurrencyCode): number {
+  const { decimals } = currencyInfo(currency);
+  const [whole = '', fraction = ''] = text.split('.');
+  return Number(whole || '0') * 10 ** decimals + Number(fraction.padEnd(decimals, '0').slice(0, decimals) || '0');
 }
 
-/** The amount as typed, with Indian grouping: "₹1,250.5". */
-function display(text: string): string {
-  const [rupees = '', fraction] = text.split('.');
-  const whole = formatWholeRupees(Number(rupees || '0') * 100);
-  return fraction === undefined ? whole : `${whole}.${fraction}`;
+/** The amount as typed, grouped for its currency: "₹1,250.5", "$1,250.5". */
+function display(text: string, currency: CurrencyCode): string {
+  const [whole = '', fraction] = text.split('.');
+  const shown = formatWholeRupees(Number(whole || '0') * 10 ** currencyInfo(currency).decimals, currency);
+  return fraction === undefined ? shown : `${shown}.${fraction}`;
 }
 
-function press(text: string, key: (typeof KEYS)[number]): string {
+function press(text: string, key: (typeof KEYS)[number], decimals: number): string {
   if (key === 'del') return text.slice(0, -1);
   const [rupees = '', fraction] = text.split('.');
-  if (key === '.') return fraction !== undefined ? text : `${rupees || '0'}.`;
-  if (fraction !== undefined) return fraction.length >= 2 ? text : text + key;
+  if (key === '.') return fraction !== undefined || decimals === 0 ? text : `${rupees || '0'}.`;
+  if (fraction !== undefined) return fraction.length >= decimals ? text : text + key;
   if (rupees === '0') return key;
   return rupees.length >= MAX_RUPEE_DIGITS ? text : text + key;
 }
@@ -64,6 +65,8 @@ export default function QuickAdd() {
   const [note, setNote] = useState<string | null>(null);
   const [picking, setPicking] = useState<'category' | 'from' | 'to' | null>(null);
   const [saving, setSaving] = useState(false);
+  // LED-11: between accounts in different currencies, what arrived, typed in the to account's currency.
+  const [receivedText, setReceivedText] = useState('');
 
   useEffect(() => {
     Promise.all([quickAddDefaults(), categoryNames()]).then(([d, n]) => {
@@ -78,9 +81,17 @@ export default function QuickAdd() {
 
   if (!defaults) return <View style={styles.screen} />;
 
-  const amount = toPaise(text);
+  // Amounts are in the from account's currency (ACC-12).
+  const currency = from?.account.currency ?? 'INR';
+  const amount = toMinor(text, currency);
   const transfer = mode === 'transfer';
-  const ready = amount > 0 && from !== null && (transfer ? to !== null && to.account.id !== from.account.id : category !== null);
+  const crossCurrency = transfer && to !== null && from !== null && to.account.currency !== from.account.currency;
+  const toCurrency = to?.account.currency ?? currency;
+  const received = crossCurrency ? parseMoney(receivedText.trim() || '0', toCurrency) : null;
+  const ready =
+    amount > 0 &&
+    from !== null &&
+    (transfer ? to !== null && to.account.id !== from.account.id && (!crossCurrency || (received ?? 0) > 0) : category !== null);
   const suggestions = transfer ? [] : defaults.suggestions[mode];
   const hint = !transfer && category?.id === suggestions[0]?.id ? defaults.hint[mode] : null;
 
@@ -95,7 +106,14 @@ export default function QuickAdd() {
     try {
       const occurredAt = when;
       if (transfer) {
-        await addManualTransfer({ fromId: from!.account.id, toId: to!.account.id, amount: paise(amount), note, occurredAt });
+        await addManualTransfer({
+          fromId: from!.account.id,
+          toId: to!.account.id,
+          amount: paise(amount),
+          ...(crossCurrency ? { received: paise(received ?? 0) } : {}),
+          note,
+          occurredAt,
+        });
       } else {
         await addManualEntry({ direction: mode, amount: paise(amount), accountId: from!.account.id, categoryId: category!.id, note, occurredAt });
         await rememberAccount(from!.account.id);
@@ -180,7 +198,7 @@ export default function QuickAdd() {
           numberOfLines={1}
           adjustsFontSizeToFit
         >
-          {display(text)}
+          {display(text, currency)}
         </Text>
         {note === null ? (
           <Pressable accessibilityRole="button" onPress={() => setNote('')} style={styles.notePill}>
@@ -198,6 +216,25 @@ export default function QuickAdd() {
             returnKeyType="done"
             onBlur={() => !note.trim() && setNote(null)}
           />
+        )}
+        {crossCurrency && (
+          <View style={styles.received}>
+            <Text style={styles.tileLabel}>Arrived in {to!.account.name}</Text>
+            <TextInput
+              value={receivedText}
+              onChangeText={setReceivedText}
+              placeholder={`Amount in ${toCurrency}`}
+              placeholderTextColor={colors.placeholder}
+              keyboardType="decimal-pad"
+              style={styles.noteInput}
+              accessibilityLabel={`Amount that arrived, in ${toCurrency}`}
+            />
+            {received !== null && received > 0 && amount > 0 && (
+              <Text style={styles.hint}>
+                {formatMoney(amount, currency)} for {formatMoney(received, toCurrency)}
+              </Text>
+            )}
+          </View>
         )}
         {transfer && <Text style={styles.hint}>A transfer isn't spending. Transfers both banks send SMS for are added on their own.</Text>}
       </View>
@@ -238,7 +275,7 @@ export default function QuickAdd() {
             key={k}
             accessibilityRole="button"
             accessibilityLabel={k === 'del' ? 'Delete digit' : k === '.' ? 'Decimal point' : k}
-            onPress={() => setText((t) => press(t, k))}
+            onPress={() => setText((t) => press(t, k, currencyInfo(currency).decimals))}
             onLongPress={k === 'del' ? () => setText('') : undefined}
             style={({ pressed }) => [styles.key, pressed && styles.keyPressed]}
           >
@@ -249,7 +286,7 @@ export default function QuickAdd() {
       )}
 
       <View style={styles.save}>
-        <Button title={amount > 0 ? `Save ${display(text)}` : 'Save'} onPress={save} disabled={!ready} loading={saving} />
+        <Button title={amount > 0 ? `Save ${display(text, currency)}` : 'Save'} onPress={save} disabled={!ready} loading={saving} />
       </View>
       <KeyboardGap />
 
@@ -305,6 +342,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
   },
+  received: { alignItems: 'center', gap: 6 },
   hint: { fontSize: 13, color: colors.muted, textAlign: 'center', lineHeight: 19 },
   pickers: { gap: 8, paddingHorizontal: 16, paddingBottom: 4 },
   pressed: { backgroundColor: colors.pressed },

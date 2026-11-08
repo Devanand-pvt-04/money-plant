@@ -4,6 +4,7 @@ import {
   dateOf,
   nextOccurrence,
   type Cadence,
+  type CurrencyCode,
   type DateKey,
   type Paise,
 } from '@money-plant/core';
@@ -22,6 +23,8 @@ export interface RecurringPayment {
   merchant: string | null;
   /** Expected amount. A debit within AMOUNT_TOLERANCE of it counts. */
   amount: Paise;
+  /** The amount's currency, the paying account's (decision 0017). INR when left out. */
+  currency?: CurrencyCode;
   cadence: Cadence;
   /** Day of the month it is due, for monthly and longer cadences. */
   anchorDay: number | null;

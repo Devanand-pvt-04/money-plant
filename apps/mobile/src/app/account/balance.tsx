@@ -1,18 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { parseRupees } from '@money-plant/core';
+import { currencyInfo, paise, parseMoney, type CurrencyCode } from '@money-plant/core';
 import { Button, ErrorText, Field, colors } from '@/components/ui';
-import { setCurrentBalance } from '@/lib/ledger';
+import { listAccountBalances, setCurrentBalance } from '@/lib/ledger';
 
 /** The user types today's balance; the opening balance is worked out from it. */
 export default function SetBalance() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Typed in the account's own currency (ACC-12).
+  const [currency, setCurrency] = useState<CurrencyCode>('INR');
+  useEffect(() => {
+    listAccountBalances().then((all) => {
+      const found = all.find((b) => b.account.id === id);
+      if (found) setCurrency(found.currency);
+    });
+  }, [id]);
 
   async function save() {
-    const amount = parseRupees(text);
+    const parsed = parseMoney(text.trim().replace(/^[^\d-]+/, ''), currency);
+    const amount = parsed === null ? null : paise(parsed);
     if (amount === null) return setError('Enter the balance as a number, for example 12,500.50 (use - for money owed on a card)');
     await setCurrentBalance(id, amount);
     router.back();
@@ -23,7 +32,7 @@ export default function SetBalance() {
       <Text style={styles.body}>
         Enter what the bank or card app shows right now. For a credit card, enter the amount owed as a negative number.
       </Text>
-      <Field label="Current balance (₹)" value={text} onChangeText={setText} keyboardType="numbers-and-punctuation" autoFocus />
+      <Field label={`Current balance (${currencyInfo(currency).symbol.trim()})`} value={text} onChangeText={setText} keyboardType="numbers-and-punctuation" autoFocus />
       {error && <ErrorText>{error}</ErrorText>}
       <View style={styles.actions}>
         <Button title="Save" onPress={save} disabled={text.trim() === ''} />

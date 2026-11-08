@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
+import { applyHomeCurrency } from './home-currency';
 import { authStorage } from './kv';
 import { AUTH_STORAGE_KEY, supabase } from './supabase';
 import { wipeLocal } from './wipe';
@@ -19,7 +20,12 @@ async function storedSession(): Promise<Session | null> {
 
 /** Current auth session; `loading` is true until the stored session has been read. */
 export function useSession() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setStoredSession] = useState<Session | null>(null);
+  // The home currency rides along in the user's metadata (ACC-11).
+  const setSession = (next: Session | null) => {
+    applyHomeCurrency(next?.user?.user_metadata);
+    setStoredSession(next);
+  };
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

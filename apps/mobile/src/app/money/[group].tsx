@@ -9,7 +9,8 @@ import { MoneyCard, colors, figures, radius } from '@/components/ui';
 import { GROUPS, isGroupKey } from '@/lib/account-groups';
 import { fetchNavHistory } from '@/lib/fund-chart';
 import { fundValues, listHoldings, type FundValue } from '@/lib/funds';
-import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
+import { homeCurrency } from '@/lib/home-currency';
+import { homeValueOf, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { useLedger } from '@/lib/use-ledger';
 
 async function load() {
@@ -23,7 +24,8 @@ const signedPercent = (gain: number, invested: number) => {
   const tenths = Math.round((gain * 1000) / invested);
   return `${tenths >= 0 ? '+' : '−'}${(Math.abs(tenths) / 10).toFixed(1)}%`;
 };
-const signedRupees = (amount: number) => `${amount >= 0 ? '+' : '−'}${formatWholeRupees(Math.abs(amount))}`;
+// Funds are priced in rupees (decision 0017), whatever the home currency.
+const signedRupees = (amount: number) => `${amount >= 0 ? '+' : '−'}${formatWholeRupees(Math.abs(amount), 'INR')}`;
 
 /** NW-4 (decision 0015): one group's accounts, opened from Accounts. Mutual funds get their own page (NW-3). */
 export default function GroupPage() {
@@ -33,7 +35,8 @@ export default function GroupPage() {
   if (!isGroupKey(key) || !group) return null;
   const rows = data.balances.filter(group.has).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
   if (key === 'funds') return <Funds rows={rows} holdings={data.holdings} values={data.values} />;
-  const total = rows.reduce((s, b) => s + b.value, 0);
+  // NW-7: the group's total is in the home currency.
+  const total = rows.reduce((s, b) => s + homeValueOf(b), 0);
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Stack.Screen options={{ title: group.title }} />
@@ -52,7 +55,8 @@ export default function GroupPage() {
 }
 
 function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
-  const { account, value, reconciliation, typeLabel } = item;
+  const { account, value, reconciliation, typeLabel, currency, homeValue } = item;
+  const foreign = currency !== homeCurrency();
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(`/account/${account.id}`)} style={({ pressed }) => [styles.row, !first && styles.divided, pressed && styles.pressed]}>
       <View style={styles.icon}>
@@ -66,9 +70,12 @@ function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
           {typeLabel}
           {account.institution ? ` · ${account.institution}` : ''}
         </Text>
-        {reconciliation?.flagged && <Text style={styles.warn}>Off from the bank by {formatAmount(Math.abs(reconciliation.latest.gap))}</Text>}
+        {reconciliation?.flagged && <Text style={styles.warn}>Off from the bank by {formatAmount(Math.abs(reconciliation.latest.gap), currency)}</Text>}
       </View>
-      <Text style={[styles.amount, value < 0 && { color: colors.danger }]}>{formatAmount(value)}</Text>
+      <View style={styles.values}>
+        <Text style={[styles.amount, value < 0 && { color: colors.danger }]}>{formatAmount(value, currency)}</Text>
+        {foreign && homeValue !== null && <Text style={styles.meta}>{formatWholeRupees(homeValue)}</Text>}
+      </View>
     </Pressable>
   );
 }
@@ -116,9 +123,9 @@ function Funds({ rows, holdings, values }: { rows: AccountBalance[]; holdings: L
       />
       <MoneyCard>
         <Text style={styles.heroMuted}>Current value</Text>
-        <Text style={styles.heroAmount}>{formatWholeRupees(worth)}</Text>
+        <Text style={styles.heroAmount}>{formatWholeRupees(worth, 'INR')}</Text>
         <View style={styles.heroStats}>
-          <Stat label="Invested" value={formatWholeRupees(invested)} />
+          <Stat label="Invested" value={formatWholeRupees(invested, 'INR')} />
           <Stat label="Gain" value={signedRupees(gain)} tone={gain >= 0 ? 'in' : 'out'} />
           <Stat label="Return" value={signedPercent(gain, invested) ?? '–'} tone={gain >= 0 ? 'in' : 'out'} />
         </View>
@@ -129,7 +136,7 @@ function Funds({ rows, holdings, values }: { rows: AccountBalance[]; holdings: L
           <Feather name="calendar" size={18} color={colors.primary} />
           <Text style={styles.bannerText}>
             Next {due.length === 1 ? 'SIP' : 'SIPs'} on {new Date(soonest).getDate()} {SHORT_MONTHS[new Date(soonest).getMonth()]}:{' '}
-            {due.length === 1 ? due[0]!.balance.account.name : `${due.length} funds`}, {formatWholeRupees(due.reduce((s, f) => s + f.holding!.sipPaise!, 0))}
+            {due.length === 1 ? due[0]!.balance.account.name : `${due.length} funds`}, {formatWholeRupees(due.reduce((s, f) => s + f.holding!.sipPaise!, 0), 'INR')}
           </Text>
         </View>
       )}
@@ -157,12 +164,12 @@ function Funds({ rows, holdings, values }: { rows: AccountBalance[]; holdings: L
                     {balance.account.name}
                   </Text>
                   <Text style={styles.meta} numberOfLines={1}>
-                    {holding?.sipPaise ? `SIP ${formatWholeRupees(holding.sipPaise)}` : holding?.unitsE4 === 0 ? 'Sold' : 'No SIP'}
+                    {holding?.sipPaise ? `SIP ${formatWholeRupees(holding.sipPaise, 'INR')}` : holding?.unitsE4 === 0 ? 'Sold' : 'No SIP'}
                     {balance.account.institution ? ` · ${balance.account.institution}` : ''}
                   </Text>
                 </View>
                 <View style={styles.right}>
-                  <Text style={styles.amount}>{formatWholeRupees(now)}</Text>
+                  <Text style={styles.amount}>{formatWholeRupees(now, 'INR')}</Text>
                   {pct && <Text style={[styles.pct, value!.gain < 0 && { color: colors.danger }]}>{pct}</Text>}
                 </View>
               </View>
@@ -221,6 +228,7 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: colors.muted, marginTop: 2 },
   warn: { fontSize: 12, color: colors.warning, marginTop: 4 },
   amount: { fontSize: 15, fontWeight: '600', color: colors.text, ...figures },
+  values: { alignItems: 'flex-end' },
   footnote: { fontSize: 12, color: colors.muted, textAlign: 'center' },
   headerButton: { height: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
   headerButtonText: { fontSize: 13, fontWeight: '600', color: colors.text },

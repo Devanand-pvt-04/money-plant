@@ -59,9 +59,9 @@ export function IouRow({ view, today, first, showName }: { view: IouView; today:
       </View>
       <View style={styles.right}>
         <Text style={[styles.amount, settled && styles.settled, !settled && view.direction === 'lent' && { color: colors.primary }]}>
-          {formatAmount(settled ? view.amount : view.outstanding)}
+          {formatAmount(settled ? view.amount : view.outstanding, view.currency)}
         </Text>
-        {settled ? <Text style={styles.meta}>settled</Text> : view.outstanding !== view.amount && <Text style={styles.meta}>of {formatAmount(view.amount)}</Text>}
+        {settled ? <Text style={styles.meta}>settled</Text> : view.outstanding !== view.amount && <Text style={styles.meta}>of {formatAmount(view.amount, view.currency)}</Text>}
       </View>
     </Pressable>
   );

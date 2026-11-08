@@ -64,7 +64,7 @@ export function payingAccounts(db: Awaited<ReturnType<typeof getDb>>): Set<strin
       .from(accounts)
       .where(isNull(accounts.deletedAt))
       .all()
-      .filter((a) => !['category', 'person', 'mutual_fund', 'stock', 'nps', 'savings_scheme', 'fd', 'rd'].includes(a.type))
+      .filter((a) => !['category', 'person', 'exchange', 'mutual_fund', 'stock', 'nps', 'savings_scheme', 'fd', 'rd'].includes(a.type))
       .map((a) => a.id),
   );
 }

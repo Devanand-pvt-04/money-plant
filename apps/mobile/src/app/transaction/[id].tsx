@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { formatRupees, paise } from '@money-plant/core';
+import { formatMoney, formatRupees, paise } from '@money-plant/core';
 import { describePattern, type Rule } from '@money-plant/categoriser';
 import { REVIEW_REASON_LABELS, USER_SET_FIELDS, type LedgerSource, type UserSetField } from '@money-plant/matcher';
 import { AccountPicker } from '@/components/account-picker';
@@ -184,7 +184,7 @@ export default function TransactionDetail() {
         />
         <Line label="When" value={`${formatDay(tx.occurredAt)} · ${formatTime(tx.occurredAt)}`} onPress={() => setEditing('when')} />
         <Line label="Note" value={tx.note ?? 'Add a note'} muted={!tx.note} onPress={() => setEditing('note')} />
-        {twoLegs && <Line label="Amount" value={formatAmount(Math.abs(own?.amount ?? 0))} onPress={() => setEditing('amount')} />}
+        {twoLegs && <Line label="Amount" value={formatAmount(Math.abs(own?.amount ?? 0), own?.currency)} onPress={() => setEditing('amount')} />}
       </Card>
 
       {(canSplit || split || canRecur || canLend) && (
@@ -218,7 +218,7 @@ export default function TransactionDetail() {
           {tx.postings.map((p) => (
             <View key={p.id} style={styles.posting}>
               <Text style={styles.postingText}>{row.accountNames[p.accountId]}</Text>
-              <Text style={styles.postingAmount}>{formatRupees(p.amount)}</Text>
+              <Text style={styles.postingAmount}>{formatMoney(p.amount, p.currency ?? 'INR')}</Text>
             </View>
           ))}
         </Card>

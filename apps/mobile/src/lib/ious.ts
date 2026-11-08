@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
-import { addDays, buildUpiUri, dateKey, daysBetween, dateOf, paise, startOfDate, type DateKey, type Paise } from '@money-plant/core';
-import { accounts, iouPayments, ious, sources, transactions } from '@money-plant/db-schema';
+import { addDays, buildUpiUri, dateKey, daysBetween, dateOf, DEFAULT_CURRENCY, paise, startOfDate, type DateKey, type Paise } from '@money-plant/core';
+import { accounts, iouPayments, ious, postings, sources, transactions } from '@money-plant/db-schema';
 import {
   allocateRepayment,
   canRepay,
@@ -24,6 +24,7 @@ import type { ParsedTransaction } from '@money-plant/parser';
 import { formatAmount, formatDate } from '@/components/format';
 import { ownedAccountIds } from './categories';
 import { getDb } from './db';
+import { homeCurrency } from './home-currency';
 import { notifyLedgerChange } from './events';
 import { loadTransactions, SqliteLedgerStore, systemAccountId, writeTransaction } from './ledger-store';
 import { displayName, getMe, type Me } from './me';
@@ -124,6 +125,8 @@ export async function convertEntry(id: string, personId: string, expected?: { di
 async function manualEntry(input: { personId: string; accountId: string; ownAmount: Paise; counterparty: string; note: string | null; occurredAt: string }): Promise<string> {
   const db = await getDb();
   if (!ownedAccountIds(db).has(input.accountId)) throw new Error('Pick one of your accounts');
+  // In the account's currency (decision 0017); the person's account takes any.
+  const currency = db.select({ currency: accounts.currency }).from(accounts).where(eq(accounts.id, input.accountId)).get()?.currency ?? DEFAULT_CURRENCY;
   const id = Crypto.randomUUID();
   writeTransaction(db, {
     id,
@@ -138,8 +141,8 @@ async function manualEntry(input: { personId: string; accountId: string; ownAmou
     userSetFields: ['category', 'amount', 'account', 'occurredAt', 'kind'],
     note: input.note,
     postings: [
-      { id: Crypto.randomUUID(), accountId: input.accountId, amount: input.ownAmount },
-      { id: Crypto.randomUUID(), accountId: input.personId, amount: paise(-input.ownAmount) },
+      { id: Crypto.randomUUID(), accountId: input.accountId, amount: input.ownAmount, currency },
+      { id: Crypto.randomUUID(), accountId: input.personId, amount: paise(-input.ownAmount), currency },
     ],
     sources: [
       {
@@ -202,6 +205,10 @@ export async function insertIou(input: NewIou & { transactionId: string | null }
   const person = (await listPeople()).find((p) => p.account.id === input.personId);
   if (!person) throw new Error('Person not found');
   const id = Crypto.randomUUID();
+  // The IOU is in its entry's currency, else the home currency (decision 0017).
+  const entryCurrency = input.transactionId
+    ? db.select({ currency: postings.currency }).from(postings).where(eq(postings.transactionId, input.transactionId)).get()?.currency
+    : undefined;
   db.insert(ious)
     .values({
       id,
@@ -212,6 +219,7 @@ export async function insertIou(input: NewIou & { transactionId: string | null }
       personAccountId: input.personId,
       direction: input.direction,
       amountPaise: input.amount,
+      currency: entryCurrency ?? homeCurrency(),
       reason: input.reason?.trim() || null,
       occurredOn: input.occurredOn,
       dueDate: input.dueDate,
@@ -328,7 +336,7 @@ export async function recordRepayment(id: string, input: { amount: Paise; accoun
   const view = await getIou(id);
   if (!view || !view.personId) throw new Error('IOU not found');
   if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Enter an amount above zero');
-  if (input.amount > view.outstanding) throw new Error(`Only ${formatAmount(view.outstanding)} is still owed`);
+  if (input.amount > view.outstanding) throw new Error(`Only ${formatAmount(view.outstanding, view.currency)} is still owed`);
   const paidAt = input.paidAt;
   const transactionId = await manualEntry({
     personId: view.personId,
@@ -568,7 +576,7 @@ async function scheduleIouReminders(views: readonly IouView[]): Promise<void> {
       const at = startOfDate(day);
       at.setHours(REMINDER_HOUR);
       const when = before === 1 ? 'tomorrow' : 'today';
-      const amount = formatAmount(view.outstanding);
+      const amount = formatAmount(view.outstanding, view.currency);
       await notifyAt({
         id: `${REMINDER_PREFIX}${view.id}:${before}`,
         channel: 'reminders',
@@ -586,7 +594,7 @@ async function scheduleIouReminders(views: readonly IouView[]): Promise<void> {
  * with a UPI link to pay the user back when the user has set their UPI ID.
  */
 export function reminderMessage(view: IouView, me: Me): string {
-  const amount = formatAmount(view.outstanding);
+  const amount = formatAmount(view.outstanding, view.currency);
   const due = view.dueDate ? `, due ${formatDate(`${view.dueDate}T12:00:00`)}` : '';
   const what = view.reason ? ` for ${view.reason}` : '';
   const lines =
@@ -604,7 +612,8 @@ export function reminderMessage(view: IouView, me: Me): string {
 
 /** IOU-3: the link that opens a UPI app to pay what this user owes. */
 export function payLink(view: IouView, amount: Paise = view.outstanding): string | null {
-  if (view.direction !== 'borrowed' || !view.otherVpa) return null;
+  // UPI is rupees only (decision 0017).
+  if (view.direction !== 'borrowed' || !view.otherVpa || view.currency !== 'INR') return null;
   return buildUpiUri(
     { payeeVpa: view.otherVpa, payeeName: view.otherName, params: {} },
     { amount, note: view.reason ? `Repay: ${view.reason}`.slice(0, 50) : 'IOU repayment' },

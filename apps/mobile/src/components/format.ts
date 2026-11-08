@@ -1,3 +1,6 @@
+import { currencyInfo, formatMoney, type CurrencyCode } from '@money-plant/core';
+import { homeCurrency } from '@/lib/home-currency';
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** "21 Oct, 14:32" in the phone's time zone. */
@@ -21,15 +24,20 @@ export function formatMonth(month: string): string {
   return `${MONTH_NAMES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
 }
 
-/** Whole rupees, "₹1,250", for summaries where paise are noise. */
-export function formatWholeRupees(amount: number): string {
-  const rounded = Math.round(amount / 100);
-  const digits = Math.abs(rounded).toString();
-  const lastThree = digits.slice(-3);
-  const rest = digits.slice(0, -3);
-  const grouped = rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')},${lastThree}` : lastThree;
-  return `${rounded < 0 ? '-' : ''}₹${grouped}`;
+/**
+ * Whole units, "₹1,250" or "$1,250", for summaries where paise and cents are
+ * noise. In the home currency unless another is given (decision 0017).
+ */
+export function formatWholeRupees(amount: number, currency: CurrencyCode = homeCurrency()): string {
+  const { decimals } = currencyInfo(currency);
+  const unit = 10 ** decimals;
+  const rounded = Math.round(amount / unit) * unit;
+  const text = formatMoney(rounded, currency);
+  return decimals ? text.slice(0, -(decimals + 1)) : text;
 }
+
+/** Same as formatWholeRupees, under a name that doesn't say rupees. */
+export const formatWhole = formatWholeRupees;
 
 /** How long a review of `count` entries takes, at about 8 seconds each: "under a minute", "about 5 minutes". */
 export function reviewTime(count: number): string {
@@ -39,16 +47,17 @@ export function reviewTime(count: number): string {
   return `about ${Math.round(minutes / 60)} hours`;
 }
 
-/** "₹480" or "₹480.50": exact, without ".00" noise. */
-export function formatAmount(amount: number): string {
-  const text = formatWholeRupees(Math.trunc(amount / 100) * 100);
-  const fraction = Math.abs(amount) % 100;
-  return fraction === 0 ? text : `${text}.${String(fraction).padStart(2, '0')}`;
+/** "₹480" or "₹480.50": exact, without ".00" noise. In the home currency unless another is given. */
+export function formatAmount(amount: number, currency: CurrencyCode = homeCurrency()): string {
+  const { decimals } = currencyInfo(currency);
+  const unit = 10 ** decimals;
+  if (amount % unit === 0) return formatWholeRupees(amount, currency);
+  return formatMoney(amount, currency);
 }
 
 /** Money out as "−₹480", money in as "+₹480". */
-export function formatSigned(amount: number): string {
-  return `${amount < 0 ? '−' : '+'}${formatAmount(Math.abs(amount))}`;
+export function formatSigned(amount: number, currency: CurrencyCode = homeCurrency()): string {
+  return `${amount < 0 ? '−' : '+'}${formatAmount(Math.abs(amount), currency)}`;
 }
 
 /** "1:42 pm". */

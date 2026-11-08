@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { formatRupees, paise, parseRupees } from '@money-plant/core';
+import { formatMoney, paise, parseMoney } from '@money-plant/core';
 import type { TransactionRow } from '@/lib/ledger';
 import { editEntry, recentNotes } from '@/lib/entries';
 import { DateTimeField } from './date-fields';
@@ -39,7 +39,7 @@ export function EditFieldSheet({ row, field, onClose }: { row: TransactionRow; f
         : field === 'note'
           ? (row.tx.note ?? '')
           : field === 'amount' && own
-            ? formatRupees(paise(Math.abs(own.amount)), { symbol: false }).replace(/,/g, '')
+            ? formatMoney(Math.abs(own.amount), own.currency, { symbol: false }).replace(/,/g, '')
             : '',
     );
     if (field === 'note') recentNotes().then(setNotes, () => setNotes([]));
@@ -52,10 +52,11 @@ export function EditFieldSheet({ row, field, onClose }: { row: TransactionRow; f
     setError(null);
     try {
       if (field === 'amount') {
-        const amount = parseRupees(text);
-        if (amount === null || amount <= 0) return setError('Enter the amount as a number above zero');
+        // In the entry's own currency (decision 0017).
+        const parsed = parseMoney(text, ownLeg(row)?.currency ?? 'INR');
+        if (parsed === null || parsed <= 0) return setError('Enter the amount as a number above zero');
         setSaving(true);
-        await editEntry(row.tx.id, { amount });
+        await editEntry(row.tx.id, { amount: paise(parsed) });
       } else {
         setSaving(true);
         if (field === 'payee') await editEntry(row.tx.id, { counterparty: text });

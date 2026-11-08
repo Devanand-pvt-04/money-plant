@@ -101,6 +101,7 @@ describe('iouView', () => {
 function view(overrides: Partial<IouView>): IouView {
   return {
     id: 'v',
+    currency: 'INR',
     personId: 'p-bala',
     direction: 'lent',
     amount: paise(50_000),
