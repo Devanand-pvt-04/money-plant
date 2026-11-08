@@ -1,4 +1,4 @@
-import type { Paise } from '@money-plant/core';
+import type { CurrencyCode, Paise } from '@money-plant/core';
 
 export const BANKS = ['hdfc', 'icici', 'sbi', 'hsbc', 'slice'] as const;
 export type BankId = (typeof BANKS)[number];
@@ -45,6 +45,18 @@ export interface ParsedTransaction {
   confidence: number;
   /** A credit the message calls a refund or reversal (LED-5). Missing means no. */
   refund?: boolean;
+  /**
+   * The currency of `amount` when the message gives it in another currency
+   * than the rupee, "USD 25.00 spent on card" (CAP-10, decision 0017).
+   * Missing means rupees. Balance and limit stay in rupees.
+   */
+  currency?: CurrencyCode;
+  /**
+   * Set on the phone once a foreign amount is converted to rupees at that
+   * day's rate: `amount` is then the estimate and this is what the message
+   * said. A statement row replaces the estimate (CAP-10).
+   */
+  foreign?: { amount: number; currency: CurrencyCode };
 }
 
 export type SmsParseResult =

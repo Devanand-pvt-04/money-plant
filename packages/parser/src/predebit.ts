@@ -93,7 +93,7 @@ export function parsePreDebitText(bank: BankId, rawBody: string, now: Date): Par
       break;
     }
   }
-  const amounts = { amount, balance: null, availableLimit: null };
+  const amounts = { amount, balance: null, availableLimit: null, foreign: null };
   const instrument = extractInstrument(body, amounts);
   const mandate = MANDATE_REF.exec(body);
   const accountLast = extractAccountLast(body, instrument);

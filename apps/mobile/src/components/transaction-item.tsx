@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { cleanCounterparty } from '@money-plant/parser';
 import type { TransactionRow } from '@/lib/ledger';
+import { isEstimated } from '@money-plant/matcher';
 import Feather from '@expo/vector-icons/Feather';
 import { CategoryIcon } from './sheet';
 import { Initial, colors } from './ui';
@@ -95,6 +96,7 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
           {pick ? <Text style={styles.pick}>Pick a category</Text> : detail}
           {where ? ` · ${where}` : ''}
           {tx.status === 'pending' && !pick ? ' · to review' : ''}
+          {isEstimated(tx) ? ' · estimated rate' : ''}
         </Text>
       </View>
       <Text style={[styles.amount, { color }]}>{text}</Text>

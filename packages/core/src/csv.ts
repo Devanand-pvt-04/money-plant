@@ -1,3 +1,4 @@
+import { currencyInfo, type CurrencyCode } from './currency';
 import type { Paise } from './money';
 
 export type CsvCell = string | number | null | undefined;
@@ -22,4 +23,17 @@ function cell(value: CsvCell): string {
 export function rupeesDecimal(amount: Paise): string {
   const abs = Math.abs(amount);
   return `${amount < 0 ? '-' : ''}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
+}
+
+/**
+ * Minor units as a plain decimal in their currency, for spreadsheets:
+ * -123456 USD -> "-1234.56", 2500 JPY -> "2500", 3250 KWD -> "3.250" (decision 0017).
+ */
+export function minorDecimal(amount: number, currency: CurrencyCode): string {
+  const { decimals } = currencyInfo(currency);
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  if (decimals === 0) return `${sign}${abs}`;
+  const unit = 10 ** decimals;
+  return `${sign}${Math.floor(abs / unit)}.${String(abs % unit).padStart(decimals, '0')}`;
 }

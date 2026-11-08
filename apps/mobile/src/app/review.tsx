@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { formatRupees, paise } from '@money-plant/core';
+import { formatMoney } from '@money-plant/core';
 import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
 import { SwipeRow } from '@/components/swipe-row';
@@ -377,9 +377,9 @@ function Gaps({ gaps }: { gaps: AccountBalance[] }) {
           <View key={account.id} style={styles.gapCard}>
             <Text style={styles.gapTitle}>{account.name} doesn't match the bank</Text>
             <Text style={styles.gapText}>
-              The bank said {formatRupees(latest.anchor.balance)} on {formatDateTime(latest.anchor.observedAt)}; the ledger has{' '}
-              {formatRupees(latest.computed)}.{' '}
-              {latest.gap > 0 ? `${formatRupees(latest.gap)} of money in` : `${formatRupees(paise(-latest.gap))} of money out`} is
+              The bank said {formatMoney(latest.anchor.balance, account.currency)} on {formatDateTime(latest.anchor.observedAt)}; the ledger has{' '}
+              {formatMoney(latest.computed, account.currency)}.{' '}
+              {latest.gap > 0 ? `${formatMoney(latest.gap, account.currency)} of money in` : `${formatMoney(-latest.gap, account.currency)} of money out`} is
               probably missing
               {windowStart ? ` between ${formatDateTime(windowStart)} and ${formatDateTime(latest.anchor.observedAt)}` : ''}.
             </Text>

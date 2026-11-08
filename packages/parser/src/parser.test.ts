@@ -140,3 +140,31 @@ describe('parsePreDebit', () => {
     });
   });
 });
+
+describe('foreign-currency spends (CAP-10)', () => {
+  it('reads a card spend in dollars, with the limit still in rupees', () => {
+    const result = parseBankText('hdfc', 'USD 25.00 spent on HDFC Bank Card XX4321 at AMAZON WEB SERVICES on 08-11-26. Avl Lmt: INR 1,20,000.00');
+    expect(result.status).toBe('parsed');
+    if (result.status !== 'parsed') return;
+    expect(result.transaction).toMatchObject({ amount: 2500, currency: 'USD', direction: 'debit', accountLast: '4321', availableLimit: 12_000_000 });
+  });
+
+  it('reads symbols and three-decimal currencies', () => {
+    const euro = parseBankText('icici', 'Your ICICI Bank Credit Card XX1111 was used for a transaction of €12.40 at SNCF on 01-Nov-26.');
+    expect(euro.status === 'parsed' && euro.transaction).toMatchObject({ amount: 1240, currency: 'EUR' });
+    const dinar = parseBankText('sbi', 'Txn of KWD 3.250 done on SBI Credit Card ending 2222 at ALSHAYA.');
+    expect(dinar.status === 'parsed' && dinar.transaction).toMatchObject({ amount: 3250, currency: 'KWD' });
+  });
+
+  it('keeps the rupee amount when the message gives both', () => {
+    const result = parseBankText('hdfc', 'Rs.2,105.50 spent on HDFC Bank Card XX4321 at AMAZON (USD 25.00) on 08-11-26.');
+    expect(result.status === 'parsed' && result.transaction).toMatchObject({ amount: 210_550 });
+    expect(result.status === 'parsed' && result.transaction.currency).toBeUndefined();
+  });
+
+  it('ignores words that look like codes but are not currencies', () => {
+    const result = parseBankText('sbi', 'Your A/c XX1234 is debited by Rs 450 for UPI 512345678901.');
+    expect(result.status === 'parsed' && result.transaction).toMatchObject({ amount: 45_000 });
+    expect(result.status === 'parsed' && result.transaction.currency).toBeUndefined();
+  });
+});

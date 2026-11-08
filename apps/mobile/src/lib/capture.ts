@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { addDays, addMonthsToDate, dateKey, startOfDate, type DateKey } from '@money-plant/core';
+import { addDays, addMonthsToDate, convert, dateKey, DEFAULT_CURRENCY, paise, RATE_SCALE, rateOn, startOfDate, type DateKey } from '@money-plant/core';
 import { captureLog, pendingNotifications, sources, transactions } from '@money-plant/db-schema';
 import { ingestNotification, ingestSms, type IngestResult, type PipelineContext } from '@money-plant/matcher';
 import {
@@ -9,6 +9,7 @@ import {
   parseNotification,
   parsePreDebit,
   parseSms,
+  type ParsedTransaction,
 } from '@money-plant/parser';
 import { readInbox, type CaptureTaskData } from '../../modules/sms-reader';
 import { categoriseWithAi } from './ai-categorise';
@@ -20,6 +21,8 @@ import { getDb } from './db';
 import { reportBackground } from './errors';
 import { notifyLedgerChange } from './events';
 import { ensureBalanceRefs } from './ledger';
+import { loadRates, requestRates } from './fx';
+import { localDay } from './home-money';
 import { kvGet, kvSet } from './kv';
 import { SqliteLedgerStore } from './ledger-store';
 import { supabase } from './supabase';
@@ -56,6 +59,25 @@ async function fingerprintOf(...parts: (string | number)[]): Promise<string> {
 }
 
 /**
+ * CAP-10: an Indian bank SMS with a foreign amount ("USD 25.00 spent on your
+ * card") becomes rupees at that day's rate, with what the message said kept
+ * beside it; the statement later replaces the estimate. Null while no rate
+ * is known (offline): the message waits with the failed ones and is read
+ * again on the next retry.
+ */
+async function inRupees(parsed: ParsedTransaction, receivedAt: string): Promise<ParsedTransaction | null> {
+  const { currency, ...rest } = parsed;
+  if (!currency || currency === DEFAULT_CURRENCY) return parsed;
+  const day = localDay(receivedAt);
+  let rates = await loadRates([currency]);
+  if (!rates.some((r) => r.date === day) && (await requestRates([currency], [day]).catch(() => false))) rates = await loadRates([currency]);
+  const rate = rateOn(rates, currency, day);
+  if (rate === null) return null;
+  const amount = convert(parsed.amount, currency, DEFAULT_CURRENCY, { from: rate, to: RATE_SCALE });
+  return { ...rest, amount: paise(amount), foreign: { amount: parsed.amount, currency } };
+}
+
+/**
  * Runs one bank SMS through the pipeline. The text stays on the phone: only
  * the parsed fields are written to rows that sync. Failures keep the text in
  * the local capture log so the user can see what the parser missed (CAP-8).
@@ -80,13 +102,16 @@ async function captureSmsNow(message: SmsMessage): Promise<IngestResult | null> 
     return null;
   }
 
-  const result = parseSms({ sender: message.sender, body: message.body });
-  if (result.status === 'ignored' && result.reason === 'unknown_sender') return null;
+  const parsedSms = parseSms({ sender: message.sender, body: message.body });
+  if (parsedSms.status === 'ignored' && parsedSms.reason === 'unknown_sender') return null;
+  const converted = parsedSms.status === 'parsed' ? await inRupees(parsedSms.transaction, receivedAt) : null;
+  const result: typeof parsedSms | { status: 'failed'; reason: 'no_rate' } =
+    parsedSms.status === 'parsed' && !converted ? { status: 'failed', reason: 'no_rate' } : parsedSms;
 
   let outcome: IngestResult | null = null;
-  if (result.status === 'parsed') {
+  if (result.status === 'parsed' && converted) {
     outcome = await ingestSms(await context(), {
-      parsed: result.transaction,
+      parsed: converted,
       sender,
       receivedAt,
       fingerprint,
@@ -277,11 +302,14 @@ export async function retryFailedMessages(): Promise<number> {
     if (!row.rawText) continue;
     const result = parseSms({ sender: row.sender, body: row.rawText });
     if (result.status === 'failed') continue;
+    const converted = result.status === 'parsed' ? await inRupees(result.transaction, row.receivedAt) : null;
+    // A foreign spend still without a rate stays failed until the next retry (CAP-10).
+    if (result.status === 'parsed' && !converted) continue;
     db.delete(captureLog).where(eq(captureLog.fingerprint, row.fingerprint)).run();
-    if (result.status === 'parsed') {
+    if (converted) {
       const rawText = row.rawText;
       await serial(async () =>
-        ingestSms(await context(), { parsed: result.transaction, sender: row.sender, receivedAt: row.receivedAt, fingerprint: row.fingerprint, rawText }),
+        ingestSms(await context(), { parsed: converted, sender: row.sender, receivedAt: row.receivedAt, fingerprint: row.fingerprint, rawText }),
       );
     }
     db.insert(captureLog)

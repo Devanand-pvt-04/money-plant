@@ -1,4 +1,4 @@
-import { parseRupees } from '@money-plant/core';
+import { paise, parseRupees } from '@money-plant/core';
 import {
   amountOrNull,
   cleanCounterparty,
@@ -43,13 +43,16 @@ export function parseBankText(bank: BankId, rawBody: string): SmsParseResult {
   const fromTemplate = matchTemplate(bank, body, amounts);
   if (fromTemplate) return { status: 'parsed', transaction: fromTemplate };
 
-  if (amounts.amount === null) {
+  // CAP-10: "USD 25.00 spent on your card": the amount in that currency, converted on the phone.
+  const foreign = amounts.amount === null ? amounts.foreign : null;
+  if (amounts.amount === null && !foreign) {
     // A bank message that mentions money we couldn't read is a parser gap; one with no money at all is just a notice.
     return /\b(?:Rs\.?|INR|₹)\s*\d/i.test(body)
       ? { status: 'failed', reason: 'unreadable_amount' }
       : { status: 'ignored', reason: 'no_amount' };
   }
-  if (amounts.amount === 0) return { status: 'ignored', reason: 'no_amount' };
+  const amount = foreign ? paise(foreign.amount) : amounts.amount!;
+  if (amount === 0) return { status: 'ignored', reason: 'no_amount' };
   const direction = extractDirection(body);
   if (!direction) return { status: 'failed', reason: 'no_direction' };
 
@@ -61,7 +64,7 @@ export function parseBankText(bank: BankId, rawBody: string): SmsParseResult {
     transaction: {
       bank,
       direction,
-      amount: amounts.amount,
+      amount,
       instrument,
       accountLast,
       counterparty: extractCounterparty(body) ?? vpa,
@@ -73,6 +76,7 @@ export function parseBankText(bank: BankId, rawBody: string): SmsParseResult {
       template: 'generic',
       confidence: accountLast ? GENERIC_CONFIDENCE : GENERIC_NO_ACCOUNT_CONFIDENCE,
       refund: isRefund(body, direction),
+      ...(foreign ? { currency: foreign.currency } : {}),
     },
   };
 }
