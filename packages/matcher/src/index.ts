@@ -5,3 +5,4 @@ export * from './recurring';
 export * from './ious';
 export * from './contacts';
 export * from './refunds';
+export * from './iou-views';
