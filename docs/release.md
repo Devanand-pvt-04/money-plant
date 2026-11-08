@@ -4,12 +4,13 @@ What Deva does to let friends in (decision 0016). The code is in place; these st
 
 ## Once, before the first invite
 
-- [ ] `npx supabase db push` (invites, friend links, the AI cap and the security pass).
+- [ ] `npx supabase db push` (invites, friend links, the AI cap, the security pass, rule notes and currencies).
+- [ ] `npx supabase functions deploy fx-rates` (exchange rates for accounts in other currencies).
 - [ ] Make yourself an admin in the Supabase SQL editor, then sign out and in on your phone:
       `update auth.users set raw_app_meta_data = raw_app_meta_data || '{"role":"admin"}' where email = '<your email>';`
 - [ ] Do "Deva's one-time setup" in `docs/security.md` (two-factor sign-in, Dependabot alerts, OTP expiry).
 - [ ] Set up the cloud backup and remove the PC one (`scripts/backup/README.md`).
-- [ ] Build the production APK (0.10.0): `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`.
+- [ ] Build the production APK (0.11.0, with multi-currency): `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`.
 - [ ] Put the APK in a Google Drive folder shared as "Anyone with the link can view". Name it `Money Plant.apk`. Put the folder link in `EXPO_PUBLIC_INSTALL_URL` in `apps/mobile/.env` and ship an update (the invite message reads it).
 - [ ] Register a free "limited distribution" Android developer account (up to 20 devices). Not needed yet in India, but Google requires verified developers for sideloading from 2027.
 
