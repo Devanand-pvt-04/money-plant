@@ -9,6 +9,7 @@ import {
   captureLog,
   merchantCache,
   postings,
+  sources,
   transactions,
   type LocalAccount,
 } from '@money-plant/db-schema';
@@ -54,8 +55,14 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     .where(and(inArray(postings.accountId, ids), isNull(transactions.deletedAt)))
     .all();
   const anchors = db
-    .select()
+    .select({
+      accountId: balanceAnchors.accountId,
+      observedAt: balanceAnchors.observedAt,
+      balancePaise: balanceAnchors.balancePaise,
+      sourceKind: sources.kind,
+    })
     .from(balanceAnchors)
+    .leftJoin(sources, eq(sources.id, balanceAnchors.sourceId))
     .where(and(inArray(balanceAnchors.accountId, ids), isNull(balanceAnchors.deletedAt)))
     // Two readings of one moment (a statement imported again with more rows): the newer is the latest.
     .orderBy(asc(balanceAnchors.observedAt), asc(balanceAnchors.createdAt))
@@ -68,7 +75,7 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     const balance = own.reduce((sum, p) => sum + p.amount, account.openingBalancePaise);
     const ownAnchors = anchors
       .filter((a) => a.accountId === account.id)
-      .map((a) => ({ observedAt: a.observedAt, balance: paise(a.balancePaise) }));
+      .map((a) => ({ observedAt: a.observedAt, balance: paise(a.balancePaise), from: a.sourceKind === 'statement' ? ('statement' as const) : ('sms' as const) }));
     const custom = account.accountTypeId ? customTypes.get(account.accountTypeId) : undefined;
     const deposit = depositTerms.get(account.id);
     return {
