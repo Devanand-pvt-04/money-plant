@@ -18,8 +18,8 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 
 ## Rules
 
-- Money is always integer paise. Never use floating point for amounts.
-- Every transaction's postings sum to zero (double-entry). Write balances only as sums of postings, never as stored totals.
+- Money is always an integer in the smallest unit of its currency (paise for INR; `_paise` columns hold minor units of the row's currency, decision 0017). Never use floating point for amounts or exchange rates. Never assume ₹: format with the amount's currency.
+- Every transaction's postings sum to zero in each currency (double-entry). Write balances only as sums of postings, never as stored totals.
 - Every transaction has at least one source row. No entry exists without a source.
 - Raw SMS text never leaves the device. Don't log it, sync it or put it in an AI job. Only parsed fields leave the parser.
 - Secrets (AI worker token, SMTP, MSG91) live only in Supabase edge function secrets. Never put them in the app or the repo.

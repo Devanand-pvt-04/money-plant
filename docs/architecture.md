@@ -60,14 +60,14 @@ money-plant/
       modules/sms-reader/       Kotlin: SMS receiver, notification listener
       modules/shortcut-intent/  Swift: App Intent for iOS Shortcuts (later)
   packages/
-    core/                       ledger types, posting rules, money in paise
+    core/                       ledger types, posting rules, money in minor units, currencies
     parser/                     bank SMS templates, generic parser, fixtures
     matcher/                    dedupe, transfers, refunds, IOU settlement
     categoriser/                rules, merchant dictionary, AI fallback client
     db-schema/                  Drizzle schema shared by SQLite and Postgres
   supabase/
     migrations/                 SQL, including row-level security policies
-    functions/                  edge functions: categorise, parse-cas, parse-statement, nav-prices, stock-prices, ai-worker (milestone 6), delete-account
+    functions/                  edge functions: categorise, parse-cas, parse-statement, nav-prices, stock-prices, fx-rates, ai-worker (milestone 6), delete-account
   services/
     cas-parser/                 Python + casparser, deployed separately
     ai-worker/                  Node worker and model evals, runs on Deva's PC (milestone 6)
@@ -93,25 +93,36 @@ Example: paying ₹450 to Swiggy from HDFC savings is one transaction with two p
 | accounts | id, user_id, type, account_type_id, parent_id, category_key, name, institution, last4, currency, opening_balance_paise, auto_confirm, vpa, email, icon | Includes category and people accounts. parent_id, category_key and icon apply to categories (icon is a Material Community Icons name the user picked; null means the app picks one from the name and key); account_type_id to custom types; vpa and email to people (pay links, matching, sharing IOUs) |
 | account_types | id, user_id, name, icon, class (asset, liability), in_net_worth | User-defined account types |
 | transactions | id, user_id, occurred_at, description, merchant_id, status (pending, confirmed, ignored), confidence, category_reason (rule, pattern, dictionary, ai, user, refund), category_rule_id, user_set_fields, split_group_id, updated_at, deleted_at | One real-world money movement. user_set_fields lists the fields automation must not overwrite. category_rule_id is the rule or pattern that placed it, or, for a refund, the entry it gives money back for (LED-5). split_group_id tags an expense added to a group (SPL-3) |
-| postings | id, transaction_id, account_id, amount_paise | Postings for each transaction sum to zero |
+| postings | id, transaction_id, account_id, amount_paise, currency | Postings for each transaction sum to zero in each currency. An owned account (bank, card, cash, deposit, investment) takes postings only in its own currency; category and person accounts take any (decision 0017) |
 | sources | id, transaction_id, kind (sms, notification, statement, cas, manual, shortcut, app_payment), external_ref (UPI RRN, card auth code), parsed_fields (JSON), received_at | A transaction can have several after merging; raw text is never stored on the server |
 | merchants | id, normalised_name, upi_handles, default_category, created_by (dictionary, ai) | Global table shared across users |
 | rules | id, user_id, kind (rule, pattern), match (merchant, VPA, keyword, amount range; for patterns also time window, weekdays, account, payee kind), category_account_id, auto_confirm, paused, hits | User rules win over everything; learned patterns come next |
 | split_groups | id, user_id, name, member_account_ids | A trip or flatmates, as a list of the user's person accounts. A member's balance within the group is the sum of their postings on the group's tagged entries |
 | ignored_senders | id, user_id, sender | Senders whose messages never create entries |
 | budgets | id, user_id, month, category_account_id, limit_paise | month is null for a category's default, which applies to every month; a row with a month overrides the default for that month only. Removing the override restores the default. Every row has a category: the month's total is the sum of the rows in effect, and a parent's row and its children's rows never coexist (BUD-1) |
-| recurring | id, user_id, name, vpa, merchant, amount_paise, cadence, anchor_day, next_due, account_id, category_account_id, status (active, paused, proposed, declined), origin (manual, history, pre_debit), mandate_ref, last_paid_at, last_transaction_id | Detected or added manually. next_due is a calendar date on the phone's clock |
-| ious | id, user_id (owner), owner_name, owner_email, owner_vpa, person_account_id, direction (lent, borrowed), amount_paise, reason, occurred_on, due_date, transaction_id, counterparty_email, counterparty_user_id, counterparty_person_account_id, counterparty_transaction_id, counterparty_vpa, confirmed_at, declined_at | One row per IOU. With counterparty_email set, the other person sees it and answers through respond_iou |
-| iou_payments | id, user_id, iou_id, amount_paise, paid_at, transaction_id | Repayments each side's ledger saw. What is still owed is the amount minus the larger side's total |
+| recurring | id, user_id, name, vpa, merchant, amount_paise, currency, cadence, anchor_day, next_due, account_id, category_account_id, status (active, paused, proposed, declined), origin (manual, history, pre_debit), mandate_ref, last_paid_at, last_transaction_id | Detected or added manually. next_due is a calendar date on the phone's clock |
+| ious | id, user_id (owner), owner_name, owner_email, owner_vpa, person_account_id, direction (lent, borrowed), amount_paise, currency, reason, occurred_on, due_date, transaction_id, counterparty_email, counterparty_user_id, counterparty_person_account_id, counterparty_transaction_id, counterparty_vpa, confirmed_at, declined_at | One row per IOU. With counterparty_email set, the other person sees it and answers through respond_iou |
+| iou_payments | id, user_id, iou_id, amount_paise, currency, paid_at, transaction_id | Repayments each side's ledger saw. What is still owed is the amount minus the larger side's total |
 | deposits | id, user_id, account_id, kind (fd, rd, ppf, epf, nsc, kvp, ssy), amount_paise (the FD's principal or the RD's monthly instalment), rate_bp, start_date, maturity_date, payout (reinvest, monthly, quarterly; RDs reinvest), paid_from_account_id, payee, closed_at | The terms of an FD or RD account, one per account. Interest is computed on the phone with quarterly compounding, and the value today is shown, not posted. Debits that pay into the deposit become transfers into its account; the account's balance follows the instalment schedule; the maturity credit becomes a transfer out of it, with the interest posted as income, and closes it | PPF and Sukanya Samriddhi compound yearly on the lowest balance between the 5th and the month's end, NSC compounds yearly and pays at 5 years, KVP doubles at maturity, and EPF's balance comes from the passbook (decision 0014). These sit on `savings_scheme` accounts
 | holdings | id, user_id, account_id, kind (fund, share, etf, gold_bond, bond, nps), scheme, isin, amfi_code, folio, amc, units_e4, cost_paise, cost_known, symbol, nav_e4, nav_date, as_of, sip_paise, sip_day | Funds: one per scheme and folio, each on its own mutual_fund account, updated by each CAS import. Shares, ETFs, gold bonds and bonds: one per ISIN on the `stock` account of their demat account, from an NSDL or CDSL CAS, with the statement value standing in as cost (`cost_known` false) until the user adds what they paid; the account balance on the statement date is the sum of `cost_paise`. NPS: one per scheme on an `nps` account (decision 0014). The account's balance is the cost on `as_of`, so later SIPs add to it. Its value is the units at the latest NAV plus money in or out since `as_of` |
 | app_errors | id, user_id, message, stack, source (screen, global), fatal, app_version, update_id, channel, occurred_at | The error log (decision 0011). Phones only insert; numbers are scrubbed from the message and stack before they leave the phone |
 | navs (phone only) | amfi_code, isin, nav_e4, date | The latest AMFI NAV for each scheme held. The phone asks the nav-prices edge function once a day; it reads AMFI's public NAV file and returns only the schemes asked for. Nothing is stored on the server |
 | prices (phone only) | key (ISIN, or `nps:` and the scheme name), price_e4, date | The latest closing price for each share, ETF, gold bond and bond held, and the NPS NAV for each NPS scheme. The phone asks the stock-prices edge function at most every 6 hours; it reads the day's NSE closing-price file (BSE as a fallback) and the NPS Trust NAV file and returns only what was asked for. Nothing is stored on the server |
+| fx_rates (phone only) | date, currency, per_inr_e9 | Exchange rates against INR as integers scaled by 10^9, for today and for each date that has an entry in another currency. The phone asks the fx-rates edge function, at most once a day for today's rates; it reads Frankfurter (ECB reference rates) and, for currencies the ECB doesn't publish, the fawazahmed0 currency API. Nothing is stored on the server (decision 0017) |
 | balance_anchors | id, account_id, balance_paise, observed_at, source_id | Balances seen in SMS and statements, used for reconciliation |
 | ai_jobs | id, user_id, kind, payload, status, result, attempts, claimed_at, updated_at, deleted_at | The AI queue (milestone 6). Users read their own jobs; only the ai-worker function claims and completes them |
 
-All money is stored as integer paise. Every table has updated_at and deleted_at columns (soft delete) for sync.
+All money is stored as whole numbers in the smallest unit of its currency: paise for rupees, cents for dollars, fils for dirhams, whole yen. The `_paise` column names stayed when currencies arrived (decision 0017); read them as "minor units of the row's currency". Every table has updated_at and deleted_at columns (soft delete) for sync.
+
+## Currencies
+
+Decision 0017. Each user has a home currency, kept in their profile metadata with their name and UPI ID (INR by default). Each account has one currency (`accounts.currency`), fixed once it has entries.
+
+- **Storing.** Postings, IOUs, IOU payments and recurring payments carry a currency. `packages/core` holds each ISO 4217 currency's decimals and symbol, and every amount helper takes the currency. Nothing stores a converted amount.
+- **Balancing.** A transaction balances per currency. A $25 lunch from a USD account is USD −25.00 on the account and USD +25.00 on Food. A transfer from an INR account to a USD account records both real amounts, and two postings on a hidden per-user Exchange account (INR +, USD −) balance each currency. The Exchange account is not spending and not in net worth; its converted balance on a transfer is the cost of converting.
+- **Converting.** Totals convert at integer rates from `fx_rates`: entries at their date's rate (budgets, Activity, month review), balances at today's rate (net worth), history at each month's last rate. One rounding per converted amount, half to even. A missing rate falls back to the nearest earlier date and the total shows "approximate".
+- **Foreign spends in SMS.** The parser reads ISO codes (USD, EUR, AED and so on) beside amounts. On a rupee card or account, the entry is posted in rupees at the day's rate with `estimated_fx` in its parsed fields; a statement row or SMS with the rupee amount for the same reference replaces it.
+- **Display.** `formatMoney(amount, currency)` keeps Indian grouping for rupees and groups of three for the rest. Screens pass the posting's currency, never assume ₹.
 
 ## Capture pipeline
 
