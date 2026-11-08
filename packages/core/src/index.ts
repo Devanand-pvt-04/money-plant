@@ -12,3 +12,4 @@ export * from './fund';
 export * from './health';
 export * from './demat';
 export * from './sync';
+export * from './fund-views';
