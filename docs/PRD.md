@@ -1,6 +1,6 @@
 # Money Plant PRD
 
-21 Oct 2026, updated 3 Nov 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
+21 Oct 2026, updated 8 Nov 2026 · Deva. Source of truth: the Claude Doc at https://claude.ai/artifact/2SAvEZkhZP9eW3s2xw4V8G. Keep this file in sync with it.
 
 Money Plant is an Android app (iOS later) for Deva and friends. It keeps one accurate, cloud-synced ledger of all their money and fills it mostly without typing. This PRD defines the MVP. `docs/architecture.md` describes how it is built.
 
@@ -35,7 +35,7 @@ These targets are starting guesses to test with the first friends, not benchmark
 
 ## MVP requirements
 
-The MVP has 66 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
+The MVP has 73 requirements across 11 areas. "Must" items block the first release to friends. "Should" items can follow within weeks.
 
 ### Accounts and sign-in
 
@@ -50,6 +50,8 @@ The MVP has 66 requirements across 11 areas. "Must" items block the first releas
 | ACC-8 | Sign-up by invite only: an account can be created only for an email on the invite list. Each member can invite up to 5 people and Deva any number; an unused invite can be withdrawn. An invite opens the phone's share sheet with a message holding the install link, the email to sign in with and short install steps. No email is sent (decision 0016) | Must |
 | ACC-9 | Friend links: accepting an invite links the two people, and a member can send a friend request to an email from a person page. Once both sides accept, each side's person account fills in the other's name, email and UPI ID, and IOUs with that person are shared by default. Either side can unlink (decision 0016) | Must |
 | ACC-10 | First run is a short wizard (welcome, consent, name and UPI ID, SMS permission and import range), then a "Finish setting up" card on Home for the rest (UPI notifications, contacts, CAS import, first budget, invite a friend) that goes away once done or dismissed. Every tab has an empty state that says what fills it (decision 0016) | Must |
+| ACC-11 | Home currency: picked in the first-run wizard (INR by default) and changeable in Settings. Every total (Home, Activity, budgets, net worth, month review) shows in it (decision 0017) | Must |
+| ACC-12 | Each account has its own currency, chosen when it is added (the home currency by default) and changeable only while the account has no entries. Its balance, entries and balance checks are in that currency, with the home value beside a foreign balance (decision 0017) | Must |
 | ACC-6 | Custom account types: the user names a type (for example Chit fund, PF, Gold) and picks its class (asset or liability) and whether it counts toward net worth. Custom types behave as plain manual accounts | Must |
 
 ### Capture
@@ -64,6 +66,9 @@ The MVP has 66 requirements across 11 areas. "Must" items block the first releas
 | CAP-6 | Import CAS PDFs from NSDL, CDSL, CAMS and KFintech | Must |
 | CAP-7 | Quick add in 3 taps, with smart defaults, in three modes: Spent, Received and Transfer (From and To accounts, for moving money between banks, paying a card bill or withdrawing cash). The date and time default to now and open the phone's pickers | Must |
 | CAP-8 | Show parse failures per bank so broken formats are noticed | Should |
+| CAP-10 | Foreign-currency spends in Indian bank SMS ("USD 25.00 spent on HDFC card") create an entry on the rupee card or account at that day's rate, marked "estimated rate" until the statement or a later SMS gives the rupee amount, which replaces it (decision 0017) | Must |
+| CAP-11 | Any bank, card or wallet, in India or abroad: the phone checks SMS from any business sender (never a phone number) for an amount and a money word, and reads the ones that match. Unknown senders go through the general reader and land in Review, where the user links the sender to an account once or ignores it. Settings → Capture lists every sender read, with counts of messages read and missed. Tuned rules for more banks are added over time from shared samples (decision 0017) | Must |
+| CAP-12 | Notifications from any payment or bank app: built-in UPI and bank apps are read by default, and the first payment notification from another app asks once whether to read that app (decision 0017) | Should |
 | CAP-9 | Share an anonymised sample of a message the app couldn't read: the phone replaces digits, names, UPI IDs and references, shows the result, and opens the share sheet only when the user taps Share. Nothing is sent automatically (decision 0016) | Must |
 
 ### Ledger and accuracy
@@ -79,6 +84,7 @@ The MVP has 66 requirements across 11 areas. "Must" items block the first releas
 | LED-7 | Compare the ledger balance with balances in SMS and statements, and flag gaps | Must |
 | LED-8 | The user can edit every field of an entry. A field the user changed is never overwritten by re-parsing, dedupe, sync or AI; the parsed values stay visible in the source. Entry detail edits one field at a time, in a sheet that stays above the keyboard (decision 0015) | Must |
 | LED-9 | Mark an entry as not a real transaction, or ignore a sender; ignored entries stay ignored on re-import | Must |
+| LED-11 | Entries in any currency: each posting keeps its own currency and a transaction's postings sum to zero in each one. A transfer between accounts in different currencies records both amounts actually moved, and shows the rate it implies and its cost against that day's market rate (decision 0017) | Must |
 
 ### Categories
 
@@ -112,6 +118,7 @@ The MVP has 66 requirements across 11 areas. "Must" items block the first releas
 | NW-4 | Net worth history chart by month. Accounts shows net worth split by where it sits (funds, bank, stocks, deposits, the rest) and one row per group, and each group, fund and bank account opens its own page. A fund's page charts its value against money put in over 12 months, from month-end NAVs in AMFI's NAV history (decision 0015) | Should |
 | NW-5 | Import an NSDL or CDSL statement (CAS): each demat account becomes a Stocks account holding its shares, ETFs, gold bonds and bonds, valued daily from the NSE closing-price file (BSE as a fallback). The statement has no purchase cost for shares, so cost is unknown until the user adds what they paid; gain shows only once it is known. Money to or from a known broker is a transfer into or out of the demat account, not spending (decision 0014) | Must |
 | NW-6 | Long-term savings: PPF, EPF, NSC, KVP and Sukanya Samriddhi as deposits with the current government rate pre-filled and editable, interest estimated on each scheme's rules on top of the balance, which the user updates from the passbook, and payments matched by payee becoming transfers in. EPF's balance is set from the passbook. NPS holds units per scheme, from the NSDL statement or typed in, valued with the NPS Trust daily NAV (decision 0014) | Must |
+| NW-7 | Totals in the home currency: amounts in other currencies convert at the rate for their date in budgets, Activity and the month review, and at today's rate in balances and net worth; net worth history uses each month's last rate. Rates come from free daily reference rates, at most a day old (decision 0017) | Must |
 
 ### Recurring payments
 
@@ -217,7 +224,7 @@ Accuracy and privacy rank above speed of delivery. A fast app with wrong totals 
 
 | Area | Requirement |
 | --- | --- |
-| Accuracy | No entry is created without a source. Amounts are stored as integer paise, never floating point |
+| Accuracy | No entry is created without a source. Amounts are stored as whole numbers in the smallest unit of their currency (paise for rupees), never floating point |
 | Accuracy | The parser test suite of anonymised real SMS for each supported bank must pass before every release |
 | Privacy | Raw SMS text never leaves the phone; only parsed fields sync. The one exception is CAP-9: an anonymised sample the user has seen and chooses to share |
 | Security | Before invites go out and monthly after: tests prove one user can't read or change another's rows, Supabase's Security Advisor shows no warnings, every edge function checks the sign-in and its inputs, CI scans dependencies and secrets, and Deva's admin accounts use two-factor sign-in (decision 0016) |
@@ -229,7 +236,7 @@ Accuracy and privacy rank above speed of delivery. A fast app with wrong totals 
 | Offline | Capture, review and all screens work offline; sync catches up when the phone is back online |
 | UX | Home answers "is this month on track?" within 3 seconds of opening (HOME-1) |
 | UX | A daily review takes under 2 minutes, with one tap or swipe per entry. Quick add takes 3 taps (CAP-7) |
-| UX | Every automatic entry shows its source and why it got its category. Rupees use Indian grouping (₹1,25,000), with one consistent colour for money in and one for money out |
+| UX | Every automatic entry shows its source and why it got its category. Rupees use Indian grouping (₹1,25,000) and other currencies their own symbol, decimals and groups of three ($1,250.00), with one consistent colour for money in and one for money out |
 | UX | One design system across all screens, in light and dark mode. Text scales with the phone's font size, and tap targets are at least 48dp |
 | Performance | The home screen opens in under 1 second with 2 years of data. An SMS becomes an entry within 5 seconds |
 | Battery | No constant background service. Work is triggered by incoming SMS and notifications |
@@ -249,6 +256,7 @@ These items are deliberately left out of the MVP.
 | Splitwise import | Personal splits and shared groups cover the need | If friends ask for it |
 | Finding friends on the app by phone number | Sign-in is email only, and hashed phone numbers are easy to reverse; friends are invited by email | With phone sign-in |
 | Ask-anything AI chat and a bigger role for AI | The month review and categorising deliver the main AI value first; Deva wants to shape AI's wider role later (decision 0012) | Phase 2 |
+| Live prices for foreign shares, UPI in other currencies | A foreign broker is a manual account in its currency; UPI is rupee-only (decision 0017) | When a tester needs it |
 | Crypto, digital gold in apps, P2P lending, foreign shares, property, loan amortisation | These can be added as custom account types (ACC-6) in the meantime (decision 0014) | When a tester needs it |
 | Broker APIs, live prices | Daily prices are enough for net worth | Phase 3 |
 | Web app, family accounts | Phones come first | Phase 3 |
@@ -272,7 +280,7 @@ After milestone 4, a second design step (decision 0008) follows Deva's end-to-en
 After milestone 5, an investments step (decision 0014) adds Settings → Health (HOME-3), the demat statement import (NW-5) and long-term savings (NW-6), in that order, while milestone 6 waits on its open choices. Collecting friends' HDFC, HSBC and SBI samples for milestone 7 starts at the same time.
 6. **AI.** A self-hosted open model on Deva's PC (decisions 0006 and 0012), in four builds: the AI job queue and PC worker, a model chosen by testing candidates on Deva's tagged merchants, AI categorisation as the last CAT-2 layer (with a per-user AI switch and icon suggestions for new categories), and the AI-written month review. *Exit:* 90% of a month's entries are categorised without edits, and the month review's figures all trace to real transactions.
 After milestone 6's code, a UI revamp (decision 0015) gives the app a charcoal and sage look and reworks Home, Activity, Budgets, Accounts and entry detail, from mockups Deva signed off on 5 Nov 2026. It ships in three PRs.
-7. **Android friends release** (decision 0016). In order: a security pass, invites and friend links, first run and empty states (the speed pass was measured on Deva's phone on 6 Nov 2026: Home opens in 176 ms and every screen loads in under 200 ms, so no changes were needed), bank sample sharing and the AI cap, then a release kit (APK on Drive with install steps, encrypted cloud backup, a friend install guide). A second wave adds shared groups between app users. Parser coverage for HDFC, HSBC and SBI grows from friends' shared samples. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
+7. **Android friends release** (decision 0016). In order: a security pass, invites and friend links, first run and empty states (the speed pass was measured on Deva's phone on 6 Nov 2026: Home opens in 176 ms and every screen loads in under 200 ms, so no changes were needed), bank sample sharing and the AI cap, then a release kit (APK on Drive with install steps, encrypted cloud backup, a friend install guide). Invites wait for multiple currencies and capture from any bank (decision 0017), so friends abroad and friends with other banks can join; the release APK becomes 0.11.0. A second wave adds shared groups between app users. Parser coverage for HDFC, HSBC and SBI grows from friends' shared samples. *Exit:* 10 friends use it daily for 2 weeks. iOS (Shortcuts capture, TestFlight) follows as its own milestone.
 
 ## Free-tier plan
 
@@ -291,6 +299,7 @@ Every MVP service fits in a free tier except phone OTP, so phone sign-in moves t
 | Android distribution | The APK from a shared Google Drive folder; the friend turns Play Protect scanning off while installing, then back on (decision 0016) | Play Protect in India blocks sideloaded apps that read SMS; Play internal testing would avoid this for a one-time $25 |
 | Backup | Weekly GitHub Actions job in the private repo, encrypted with age; artifacts kept 90 days (decision 0016) | Artifact storage on the free plan |
 | iOS distribution | Deferred along with iOS | The Apple Developer Program costs about $99 a year when needed |
+| Exchange rates | Frankfurter (European Central Bank reference rates), with the fawazahmed0 currency API on jsDelivr for currencies the ECB doesn't publish (decision 0017) | Free, no key; rates are daily, not live |
 | AI | Self-hosted open model on Deva's PC (Ollama) | Works only while the PC is on; AI jobs wait in a queue meanwhile |
 
 ## Resolved questions
