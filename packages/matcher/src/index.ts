@@ -6,3 +6,4 @@ export * from './ious';
 export * from './contacts';
 export * from './refunds';
 export * from './iou-views';
+export * from './split-views';

@@ -2,7 +2,18 @@ import * as Crypto from 'expo-crypto';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { dateOf, paise, type DateKey, type Paise } from '@money-plant/core';
 import { accounts, iouPayments, ious, splitGroups, transactions } from '@money-plant/db-schema';
-import { paidByOtherPostings, splitPostings, type LedgerTransaction } from '@money-plant/matcher';
+import {
+  checkSplitShares,
+  groupBalances,
+  groupExpense,
+  paidByOtherPostings,
+  readSplit,
+  splitPostings,
+  splittableAmount,
+  type EntrySplit,
+  type GroupExpense,
+  type LedgerTransaction,
+} from '@money-plant/matcher';
 import { formatAmount } from '@/components/format';
 import { ownedAccountIds } from './categories';
 import { getDb } from './db';
@@ -36,31 +47,13 @@ async function iousOf(transactionId: string) {
     .all();
 }
 
-export interface EntrySplit {
-  /** The money out this split divides. */
-  total: Paise;
-  categoryId: string | null;
-  myShare: Paise;
-  /** Person account id to share. */
-  shares: Map<string, Paise>;
-}
+export type { EntrySplit, GroupExpense } from '@money-plant/matcher';
 
 /** How an entry is split now, or null for a plain payment. */
 export async function currentSplit(transactionId: string): Promise<EntrySplit | null> {
   const db = await getDb();
-  const tx = await loadTx(transactionId);
-  const people = await personIds();
-  const owned = ownedAccountIds(db);
-  const personLegs = tx.postings.filter((p) => people.has(p.accountId) && p.amount > 0);
-  if (tx.kind !== 'expense' || personLegs.length === 0 || (await iousOf(transactionId)).length === 0) return null;
-  const own = tx.postings.find((p) => owned.has(p.accountId));
-  const category = tx.postings.find((p) => !owned.has(p.accountId) && !people.has(p.accountId));
-  return {
-    total: paise(Math.abs(own?.amount ?? 0)),
-    categoryId: category?.accountId ?? null,
-    myShare: paise(category?.amount ?? 0),
-    shares: new Map(personLegs.map((p) => [p.accountId, p.amount])),
-  };
+  const split = readSplit(await loadTx(transactionId), { owned: ownedAccountIds(db), people: await personIds() });
+  return split && (await iousOf(transactionId)).length > 0 ? split : null;
 }
 
 /**
@@ -71,19 +64,13 @@ export async function currentSplit(transactionId: string): Promise<EntrySplit | 
 export async function splittable(transactionId: string): Promise<{ total: Paise; categoryId: string | null } | null> {
   const db = await getDb();
   const tx = await loadTx(transactionId).catch(() => null);
-  if (!tx || tx.kind !== 'expense') return null;
-  const owned = ownedAccountIds(db);
-  const own = tx.postings.filter((p) => owned.has(p.accountId));
-  if (own.length !== 1 || own[0]!.amount >= 0) return null;
-  const people = await personIds();
-  const category = tx.postings.find((p) => !owned.has(p.accountId) && !people.has(p.accountId));
-  return { total: paise(-own[0]!.amount), categoryId: category?.accountId ?? null };
+  return tx ? splittableAmount(tx, { owned: ownedAccountIds(db), people: await personIds() }) : null;
 }
 
 function checkShares(total: Paise, myShare: Paise, shares: ReadonlyMap<string, Paise>): void {
-  const sum = paise([...shares.values()].reduce<number>((s, v) => s + v, myShare));
-  if (sum !== total) throw new Error(`The shares add up to ${formatAmount(sum)}, not ${formatAmount(total)}`);
-  if (shares.size === 0 || [...shares.values()].every((v) => v === 0)) throw new Error('Add at least one person with a share');
+  const problem = checkSplitShares(total, myShare, shares);
+  if (problem?.code === 'wrong_sum') throw new Error(`The shares add up to ${formatAmount(problem.sum)}, not ${formatAmount(problem.total)}`);
+  if (problem?.code === 'no_one') throw new Error('Add at least one person with a share');
 }
 
 /**
@@ -313,20 +300,6 @@ export async function deleteGroup(id: string): Promise<void> {
   notifyLedgerChange();
 }
 
-export interface GroupExpense {
-  id: string;
-  occurredAt: string;
-  title: string;
-  /** Null when the user paid. */
-  payerName: string | null;
-  /** The whole bill, when known. */
-  total: Paise;
-  /** How many people share it, the user included. */
-  ways: number;
-  /** Above zero they owe the user for it, below zero the user owes. */
-  net: Paise;
-}
-
 export interface GroupOverview {
   group: SplitGroup;
   expenses: GroupExpense[];
@@ -361,29 +334,9 @@ export async function groupOverview(groupId: string, context?: GroupContext): Pr
   const owned = ownedAccountIds(db);
   const people = context?.people ?? (await listPeople());
   const byId = new Map(people.map((p) => [p.account.id, p]));
-  const expenses = txs.map((tx): GroupExpense => {
-    const own = tx.postings.find((p) => owned.has(p.accountId));
-    const personLegs = tx.postings.filter((p) => byId.has(p.accountId));
-    const payer = own ? null : personLegs.find((p) => p.amount < 0);
-    const manual = tx.sources.find((src) => src.kind === 'manual')?.parsedFields as { total?: unknown } | undefined;
-    const total = own ? -own.amount : typeof manual?.total === 'number' ? manual.total : -(payer?.amount ?? 0);
-    const mine = tx.postings.some((p) => !owned.has(p.accountId) && !byId.has(p.accountId) && p.amount > 0);
-    return {
-      id: tx.id,
-      occurredAt: tx.occurredAt,
-      title: tx.counterparty ?? tx.note ?? 'Expense',
-      payerName: payer ? (byId.get(payer.accountId)?.account.name ?? 'Someone') : null,
-      total: paise(total),
-      ways: (own ? personLegs.filter((p) => p.amount > 0).length : 1) + (mine && own ? 1 : 0),
-      net: paise(personLegs.reduce((sum, p) => sum + p.amount, 0)),
-    };
-  });
-  const ids = new Set(txs.map((tx) => tx.id));
-  const open = new Map<string, number>();
-  for (const iou of context?.ious ?? (await listIous())) {
-    if (!iou.personId || !iou.transactionId || !ids.has(iou.transactionId) || iou.state === 'declined') continue;
-    open.set(iou.personId, (open.get(iou.personId) ?? 0) + (iou.direction === 'lent' ? iou.outstanding : -iou.outstanding));
-  }
+  const names = new Map(people.map((p) => [p.account.id, p.account.name]));
+  const expenses = txs.map((tx) => groupExpense(tx, owned, names));
+  const open = groupBalances(context?.ious ?? (await listIous()), new Set(txs.map((tx) => tx.id)));
   const members = group.memberIds
     .map((id) => byId.get(id))
     .filter((p): p is Person => p !== undefined)
