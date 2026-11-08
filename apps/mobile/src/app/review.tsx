@@ -258,7 +258,8 @@ function payeeGroups(pending: readonly TransactionRow[]): PayeeGroup[] {
         key,
         title: transactionTitle(rows[0]!),
         rows,
-        total: rows.reduce((sum, r) => sum + Math.abs(r.legs[0]?.amount ?? 0), 0),
+        // In the home currency (decision 0017); an entry whose rate isn't known yet adds nothing.
+        total: rows.reduce((sum, r) => sum + Math.abs(r.homeAmount ?? 0), 0),
         category: names.size === 1 ? [...names][0]! : null,
       };
     })

@@ -5,6 +5,7 @@ import Feather from '@expo/vector-icons/Feather';
 import { addMonths, type MonthKey, type Paise } from '@money-plant/core';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { formatDate, formatMonth, formatWholeRupees as rupees } from '@/components/format';
+import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon } from '@/components/sheet';
 import { ProgressBar, SectionTitle, colors, radius } from '@/components/ui';
 import { aiReviewFor, type AiReview } from '@/lib/ai-review';
@@ -165,7 +166,7 @@ function Body({ review, ai, onEdit, onIgnored }: { review: MonthReview; ai: AiRe
       {review.suggestions.length > 0 && (
         <>
           <SectionTitle>Suggested changes</SectionTitle>
-          <Text style={styles.meta}>From your spending in {monthName(addMonths(month, -2))}, {monthName(addMonths(month, -1))} and {monthName(month)}, rounded up to ₹500.</Text>
+          <Text style={styles.meta}>From your spending in {monthName(addMonths(month, -2))}, {monthName(addMonths(month, -1))} and {monthName(month)}, rounded up to {roundingText()}.</Text>
           {review.suggestions.map((s) => (
             <SuggestionCard key={s.categoryId} suggestion={s} onEdit={() => onEdit(s)} onIgnored={onIgnored} />
           ))}

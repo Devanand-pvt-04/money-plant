@@ -6,11 +6,12 @@ import {
   CADENCE_LABELS,
   dateOf,
   daysBetween,
-  formatRupees,
+  currencyInfo,
+  formatMoney,
   isDateKey,
   nextOccurrence,
   paise,
-  parseRupees,
+  parseMoney,
   type Cadence,
 } from '@money-plant/core';
 import type { RecurringPayment } from '@money-plant/matcher';
@@ -20,6 +21,7 @@ import { DateField } from '@/components/date-fields';
 import { formatDate, formatDateTime } from '@/components/format';
 import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
+import { homeCurrency } from '@/lib/home-currency';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { closeOccurrence, deleteRecurring, dueLabel, getRecurring, saveRecurring, setRecurringStatus, today } from '@/lib/recurring';
 
@@ -59,7 +61,7 @@ export default function RecurringDetail() {
         if (!loaded) return;
         setItem(loaded);
         setName(loaded.name);
-        setAmount(formatRupees(loaded.amount, { symbol: false }).replace(/,/g, ''));
+        setAmount(formatMoney(loaded.amount, loaded.currency ?? homeCurrency(), { symbol: false }).replace(/,/g, ''));
         setCadence(loaded.cadence);
         setNextDue(loaded.nextDue);
         setAccountId(loaded.accountId);
@@ -71,7 +73,7 @@ export default function RecurringDetail() {
         const own = row.legs[0];
         setName(row.tx.counterparty ?? '');
         if (own) {
-          setAmount(formatRupees(paise(Math.abs(own.amount)), { symbol: false }).replace(/,/g, ''));
+          setAmount(formatMoney(paise(Math.abs(own.amount)), own.currency, { symbol: false }).replace(/,/g, ''));
           setAccountId(own.accountId);
         }
         setCategoryId(row.category?.id ?? null);
@@ -84,8 +86,12 @@ export default function RecurringDetail() {
     })();
   }, [id, from, isNew, navigation]);
 
+  // In the paying account's currency; with no account, the payment's own, else the home currency (decision 0017).
+  const currency = accounts.find((b) => b.account.id === accountId)?.currency ?? (accountId === null ? item?.currency : undefined) ?? homeCurrency();
+
   async function save() {
-    const parsed = parseRupees(amount);
+    const typed = parseMoney(amount, currency);
+    const parsed = typed === null ? null : paise(typed);
     if (parsed === null || parsed <= 0) return setError('Enter the amount as a number above zero');
     if (!isDateKey(nextDue.trim())) return setError('Enter the next due date as YYYY-MM-DD, for example 2026-11-05');
     setSaving(true);
@@ -98,6 +104,7 @@ export default function RecurringDetail() {
         accountId,
         categoryId,
         payee: payee.trim() || null,
+        currency,
       });
       router.back();
     } catch (e) {
@@ -134,7 +141,7 @@ export default function RecurringDetail() {
       )}
 
       <Field label="Name" value={name} onChangeText={setName} placeholder="Rent, Netflix, Car EMI" maxLength={80} />
-      <Field label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+      <Field label={`Amount (${currencyInfo(currency).symbol.trim()})`} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
       <Text style={styles.label}>How often</Text>
       <Chips>
         {CADENCES.map((c) => (

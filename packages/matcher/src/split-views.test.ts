@@ -117,6 +117,7 @@ describe('groupExpense', () => {
       total: 120_000,
       ways: 3,
       net: 80_000,
+      currency: 'INR',
     });
   });
 

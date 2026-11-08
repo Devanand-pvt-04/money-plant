@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
-import { addDays, dateKey, daysBetween, nextOccurrence, paise, startOfDate, type DateKey, type Paise } from '@money-plant/core';
+import { addDays, dateKey, daysBetween, nextOccurrence, paise, startOfDate, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { accounts, recurring, transactions, type LocalRecurring } from '@money-plant/db-schema';
 import {
   applyPreDebit,
@@ -111,6 +111,8 @@ export interface RecurringInput {
   categoryId: string | null;
   /** A UPI ID or a merchant name, as the user typed it; debits to it count as this payment. */
   payee: string | null;
+  /** The amount's currency; left out, the paying account's, else the home currency (decision 0017). */
+  currency?: CurrencyCode;
 }
 
 function payeeFields(payee: string | null): Pick<RecurringPayment, 'vpa' | 'merchant'> {
@@ -136,6 +138,8 @@ export async function saveRecurring(id: string | null, input: RecurringInput): P
     nextDue: input.nextDue,
     accountId: input.accountId,
     categoryId: input.categoryId,
+    // Not the old one: a payment moved to an account in another currency takes that account's.
+    currency: input.currency,
     ...payee,
   });
   await requestNotificationPermission().catch(() => false);

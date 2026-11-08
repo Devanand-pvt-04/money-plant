@@ -23,6 +23,8 @@ const ERRORS: Record<PdfErrorCode, string> = {
 };
 
 interface Target {
+  /** The account's currency; the statement's amounts are in it (decision 0017). */
+  currency: string;
   id: string;
   label: string;
 }
@@ -44,7 +46,7 @@ export default function StatementImport() {
     if (!params.account) return;
     listAccountBalances().then((all) => {
       const found = all.find((b) => b.account.id === params.account);
-      if (found) setTarget({ id: found.account.id, label: accountLabel(found.account) });
+      if (found) setTarget({ id: found.account.id, label: accountLabel(found.account), currency: found.account.currency });
     });
   }, [params.account]);
 
@@ -68,7 +70,7 @@ export default function StatementImport() {
       const next = await previewStatement(await readStatement(file, password));
       if (next.rows.length === 0) throw new PdfError('not_a_statement');
       setPreview(next);
-      if (!target && next.suggested) setTarget({ id: next.suggested.account.id, label: accountLabel(next.suggested.account) });
+      if (!target && next.suggested) setTarget({ id: next.suggested.account.id, label: accountLabel(next.suggested.account), currency: next.suggested.account.currency });
     } catch (e) {
       setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${e instanceof Error ? e.message : String(e)})`);
     } finally {
@@ -119,7 +121,7 @@ export default function StatementImport() {
             <Text style={styles.meta}>{from && to ? `${from} to ${to}` : 'Statement'}</Text>
             <Text style={styles.total}>{preview.rows.length} entries</Text>
             <Text style={styles.meta}>
-              Out {rupees(preview.debits)} · In {rupees(preview.credits)}
+              Out {rupees(preview.debits, target?.currency)} · In {rupees(preview.credits, target?.currency)}
             </Text>
           </View>
           <Text style={styles.label}>Account</Text>
@@ -142,7 +144,7 @@ export default function StatementImport() {
           visible={picking}
           title="Statement for"
           onPick={(b) => {
-            setTarget({ id: b.account.id, label: accountLabel(b.account) });
+            setTarget({ id: b.account.id, label: accountLabel(b.account), currency: b.account.currency });
             setPicking(false);
           }}
           onClose={() => setPicking(false)}

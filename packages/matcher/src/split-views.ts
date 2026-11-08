@@ -3,7 +3,7 @@
 // user's own and person accounts, so they can be tested without the phone's
 // database; apps/mobile/src/lib/splits.ts loads the rows and does the writes.
 
-import { paise, type Paise } from '@money-plant/core';
+import { DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
 import type { IouView } from './iou-views';
 import type { LedgerTransaction } from './types';
 
@@ -74,6 +74,8 @@ export interface GroupExpense {
   ways: number;
   /** Above zero they owe the user for it, below zero the user owes. */
   net: Paise;
+  /** The currency of the bill (decision 0017). */
+  currency: CurrencyCode;
 }
 
 /**
@@ -96,6 +98,7 @@ export function groupExpense(tx: LedgerTransaction, owned: ReadonlySet<string>, 
     total: paise(total),
     ways: (own ? personLegs.filter((p) => p.amount > 0).length : 1) + (mine && own ? 1 : 0),
     net: paise(personLegs.reduce((sum, p) => sum + p.amount, 0)),
+    currency: (own ?? payer ?? personLegs[0])?.currency ?? DEFAULT_CURRENCY,
   };
 }
 
@@ -104,14 +107,17 @@ export function groupExpense(tx: LedgerTransaction, owned: ReadonlySet<string>, 
  * the IOUs those expenses made, so a repayment (IOU-4) settles it here too.
  * Above zero they owe the user. Declined IOUs don't count.
  */
-export function groupBalances(
-  ious: readonly Pick<IouView, 'personId' | 'transactionId' | 'state' | 'direction' | 'outstanding'>[],
+export function groupBalances<T extends Pick<IouView, 'personId' | 'transactionId' | 'state' | 'direction' | 'outstanding'>>(
+  ious: readonly T[],
   expenseIds: ReadonlySet<string>,
+  /** What an IOU's open amount counts as; a group in several currencies converts here (decision 0017). */
+  amountOf: (iou: T) => number = (iou) => iou.outstanding,
 ): Map<string, Paise> {
   const open = new Map<string, Paise>();
   for (const iou of ious) {
     if (!iou.personId || !iou.transactionId || !expenseIds.has(iou.transactionId) || iou.state === 'declined') continue;
-    open.set(iou.personId, paise((open.get(iou.personId) ?? 0) + (iou.direction === 'lent' ? iou.outstanding : -iou.outstanding)));
+    const amount = amountOf(iou);
+    open.set(iou.personId, paise((open.get(iou.personId) ?? 0) + (iou.direction === 'lent' ? amount : -amount)));
   }
   return open;
 }

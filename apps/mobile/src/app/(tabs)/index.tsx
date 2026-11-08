@@ -324,7 +324,7 @@ function ComingUp({ items }: { items: DueItem[] }) {
                 <Text style={styles.dueTitle} numberOfLines={1}>
                   {item.title}
                 </Text>
-                <Text style={[styles.dueAmount, item.incoming && { color: colors.primary }]}>{formatWholeRupees(item.amount)}</Text>
+                <Text style={[styles.dueAmount, item.incoming && { color: colors.primary }]}>{formatWholeRupees(item.amount, item.currency)}</Text>
               </Pressable>
             );
           })}

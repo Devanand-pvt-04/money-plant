@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { dateOf, paise, type DateKey, type Paise } from '@money-plant/core';
+import { dateOf, paise, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { accounts, iouPayments, ious, splitGroups, transactions } from '@money-plant/db-schema';
 import {
   checkSplitShares,
@@ -17,6 +17,8 @@ import {
 import { formatAmount } from '@/components/format';
 import { ownedAccountIds } from './categories';
 import { getDb } from './db';
+import { homeCurrency } from './home-currency';
+import { homeConverter } from './home-money';
 import { notifyLedgerChange } from './events';
 import { addManualEntry } from './entries';
 import { deleteIou, insertIou, listIous, pushSoon, refreshIous } from './ious';
@@ -67,9 +69,9 @@ export async function splittable(transactionId: string): Promise<{ total: Paise;
   return tx ? splittableAmount(tx, { owned: ownedAccountIds(db), people: await personIds() }) : null;
 }
 
-function checkShares(total: Paise, myShare: Paise, shares: ReadonlyMap<string, Paise>): void {
+function checkShares(total: Paise, myShare: Paise, shares: ReadonlyMap<string, Paise>, currency?: CurrencyCode): void {
   const problem = checkSplitShares(total, myShare, shares);
-  if (problem?.code === 'wrong_sum') throw new Error(`The shares add up to ${formatAmount(problem.sum)}, not ${formatAmount(problem.total)}`);
+  if (problem?.code === 'wrong_sum') throw new Error(`The shares add up to ${formatAmount(problem.sum, currency)}, not ${formatAmount(problem.total, currency)}`);
   if (problem?.code === 'no_one') throw new Error('Add at least one person with a share');
 }
 
@@ -85,11 +87,13 @@ export async function splitEntry(
 ): Promise<void> {
   const can = await splittable(transactionId);
   if (!can) throw new Error('Only money you paid out can be split');
-  checkShares(can.total, input.myShare, input.shares);
-  if (await currentSplit(transactionId)) await unsplit(transactionId);
   const db = await getDb();
-  const tx = await loadTx(transactionId);
   const owned = ownedAccountIds(db);
+  const paying = (await loadTx(transactionId)).postings.find((p) => owned.has(p.accountId));
+  checkShares(can.total, input.myShare, input.shares, paying?.currency);
+  if (await currentSplit(transactionId)) await unsplit(transactionId);
+  // Read again: undoing the old split moved the people's shares back.
+  const tx = await loadTx(transactionId);
   const own = tx.postings.find((p) => owned.has(p.accountId))!;
   const postings = splitPostings(own, input.categoryId, input.myShare, input.shares, () => Crypto.randomUUID());
   writeTransaction(db, {
@@ -150,15 +154,18 @@ export async function paidBySomeoneElse(input: {
   occurredOn: DateKey;
   dueDate: DateKey | null;
   groupId?: string | null;
+  /** The bill's currency; the home currency when left out (decision 0017). */
+  currency?: CurrencyCode;
 }): Promise<string> {
   if (!Number.isSafeInteger(input.myShare) || input.myShare <= 0) throw new Error('Enter your share');
+  const currency = input.currency ?? homeCurrency();
   if (input.total !== null && input.total < input.myShare) throw new Error('Your share is more than the bill');
   const db = await getDb();
   const payer = db.select().from(accounts).where(eq(accounts.id, input.payerId)).get();
   if (!payer || payer.type !== 'person') throw new Error('Pick who paid');
   const id = Crypto.randomUUID();
   const what = input.what?.trim() || null;
-  const note = input.total !== null && input.total !== input.myShare ? `My share of ${formatAmount(input.total)}` : null;
+  const note = input.total !== null && input.total !== input.myShare ? `My share of ${formatAmount(input.total, currency)}` : null;
   writeTransaction(db, {
     id,
     occurredAt: new Date(`${input.occurredOn}T12:00:00`).toISOString(),
@@ -172,7 +179,7 @@ export async function paidBySomeoneElse(input: {
     userSetFields: ['category', 'amount', 'account', 'occurredAt', 'kind'],
     note,
     splitGroupId: input.groupId ?? null,
-    postings: paidByOtherPostings(input.payerId, input.categoryId, input.myShare, () => Crypto.randomUUID()),
+    postings: paidByOtherPostings(input.payerId, input.categoryId, input.myShare, () => Crypto.randomUUID(), currency),
     sources: [
       {
         id: Crypto.randomUUID(),
@@ -223,6 +230,8 @@ export async function addExpense(input: {
   /** Everyone else's share, by person account. */
   shares: ReadonlyMap<string, Paise>;
   occurredAt: string;
+  /** For a bill someone else paid: its currency (decision 0017). The user's own account sets it otherwise. */
+  currency?: CurrencyCode;
 }): Promise<string> {
   if (!Number.isSafeInteger(input.total) || input.total <= 0) throw new Error('Enter the amount');
   if (input.paidBy !== 'me') {
@@ -236,6 +245,7 @@ export async function addExpense(input: {
       occurredOn: dateOf(input.occurredAt),
       dueDate: null,
       groupId: input.groupId,
+      currency: input.currency,
     });
   }
   checkShares(input.total, input.myShare, input.shares);
@@ -305,6 +315,8 @@ export interface GroupOverview {
   expenses: GroupExpense[];
   /** Each member's open balance from this group's expenses: above zero they owe the user. */
   members: { person: Person; balance: Paise }[];
+  /** The currency spent, net and member balances are in (decision 0017). */
+  currency: CurrencyCode;
   spent: Paise;
   net: Paise;
 }
@@ -336,17 +348,29 @@ export async function groupOverview(groupId: string, context?: GroupContext): Pr
   const byId = new Map(people.map((p) => [p.account.id, p]));
   const names = new Map(people.map((p) => [p.account.id, p.account.name]));
   const expenses = txs.map((tx) => groupExpense(tx, owned, names));
-  const open = groupBalances(context?.ious ?? (await listIous()), new Set(txs.map((tx) => tx.id)));
+  const ids = new Set(txs.map((tx) => tx.id));
+  const groupIous = (context?.ious ?? (await listIous())).filter((v) => v.transactionId && ids.has(v.transactionId));
+  // One currency: the group shows in it. Several (a trip abroad with some bills at home): everything in
+  // the home currency, each bill and IOU at its own day's rate (decision 0017).
+  const currencies = new Set([...expenses.map((e) => e.currency), ...groupIous.map((v) => v.currency)]);
+  const single = currencies.size <= 1;
+  const currency = single ? ([...currencies][0] ?? homeCurrency()) : homeCurrency();
+  const converter = single ? null : await homeConverter([...expenses, ...groupIous.map((v) => ({ currency: v.currency, occurredAt: `${v.occurredOn}T12:00:00` }))]);
+  const open = groupBalances(groupIous, ids, (v) =>
+    converter ? (converter.toHome(v.outstanding, v.currency, `${v.occurredOn}T12:00:00`) ?? 0) : v.outstanding,
+  );
   const members = group.memberIds
     .map((id) => byId.get(id))
     .filter((p): p is Person => p !== undefined)
     .map((person) => ({ person, balance: paise(open.get(person.account.id) ?? 0) }))
     .sort((a, b) => b.balance - a.balance);
+  const spent = expenses.reduce((sum, e) => sum + (converter ? (converter.toHome(e.total, e.currency, e.occurredAt) ?? 0) : e.total), 0);
   return {
     group,
     expenses,
     members,
-    spent: paise(expenses.reduce((sum, e) => sum + e.total, 0)),
+    currency,
+    spent: paise(spent),
     net: paise(members.reduce((sum, m) => sum + m.balance, 0)),
   };
 }

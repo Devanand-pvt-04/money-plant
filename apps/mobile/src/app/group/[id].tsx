@@ -48,17 +48,17 @@ export default function GroupDetail() {
           <View style={styles.heroHead}>
             <Text style={[styles.meta, styles.grow]}>{data.net > 0 ? "You're owed overall" : data.net < 0 ? 'You owe overall' : 'All square'}</Text>
             <Text style={styles.meta}>
-              {formatWholeRupees(data.spent)} spent by {people}
+              {formatWholeRupees(data.spent, data.currency)} spent by {people}
             </Text>
           </View>
-          <Text style={[styles.big, data.net > 0 && { color: colors.primary }, data.net < 0 && { color: colors.danger }]}>{formatWholeRupees(Math.abs(data.net))}</Text>
+          <Text style={[styles.big, data.net > 0 && { color: colors.primary }, data.net < 0 && { color: colors.danger }]}>{formatWholeRupees(Math.abs(data.net), data.currency)}</Text>
           {data.members.map(({ person, balance }) => (
             <Pressable key={person.account.id} accessibilityRole="button" onPress={() => router.push(`/person/${person.account.id}`)} style={styles.member}>
               <Initial name={person.account.name} size={30} />
               <Text style={[styles.memberText, styles.grow]} numberOfLines={1}>
                 {balance > 0 ? `${person.account.name.split(' ')[0]} owes you` : balance < 0 ? `You owe ${person.account.name.split(' ')[0]}` : `${person.account.name.split(' ')[0]} is settled`}
               </Text>
-              <Text style={[styles.memberText, balance > 0 && { color: colors.primary }, balance < 0 && { color: colors.danger }]}>{formatWholeRupees(Math.abs(balance))}</Text>
+              <Text style={[styles.memberText, balance > 0 && { color: colors.primary }, balance < 0 && { color: colors.danger }]}>{formatWholeRupees(Math.abs(balance), data.currency)}</Text>
             </Pressable>
           ))}
         </View>
@@ -85,7 +85,7 @@ export default function GroupDetail() {
 
 function ExpenseRow({ expense, first }: { expense: GroupExpense; first: boolean }) {
   const d = new Date(expense.occurredAt);
-  const how = expense.payerName === null ? `You paid ${formatWholeRupees(expense.total)}${expense.ways > 1 ? ` · split ${expense.ways} ways` : ''}` : `${expense.payerName} paid ${formatWholeRupees(expense.total)}`;
+  const how = expense.payerName === null ? `You paid ${formatWholeRupees(expense.total, expense.currency)}${expense.ways > 1 ? ` · split ${expense.ways} ways` : ''}` : `${expense.payerName} paid ${formatWholeRupees(expense.total, expense.currency)}`;
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(`/transaction/${expense.id}`)} style={({ pressed }) => [styles.row, !first && styles.divided, pressed && styles.pressed]}>
       <View style={styles.date}>
@@ -98,7 +98,7 @@ function ExpenseRow({ expense, first }: { expense: GroupExpense; first: boolean 
         </Text>
         <Text style={styles.meta}>{how}</Text>
       </View>
-      <Net amount={expense.net} />
+      <Net amount={expense.net} currency={expense.currency} />
     </Pressable>
   );
 }

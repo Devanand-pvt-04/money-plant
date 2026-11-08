@@ -7,6 +7,7 @@ import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatWholeRupees } from '@/components/format';
+import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
 import { ErrorText, Button, MoneyCard, ProgressBar, colors, figures, radius } from '@/components/ui';
 import {
@@ -91,7 +92,7 @@ export default function Budgets() {
     if (missing.length === 0) return Alert.alert('Nothing to suggest', 'Every category with spending in the last 3 months already has a budget.');
     Alert.alert(
       'Use suggested budgets?',
-      `Sets ${missing.length} budgets from your average spending over the last 3 months, rounded up to ₹500. They apply to every month, and you can change each one.`,
+      `Sets ${missing.length} budgets from your average spending over the last 3 months, rounded up to ${roundingText()}. They apply to every month, and you can change each one.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -189,6 +190,11 @@ export default function Budgets() {
               <Text style={styles.meta}>
                 Not counted as spending: {overview.moved.map((m) => `${m.category.name} ${rupees(m.amount)}`).join(', ')}. This money left your accounts
                 but wasn't spent.
+              </Text>
+            )}
+            {overview.missingRates.length > 0 && (
+              <Text style={styles.meta}>
+                Spends in {overview.missingRates.join(', ')} are left out until the exchange rate loads.
               </Text>
             )}
             <View style={styles.actions}>

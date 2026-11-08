@@ -12,8 +12,10 @@ import {
   paise,
   rollUp,
   suggestBudget,
+  suggestionStep,
   type MonthKey,
   type BudgetSetting,
+  type CurrencyCode,
   type Pace,
   type Paise,
   type SpendBreakdown,
@@ -22,6 +24,8 @@ import { budgets, postings, transactions } from '@money-plant/db-schema';
 import { formatWholeRupees as rupees } from '@/components/format';
 import { flatten, listCategories, type CategoryNode } from './categories';
 import { getDb } from './db';
+import { homeCurrency } from './home-currency';
+import { homeConverter } from './home-money';
 import { notifyLedgerChange } from './events';
 import { derivedId } from './ids';
 import { kvGet, kvSet } from './kv';
@@ -40,21 +44,29 @@ export function daysLeft(month: MonthKey): number | null {
   return new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate() + 1;
 }
 
-/** Spending per category in a month: postings on spending categories, refunds subtracted. */
-async function spendByCategory(month: MonthKey, spending: ReadonlySet<string>): Promise<Map<string, Paise>> {
+/**
+ * Spending per category in a month: postings on spending categories, refunds
+ * subtracted. In the home currency, each entry at its own day's rate
+ * (decision 0017); entries whose rate isn't known yet go in `missing`.
+ */
+async function spendByCategory(month: MonthKey, spending: ReadonlySet<string>, missing?: Set<CurrencyCode>): Promise<Map<string, Paise>> {
   const db = await getDb();
   const { start, end } = monthBounds(month);
   const rows = db
-    .select({ accountId: postings.accountId, amount: postings.amountPaise })
+    .select({ accountId: postings.accountId, amount: postings.amountPaise, currency: postings.currency, occurredAt: transactions.occurredAt })
     .from(postings)
     .innerJoin(transactions, eq(transactions.id, postings.transactionId))
     .where(and(isNull(transactions.deletedAt), gte(transactions.occurredAt, start), lt(transactions.occurredAt, end)))
-    .all();
+    .all()
+    .filter((row) => spending.has(row.accountId));
+  const converter = await homeConverter(rows);
   const totals = new Map<string, number>();
   for (const row of rows) {
-    if (!spending.has(row.accountId)) continue;
-    totals.set(row.accountId, (totals.get(row.accountId) ?? 0) + row.amount);
+    const amount = converter.toHome(row.amount, row.currency, row.occurredAt);
+    if (amount === null) continue;
+    totals.set(row.accountId, (totals.get(row.accountId) ?? 0) + amount);
   }
+  for (const currency of converter.missing) missing?.add(currency);
   return new Map([...totals].map(([id, amount]) => [id, paise(amount)]));
 }
 
@@ -84,6 +96,8 @@ export interface MonthOverview {
   lines: BudgetLine[];
   /** Invested or withdrawn as cash: shown, but not counted as spending. */
   moved: { category: CategoryNode; amount: Paise }[];
+  /** Currencies whose entries are left out because their rate isn't known yet (NW-7). */
+  missingRates: CurrencyCode[];
 }
 
 /**
@@ -137,7 +151,8 @@ const NO_SETTING: BudgetSetting = { default: null, override: null, limit: null }
 export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   const db = await getDb();
   const { tree, ids, parents, moved } = await spendingTree();
-  const spent = rollUp(await spendByCategory(month, ids), parents);
+  const missing = new Set<CurrencyCode>();
+  const spent = rollUp(await spendByCategory(month, ids, missing), parents);
   const settings = budgetSettings(budgetRows(db), month);
   const limits = new Map<string, Paise>();
   for (const [key, setting] of settings) if (setting.limit !== null && ids.has(key)) limits.set(key, setting.limit);
@@ -166,6 +181,7 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
     outside: total.outside,
     lines: tree.flatMap((root) => [line(root), ...root.children.map(line)]),
     moved: await movedThisMonth(month, moved),
+    missingRates: [...missing],
   };
 }
 
@@ -225,15 +241,16 @@ export async function setBudget(month: MonthKey | null, categoryId: string, limi
   notifyLedgerChange();
 }
 
-/** First-run budgets: per top-level category, the average of the last 3 full months rounded up to ₹500. */
+/** First-run budgets: per top-level category, the average of the last 3 full months rounded up to 500 of the home currency. */
 export async function suggestBudgets(month: MonthKey): Promise<Map<string, Paise>> {
   const { tree, ids, parents } = await spendingTree();
   const months = [1, 2, 3].map((n) => addMonths(month, -n));
   const totals = await Promise.all(months.map(async (m) => rollUp(await spendByCategory(m, ids), parents)));
+  const step = suggestionStep(homeCurrency());
   const result = new Map<string, Paise>();
   for (const category of tree) {
     if (category.system) continue;
-    const suggestion = suggestBudget(totals.map((t) => t.get(category.id) ?? paise(0)));
+    const suggestion = suggestBudget(totals.map((t) => t.get(category.id) ?? paise(0)), step);
     if (suggestion !== null) result.set(category.id, suggestion);
   }
   return result;
@@ -258,27 +275,35 @@ export async function categoryBreakdown(month: MonthKey, categoryId: string | nu
   const inTree = new Set(
     categoryId === null ? ids : all.filter((c) => c.id === categoryId || c.parentId === categoryId).map((c) => c.id),
   );
-  const itemsFor = (m: MonthKey) => {
+  const itemsFor = async (m: MonthKey) => {
     const { start, end } = monthBounds(m);
-    return db
+    const rows = db
       .select({
         transactionId: transactions.id,
         categoryId: postings.accountId,
         counterparty: transactions.counterparty,
         occurredAt: transactions.occurredAt,
         amount: postings.amountPaise,
+        currency: postings.currency,
       })
       .from(postings)
       .innerJoin(transactions, eq(transactions.id, postings.transactionId))
       .where(and(isNull(transactions.deletedAt), gte(transactions.occurredAt, start), lt(transactions.occurredAt, end)))
       .all()
-      .filter((row) => inTree.has(row.categoryId))
+      .filter((row) => inTree.has(row.categoryId));
+    // In the home currency at each entry's day (decision 0017); unknown rates are left out.
+    const converter = await homeConverter(rows);
+    return rows.flatMap(({ currency, ...row }) => {
+      const amount = converter.toHome(row.amount, currency, row.occurredAt);
       // Income categories are credited, so their postings are negative.
-      .map((row) => ({ ...row, amount: paise(income ? -row.amount : row.amount) }));
+      return amount === null ? [] : [{ ...row, amount: paise(income ? -amount : amount) }];
+    });
   };
   // Every payee, so the screen can list all of them on request (BUD-3).
-  const result = breakdown(itemsFor(month), { top: Number.POSITIVE_INFINITY });
-  const history = [3, 2, 1].map((n) => addMonths(month, -n)).map((m) => ({ month: m, total: breakdown(itemsFor(m)).total }));
+  const result = breakdown(await itemsFor(month), { top: Number.POSITIVE_INFINITY });
+  const history = await Promise.all(
+    [3, 2, 1].map((n) => addMonths(month, -n)).map(async (m) => ({ month: m, total: breakdown(await itemsFor(m)).total })),
+  );
   const previousAverage = paise(Math.round(history.reduce((sum, h) => sum + h.total, 0) / history.length));
   return { ...result, previousAverage, history: [...history, { month, total: result.total }] };
 }

@@ -1,21 +1,34 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { daysBetween, paise } from '@money-plant/core';
+import { daysBetween, paise, type CurrencyCode } from '@money-plant/core';
 import type { IouView } from '@/lib/ious';
 import { formatAmount, formatDate } from './format';
 import { colors } from './ui';
 
 /** A person's balance: above zero they owe the user (green); below, the user owes them. */
-export function Balance({ amount }: { amount: number }) {
-  if (amount === 0) return <Text style={styles.amountMuted}>₹0</Text>;
-  return <Text style={[styles.amount, amount > 0 && { color: colors.primary }]}>{formatAmount(paise(Math.abs(amount)))}</Text>;
+export function Balance({ amount, currency }: { amount: number; currency?: CurrencyCode }) {
+  if (amount === 0) return <Text style={styles.amountMuted}>{formatAmount(0, currency)}</Text>;
+  return <Text style={[styles.amount, amount > 0 && { color: colors.primary }]}>{formatAmount(paise(Math.abs(amount)), currency)}</Text>;
 }
 
 /** A balance with its sign, for lists: +₹1,800 they owe the user, −₹620 the user owes. */
-export function Net({ amount }: { amount: number }) {
-  if (amount === 0) return <Text style={styles.amountMuted}>₹0</Text>;
-  const text = formatAmount(paise(Math.abs(amount))).replace(/\.00$/, '');
+export function Net({ amount, currency }: { amount: number; currency?: CurrencyCode }) {
+  if (amount === 0) return <Text style={styles.amountMuted}>{formatAmount(0, currency)}</Text>;
+  const text = formatAmount(paise(Math.abs(amount)), currency);
   return <Text style={[styles.amount, { color: amount > 0 ? colors.primary : colors.danger }]}>{amount > 0 ? `+${text}` : `−${text}`}</Text>;
+}
+
+/** A person's balances, one line per currency, never added across currencies (decision 0017). */
+export function NetByCurrency({ balances }: { balances: readonly { currency: CurrencyCode; amount: number }[] }) {
+  if (balances.length === 0) return <Net amount={0} />;
+  if (balances.length === 1) return <Net amount={balances[0]!.amount} currency={balances[0]!.currency} />;
+  return (
+    <View style={styles.right}>
+      {balances.map((b) => (
+        <Net key={b.currency} amount={b.amount} currency={b.currency} />
+      ))}
+    </View>
+  );
 }
 
 const STATE_LABELS: Record<IouView['state'], string | null> = {

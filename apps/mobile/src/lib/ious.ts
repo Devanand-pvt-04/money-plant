@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
-import { addDays, buildUpiUri, dateKey, daysBetween, dateOf, DEFAULT_CURRENCY, paise, startOfDate, type DateKey, type Paise } from '@money-plant/core';
+import { addDays, buildUpiUri, dateKey, daysBetween, dateOf, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { accounts, iouPayments, ious, postings, sources, transactions } from '@money-plant/db-schema';
 import {
   allocateRepayment,
@@ -105,7 +105,7 @@ export async function convertEntry(id: string, personId: string, expected?: { di
     // Lending and paying back a loan are money out; borrowing and being paid back are money in.
     const out = expected.repayment ? expected.direction === 'borrowed' : expected.direction === 'lent';
     if ((own.amount < 0) !== out) throw new Error(out ? 'This entry is money in, not money out' : 'This entry is money out, not money in');
-    if (Math.abs(own.amount) !== expected.amount) throw new Error(`This entry is ${formatAmount(Math.abs(own.amount))}, not ${formatAmount(expected.amount)}`);
+    if (Math.abs(own.amount) !== expected.amount) throw new Error(`This entry is ${formatAmount(Math.abs(own.amount), own.currency)}, not ${formatAmount(expected.amount, own.currency)}`);
   }
   const next: LedgerTransaction = {
     ...tx,
@@ -337,6 +337,10 @@ export async function recordRepayment(id: string, input: { amount: Paise; accoun
   if (!view || !view.personId) throw new Error('IOU not found');
   if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Enter an amount above zero');
   if (input.amount > view.outstanding) throw new Error(`Only ${formatAmount(view.outstanding, view.currency)} is still owed`);
+  const db = await getDb();
+  const accountCurrency = db.select({ currency: accounts.currency }).from(accounts).where(eq(accounts.id, input.accountId)).get()?.currency;
+  // A repayment moves the IOU's own currency; one account can't pay back another currency (decision 0017).
+  if (accountCurrency && accountCurrency !== view.currency) throw new Error(`Pick an account in ${view.currency}, the currency of this IOU`);
   const paidAt = input.paidAt;
   const transactionId = await manualEntry({
     personId: view.personId,
@@ -347,18 +351,19 @@ export async function recordRepayment(id: string, input: { amount: Paise; accoun
     note: view.reason ? `Repayment: ${view.reason}` : 'Repayment',
     occurredAt: paidAt,
   });
-  await addPayments([{ iouId: id, amount: input.amount }], transactionId, paidAt);
+  await addPayments([{ iouId: id, amount: input.amount }], transactionId, paidAt, view.currency);
   notifyLedgerChange();
   await refreshIous();
   pushSoon();
 }
 
-async function addPayments(parts: readonly { iouId: string; amount: Paise }[], transactionId: string, paidAt: string): Promise<void> {
+/** Records repayments; `currency` is the paying entry's, which is always its IOUs' own (decision 0017). */
+async function addPayments(parts: readonly { iouId: string; amount: Paise }[], transactionId: string, paidAt: string, currency: CurrencyCode): Promise<void> {
   const db = await getDb();
   const me = await getMe();
   for (const part of parts) {
     db.insert(iouPayments)
-      .values({ id: Crypto.randomUUID(), userId: me.id, iouId: part.iouId, amountPaise: part.amount, paidAt, transactionId, createdAt: now(), dirty: 1 })
+      .values({ id: Crypto.randomUUID(), userId: me.id, iouId: part.iouId, amountPaise: part.amount, currency, paidAt, transactionId, createdAt: now(), dirty: 1 })
       .run();
   }
 }
@@ -454,8 +459,9 @@ async function settleFromLedger(views: readonly IouView[]): Promise<number> {
     if (!own) continue;
     const sms = tx.sources.find((s) => s.kind === 'sms')?.parsedFields as Partial<ParsedTransaction> | undefined;
     const on = dateOf(tx.occurredAt);
+    const currency = own.currency ?? DEFAULT_CURRENCY;
     const live = open
-      .filter((v) => canRepay(v, on, tx.id))
+      .filter((v) => v.currency === currency && canRepay(v, on, tx.id))
       .map((v) => ({ ...v, outstanding: paise(remaining.get(v.id) ?? 0) }));
     const match = matchRepayment(
       { direction: own.amount < 0 ? 'debit' : 'credit', amount: paise(Math.abs(own.amount)), vpa: sms?.vpa ?? null, name: tx.counterparty },
@@ -465,7 +471,7 @@ async function settleFromLedger(views: readonly IouView[]): Promise<number> {
     );
     if (!match) continue;
     await convertEntry(tx.id, match.personId);
-    await addPayments(match.parts, tx.id, tx.occurredAt);
+    await addPayments(match.parts, tx.id, tx.occurredAt, currency);
     for (const part of match.parts) remaining.set(part.iouId, paise((remaining.get(part.iouId) ?? 0) - part.amount));
     settled++;
   }
@@ -494,7 +500,10 @@ export async function repaymentOptions(transactionId: string): Promise<{ amount:
   const amount = paise(Math.abs(own.amount));
   const people = (await listPeople()).map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa }));
   const match = findPerson(people, payeeOf(tx), await payeeAliases())?.id ?? null;
-  const options = repaymentOptionsFor(await listIous(), { transactionId: tx.id, on: dateOf(tx.occurredAt), amount, direction }, match);
+  // Only IOUs in the entry's currency can be paid by it (decision 0017).
+  const currency = own.currency ?? DEFAULT_CURRENCY;
+  const views = (await listIous()).filter((v) => v.currency === currency);
+  const options = repaymentOptionsFor(views, { transactionId: tx.id, on: dateOf(tx.occurredAt), amount, direction }, match);
   return { amount, direction, options };
 }
 
@@ -510,10 +519,14 @@ export async function settleWithEntry(transactionId: string, personId: string): 
   if (!option) throw new Error(direction === 'lent' ? "They don't owe you this much from before this day" : "You don't owe them this much from before this day");
   const tx = await loadTx(transactionId);
   const on = dateOf(tx.occurredAt);
-  const open = (await listIous()).filter((v) => isOpen(v) && v.personId === personId && v.direction === direction && canRepay(v, on, tx.id));
+  const owned = ownedAccountIds(await getDb());
+  const currency = tx.postings.find((p) => owned.has(p.accountId))?.currency ?? DEFAULT_CURRENCY;
+  const open = (await listIous()).filter(
+    (v) => isOpen(v) && v.currency === currency && v.personId === personId && v.direction === direction && canRepay(v, on, tx.id),
+  );
   const { parts } = allocateRepayment(open, amount);
   await convertEntry(transactionId, personId, { direction, amount, repayment: true });
-  await addPayments(parts, transactionId, tx.occurredAt);
+  await addPayments(parts, transactionId, tx.occurredAt, currency);
   await rememberPayee(personId, payeeOf(tx));
   notifyLedgerChange();
   await refreshIous();
