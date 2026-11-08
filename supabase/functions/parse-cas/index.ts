@@ -35,7 +35,7 @@ Deno.serve(async (request) => {
   const { pdf, password } = body;
   if (typeof pdf !== 'string' || typeof password !== 'string') return json({ error: 'bad_request' }, 400);
   if (pdf.length * 0.75 > 10 * 1024 * 1024) return json({ error: 'too_large' }, 413);
-  let bytes: Uint8Array;
+  let bytes: Uint8Array<ArrayBuffer>;
   try {
     bytes = Uint8Array.from(atob(pdf), (c) => c.charCodeAt(0));
   } catch {
