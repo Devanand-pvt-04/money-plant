@@ -54,6 +54,7 @@ import {
   type RemoteTransaction,
 } from '@money-plant/db-schema';
 import { ensureDefaultCategories } from './categories';
+import { reportBackground } from './errors';
 import { notifyLedgerChange } from './events';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
@@ -543,10 +544,14 @@ export function syncNow(): Promise<SyncResult> {
         (await pullIous(me)) +
         (await pullIouPayments());
       // ACC-9: friends' links become person accounts. Best effort: a failure here never stops the ledger sync.
-      await syncFriendLinks().catch((e) => console.warn('friend links', e instanceof Error ? e.message : e));
+      await syncFriendLinks().catch(reportBackground('friend-links'));
       // Screens out of view reload on their next focus only after a change, so say when one came in.
       if (pulled > 0) notifyLedgerChange();
       return { pushed, pulled };
+    } catch (e) {
+      // Most callers don't wait for sync, so a failure would go unseen; the caller still gets it.
+      reportBackground('sync')(e);
+      throw e;
     } finally {
       running = null;
     }
