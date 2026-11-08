@@ -1,17 +1,24 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
-import { paise, type Paise } from '@money-plant/core';
+import { DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
 import { accounts, ious, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
 import { findPerson, payeeKey } from '@money-plant/matcher';
 import { getDb } from './db';
+import { homeConverter } from './home-money';
 import { kvGet, kvSet } from './kv';
 import { notifyLedgerChange } from './events';
 import { isVpa } from './me';
 
 export interface Person {
   account: LocalAccount;
-  /** Sum of postings: above zero they owe the user, below zero the user owes them. */
+  /**
+   * Sum of postings in the home currency at today's rate: above zero they owe
+   * the user, below zero the user owes them. Amounts whose rate isn't known
+   * yet are left out (decision 0017).
+   */
   balance: Paise;
+  /** What is open in each currency, never converted, largest first (decision 0017). Empty when settled. */
+  balances: { currency: CurrencyCode; amount: Paise }[];
   /** The phone contact this person is linked to, if any (local only, SPL-4). */
   contactId: string | null;
 }
@@ -27,19 +34,31 @@ export async function listPeople(): Promise<Person[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const sums = db
-    .select({ accountId: postings.accountId, total: sql<number>`sum(${postings.amountPaise})` })
+    .select({ accountId: postings.accountId, currency: postings.currency, total: sql<number>`sum(${postings.amountPaise})` })
     .from(postings)
     .innerJoin(transactions, eq(transactions.id, postings.transactionId))
     .where(and(inArray(postings.accountId, ids), isNull(transactions.deletedAt)))
-    .groupBy(postings.accountId)
+    .groupBy(postings.accountId, postings.currency)
     .all();
-  const totals = new Map(sums.map((s) => [s.accountId, Number(s.total)]));
+  const totals = new Map<string, Map<CurrencyCode, number>>();
+  const add = (id: string, currency: CurrencyCode, amount: number) => {
+    const own = totals.get(id) ?? new Map<CurrencyCode, number>();
+    own.set(currency, (own.get(currency) ?? 0) + amount);
+    totals.set(id, own);
+  };
+  for (const row of sums) add(row.accountId, row.currency ?? DEFAULT_CURRENCY, Number(row.total));
+  for (const row of rows) if (row.openingBalancePaise !== 0) add(row.id, row.currency, row.openingBalancePaise);
+  const at = new Date().toISOString();
+  const converter = await homeConverter([...totals.values()].flatMap((own) => [...own.keys()].map((currency) => ({ currency, occurredAt: at }))));
   const contacts = new Map(db.select().from(personContacts).all().map((c) => [c.personAccountId, c.contactId]));
-  return rows.map((account) => ({
-    account,
-    balance: paise((totals.get(account.id) ?? 0) + account.openingBalancePaise),
-    contactId: contacts.get(account.id) ?? null,
-  }));
+  return rows.map((account) => {
+    const balances = [...(totals.get(account.id) ?? [])]
+      .filter(([, amount]) => amount !== 0)
+      .map(([currency, amount]) => ({ currency, amount: paise(amount) }))
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    const balance = balances.reduce((sum, b) => sum + (converter.toHome(b.amount, b.currency, at) ?? 0), 0);
+    return { account, balance: paise(balance), balances, contactId: contacts.get(account.id) ?? null };
+  });
 }
 
 export async function getPerson(id: string): Promise<Person | null> {

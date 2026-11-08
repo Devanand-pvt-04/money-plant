@@ -257,6 +257,26 @@ const DAY = 24 * HOUR;
  * same-amount rows on one day stay two entries. Idempotent by fingerprint.
  * The caller rebases the account's opening balance once the import is done.
  */
+/** How far a statement's rupee amount may be from an estimated one (bank markup and rate spread). */
+const ESTIMATE_TOLERANCE = 0.1;
+
+/**
+ * CAP-10: an entry whose amount was converted on the phone from a foreign
+ * amount in the SMS, and not yet replaced by the statement's rupee amount.
+ */
+export function isEstimated(tx: Pick<LedgerTransaction, 'sources'>): boolean {
+  return tx.sources.some((s) => s.parsedFields.foreign !== undefined) && !tx.sources.some((s) => s.kind === 'statement');
+}
+
+/** CAP-10: the foreign amount an SMS gave for this entry, if one did. */
+export function foreignAmount(tx: Pick<LedgerTransaction, 'sources'>): { amount: number; currency: string } | null {
+  for (const s of tx.sources) {
+    const foreign = s.parsedFields.foreign as { amount?: unknown; currency?: unknown } | undefined;
+    if (foreign && typeof foreign.amount === 'number' && typeof foreign.currency === 'string') return { amount: foreign.amount, currency: foreign.currency };
+  }
+  return null;
+}
+
 export async function ingestStatementRow(ctx: PipelineContext, capture: StatementCapture, claimed: Set<string>): Promise<IngestResult> {
   const { store, newId } = ctx;
   if (await store.hasFingerprint(capture.fingerprint)) return { outcome: 'duplicate_source' };
@@ -291,6 +311,28 @@ export async function ingestStatementRow(ctx: PipelineContext, capture: Statemen
     claimed.add(duplicate.id);
     await store.saveTransaction(withExtraSource(duplicate, source, { counterparty: duplicate.counterparty ?? parsed.counterparty }));
     return { outcome: 'attached', transactionId: duplicate.id };
+  }
+
+  // CAP-10: a foreign spend whose rupee amount was estimated from the day's rate. The statement
+  // has the amount the bank charged, so it replaces the estimate (the markup included).
+  const estimate = closest(
+    recent.filter(
+      (tx) =>
+        isEstimated(tx) &&
+        tx.postings.length === 2 &&
+        tx.postings.some((p) => p.accountId === account.id && Math.sign(p.amount) === Math.sign(amount) && Math.abs(p.amount - amount) <= Math.abs(amount) * ESTIMATE_TOLERANCE),
+    ),
+    at,
+  );
+  if (estimate) {
+    claimed.add(estimate.id);
+    const updated = withExtraSource(estimate, source, { counterparty: estimate.counterparty ?? parsed.counterparty });
+    // An amount the user typed in stays theirs.
+    const keep = estimate.userSetFields.includes('amount');
+    await store.saveTransaction(
+      keep ? updated : { ...updated, postings: estimate.postings.map((p) => ({ ...p, amount: (p.accountId === account.id ? amount : -amount) as Paise })) },
+    );
+    return { outcome: 'attached', transactionId: estimate.id };
   }
 
   const transfer = findTransferLeg(recent, accountsById, { account, amount, at, reference: parsed.reference });

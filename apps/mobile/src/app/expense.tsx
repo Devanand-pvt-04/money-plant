@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { SPLIT_METHOD_LABELS, formatRupees, parseRupees, splitAmount, type Paise, type SplitMethod, type SplitPart } from '@money-plant/core';
+import { SPLIT_METHOD_LABELS, currencyInfo, formatMoney, parseMoney, paise, splitAmount, type CurrencyCode, type Paise, type SplitMethod, type SplitPart } from '@money-plant/core';
 import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
@@ -12,30 +12,32 @@ import { Button, ErrorText, Initial, colors, radius } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { createPerson, listPeople, type Person } from '@/lib/people';
+import { homeCurrency } from '@/lib/home-currency';
 import { addExpense, currentSplit, listGroups, splittable, unsplit, type SplitGroup } from '@/lib/splits';
 
 const ME = 'me';
 const METHODS: SplitMethod[] = ['equal', 'exact', 'percent', 'shares'];
-const plain = (amount: Paise) => formatRupees(amount, { symbol: false }).replace(/,/g, '').replace(/\.00$/, '');
-const short = (amount: number) => formatAmount(amount).replace(/\.00$/, '');
+/** "1250.5" in the bill's currency, for a box the user edits. */
+const plain = (amount: Paise, currency: CurrencyCode) => formatMoney(amount, currency, { symbol: false }).replace(/,/g, '').replace(/\.0+$/, '');
+const short = (amount: number, currency: CurrencyCode) => formatAmount(amount, currency);
 
 /** A typed value as the number splitAmount takes, or NaN when it isn't one. */
-function partValue(method: SplitMethod, text: string): number {
+function partValue(method: SplitMethod, text: string, currency: CurrencyCode): number {
   if (method === 'equal') return 0;
-  if (method === 'exact') return parseRupees(text) ?? NaN;
+  if (method === 'exact') return parseMoney(text, currency) ?? NaN;
   const n = Number(text.trim());
   if (!text.trim() || !Number.isFinite(n) || n < 0) return NaN;
   return method === 'percent' ? Math.round(n * 100) : Math.round(n);
 }
 
-function splitError(error: Exclude<ReturnType<typeof splitAmount>, { shares: unknown }>['error']): string {
+function splitError(error: Exclude<ReturnType<typeof splitAmount>, { shares: unknown }>['error'], currency: CurrencyCode): string {
   switch (error.code) {
     case 'no_parts':
       return 'Tick at least one person';
     case 'bad_value':
       return 'Enter a number for everyone ticked';
     case 'exact_mismatch':
-      return error.difference > 0 ? `${short(error.difference)} isn't given to anyone yet` : `That's ${short(-error.difference)} too much`;
+      return error.difference > 0 ? `${short(error.difference, currency)} isn't given to anyone yet` : `That's ${short(-error.difference, currency)} too much`;
     case 'percent_mismatch':
       return `The percentages add up to ${error.total / 100}%, not 100%`;
   }
@@ -60,6 +62,7 @@ export default function Expense() {
   const [accounts, setAccounts] = useState<AccountBalance[]>([]);
   const [categories, setCategories] = useState<Map<string, string>>(new Map());
   const [fixedTotal, setFixedTotal] = useState<Paise | null>(null);
+  const [entryCurrency, setEntryCurrency] = useState<CurrencyCode | null>(null);
   const [amount, setAmount] = useState('');
   const [what, setWhat] = useState('');
   const [paidBy, setPaidBy] = useState(ME);
@@ -93,6 +96,7 @@ export default function Expense() {
       const [can, existing, row] = await Promise.all([splittable(from), currentSplit(from), getTransaction(from)]);
       if (!can) return setError('Only money you paid out can be split');
       setFixedTotal(can.total);
+      setEntryCurrency(row?.legs[0]?.currency ?? null);
       setCategoryId(existing?.categoryId ?? can.categoryId);
       setWhat(row?.tx.counterparty ?? '');
       if (row?.tx.splitGroupId) setGroupId(row.tx.splitGroupId);
@@ -100,13 +104,17 @@ export default function Expense() {
         setIsSplit(true);
         setMethod('exact');
         setTicked([...(existing.myShare > 0 ? [ME] : []), ...existing.shares.keys()]);
-        setValues(Object.fromEntries([[ME, plain(existing.myShare)], ...[...existing.shares].map(([k, v]) => [k, plain(v)])]));
+        setValues(Object.fromEntries([[ME, plain(existing.myShare, row?.legs[0]?.currency ?? homeCurrency())], ...[...existing.shares].map(([k, v]) => [k, plain(v, row?.legs[0]?.currency ?? homeCurrency())])]));
       }
     })();
   }, [from, params.group, reloadPeople]);
 
   const group = groups.find((g) => g.id === groupId) ?? null;
-  const total = fixedTotal ?? parseRupees(amount || '0');
+  const account = accounts.find((b) => b.account.id === accountId);
+  // The bill is in the entry's currency, the paying account's when the user paid, else the home currency (decision 0017).
+  const currency = entryCurrency ?? (paidBy === ME && account ? account.currency : homeCurrency());
+  const typed = parseMoney(amount || '0', currency);
+  const total = fixedTotal ?? (typed === null ? null : paise(typed));
   const nameOf = (id: string) => (id === ME ? 'You' : (people.find((p) => p.account.id === id)?.account.name ?? 'Someone'));
   const firstName = (id: string) => nameOf(id).split(' ')[0]!;
 
@@ -122,7 +130,7 @@ export default function Expense() {
     // nameOf reads people, listed here.
   }, [people, group, ticked, query]);
 
-  const parts: SplitPart[] = ticked.map((id) => ({ id, value: partValue(method, values[id] ?? '') }));
+  const parts: SplitPart[] = ticked.map((id) => ({ id, value: partValue(method, values[id] ?? '', currency) }));
   const result = total ? splitAmount(total, method, parts) : null;
   const shares = result && 'shares' in result ? result.shares : null;
 
@@ -143,20 +151,20 @@ export default function Expense() {
     if (!shares) return '';
     const myShare = shares.get(ME) ?? 0;
     const category = categoryId ? (categories.get(categoryId) ?? 'your category') : null;
-    const counts = myShare > 0 && category ? ` Your ${short(myShare)} counts as ${category}.` : '';
-    if (paidBy !== ME) return myShare > 0 ? `You owe ${firstName(paidBy)} ${short(myShare)}.${counts}` : "You aren't ticked, so you don't owe anything.";
+    const counts = myShare > 0 && category ? ` Your ${short(myShare, currency)} counts as ${category}.` : '';
+    if (paidBy !== ME) return myShare > 0 ? `You owe ${firstName(paidBy)} ${short(myShare, currency)}.${counts}` : "You aren't ticked, so you don't owe anything.";
     const owing = ticked.filter((id) => id !== ME && (shares.get(id) ?? 0) > 0);
     if (owing.length === 0) return 'Tick the people who share it.';
     const amounts = new Set(owing.map((id) => shares.get(id)));
     const who = amounts.size === 1
-      ? `${names(owing.map(firstName))} ${owing.length === 1 ? 'owes' : 'each owe'} you ${short(shares.get(owing[0]!)!)}.`
-      : `${owing.map((id) => `${firstName(id)} owes you ${short(shares.get(id)!)}`).join(', ')}.`;
+      ? `${names(owing.map(firstName))} ${owing.length === 1 ? 'owes' : 'each owe'} you ${short(shares.get(owing[0]!)!, currency)}.`
+      : `${owing.map((id) => `${firstName(id)} owes you ${short(shares.get(id)!, currency)}`).join(', ')}.`;
     return who + counts;
   }
 
   async function save() {
     if (!total) return setError('Enter the amount');
-    if (!result || 'error' in result) return setError(result ? splitError(result.error) : 'Enter the amount');
+    if (!result || 'error' in result) return setError(result ? splitError(result.error, currency) : 'Enter the amount');
     const myShare = shares!.get(ME) ?? (0 as Paise);
     if (!categoryId && myShare > 0) return setError('Pick what your share counts as');
     setSaving(true);
@@ -173,6 +181,7 @@ export default function Expense() {
         myShare,
         shares: new Map([...shares!].filter(([id]) => id !== ME && id !== paidBy)),
         occurredAt: new Date().toISOString(),
+        currency,
       });
       router.back();
     } catch (e) {
@@ -181,15 +190,14 @@ export default function Expense() {
     }
   }
 
-  const account = accounts.find((b) => b.account.id === accountId);
   return (
     <FormScroll contentContainerStyle={styles.container}>
       <View style={styles.amountRow}>
         {fixedTotal !== null ? (
-          <Text style={styles.amount}>{short(fixedTotal)}</Text>
+          <Text style={styles.amount}>{short(fixedTotal, currency)}</Text>
         ) : (
           <>
-            <Text style={styles.rupee}>₹</Text>
+            <Text style={styles.rupee}>{currencyInfo(currency).symbol.trim()}</Text>
             <TextInput
               value={amount}
               onChangeText={setAmount}
@@ -277,7 +285,7 @@ export default function Expense() {
                   style={styles.partInput}
                 />
               )}
-              <Text style={[styles.share, !on && styles.muted]}>{on && shares ? short(shares.get(id) ?? 0) : '—'}</Text>
+              <Text style={[styles.share, !on && styles.muted]}>{on && shares ? short(shares.get(id) ?? 0, currency) : '—'}</Text>
             </View>
           );
         })}
@@ -289,7 +297,7 @@ export default function Expense() {
         )}
       </View>
 
-      {result && 'error' in result && ticked.length > 0 ? <Text style={styles.hint}>{splitError(result.error)}</Text> : null}
+      {result && 'error' in result && ticked.length > 0 ? <Text style={styles.hint}>{splitError(result.error, currency)}</Text> : null}
       {shares && (
         <Text style={styles.hint}>
           {summary()}{' '}

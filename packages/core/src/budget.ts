@@ -1,3 +1,4 @@
+import { currencyInfo, type CurrencyCode } from './currency';
 import { paise, type Paise } from './money';
 
 /** A calendar month in the user's time zone, "2026-10". */
@@ -161,15 +162,26 @@ export function budgetPace(spent: Paise, limit: Paise, elapsed: number): Pace {
 const SUGGESTION_STEP = 50_000; // ₹500
 
 /**
- * First-run budget suggestion: the average of the given monthly totals,
- * rounded up to the next ₹500. Null when there was no spending.
+ * How far a suggested budget rounds up in a currency, in its minor units:
+ * ₹500, 1,000 of a currency without decimals (yen, won), else 10 (decision 0017).
  */
-export function suggestBudget(monthlyTotals: readonly Paise[]): Paise | null {
+export function suggestionStep(currency: CurrencyCode): number {
+  if (currency === 'INR') return SUGGESTION_STEP;
+  const { decimals } = currencyInfo(currency);
+  return decimals === 0 ? 1000 : 10 * 10 ** decimals;
+}
+
+/**
+ * First-run budget suggestion: the average of the given monthly totals,
+ * rounded up to the next `step` (₹500 by default; see suggestionStep for
+ * other currencies). Null when there was no spending.
+ */
+export function suggestBudget(monthlyTotals: readonly Paise[], step: number = SUGGESTION_STEP): Paise | null {
   const months = monthlyTotals.length;
   if (months === 0) return null;
   const total = monthlyTotals.reduce((sum, amount) => sum + Math.max(0, amount), 0);
   if (total === 0) return null;
-  return paise(Math.ceil(total / months / SUGGESTION_STEP) * SUGGESTION_STEP);
+  return paise(Math.ceil(total / months / step) * step);
 }
 
 export interface SpendItem {

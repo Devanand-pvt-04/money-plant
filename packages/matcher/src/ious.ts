@@ -1,4 +1,4 @@
-import { paise, type DateKey, type Paise } from '@money-plant/core';
+import { paise, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import type { LedgerPosting } from './types';
 
 /**
@@ -143,10 +143,12 @@ export function splitPostings(
   personShares: ReadonlyMap<string, Paise>,
   newId: () => string,
 ): LedgerPosting[] {
+  // Every share is in the paying leg's currency, so the entry still balances per currency (decision 0017).
+  const currency = payingLeg.currency ? { currency: payingLeg.currency } : {};
   const out: LedgerPosting[] = [payingLeg];
-  if (myShare > 0) out.push({ id: newId(), accountId: categoryId, amount: myShare });
+  if (myShare > 0) out.push({ id: newId(), accountId: categoryId, amount: myShare, ...currency });
   for (const [personId, share] of personShares) {
-    if (share > 0) out.push({ id: newId(), accountId: personId, amount: share });
+    if (share > 0) out.push({ id: newId(), accountId: personId, amount: share, ...currency });
   }
   return out;
 }
@@ -155,9 +157,10 @@ export function splitPostings(
  * SPL-2: someone else paid. The user's share is spending on the category and
  * a debt to the payer's person account; no account of the user's moves.
  */
-export function paidByOtherPostings(payerId: string, categoryId: string, myShare: Paise, newId: () => string): LedgerPosting[] {
+export function paidByOtherPostings(payerId: string, categoryId: string, myShare: Paise, newId: () => string, currency?: CurrencyCode): LedgerPosting[] {
+  const inCurrency = currency ? { currency } : {};
   return [
-    { id: newId(), accountId: categoryId, amount: myShare },
-    { id: newId(), accountId: payerId, amount: paise(-myShare) },
+    { id: newId(), accountId: categoryId, amount: myShare, ...inCurrency },
+    { id: newId(), accountId: payerId, amount: paise(-myShare), ...inCurrency },
   ];
 }

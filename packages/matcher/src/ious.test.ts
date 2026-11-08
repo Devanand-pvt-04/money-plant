@@ -107,6 +107,13 @@ describe('split postings (SPL-1, SPL-2)', () => {
     expect(postings.map((p) => p.accountId)).toEqual(['hdfc', 'a']);
   });
 
+  it('keeps every share in the paying leg\'s currency (decision 0017)', () => {
+    const postings = splitPostings({ id: 'card', accountId: 'amex', amount: paise(-9000), currency: 'USD' }, 'food', paise(3000), new Map([['a', paise(6000)]]), newId);
+    expect(postings.map((p) => p.currency)).toEqual(['USD', 'USD', 'USD']);
+    expect(validatePostings(postings)).toBeNull();
+    expect(paidByOtherPostings('ravi', 'travel', paise(2500), newId, 'EUR').every((p) => p.currency === 'EUR')).toBe(true);
+  });
+
   it('records what the user owes when someone else paid', () => {
     const postings = paidByOtherPostings('ravi', 'travel', paise(45000), newId);
     expect(validatePostings(postings)).toBeNull();

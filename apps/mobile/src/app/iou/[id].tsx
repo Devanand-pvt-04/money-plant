@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
-import { formatMoney, isDateKey, paise, parseMoney } from '@money-plant/core';
+import { currencyInfo, formatMoney, isDateKey, paise, parseMoney } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
 import { FormScroll } from '@/components/keyboard';
 import { DateField, DateTimeField } from '@/components/date-fields';
@@ -221,10 +221,10 @@ function Repayment({ view, accounts, onDone, onError }: { view: IouView; account
   }
   return (
     <View>
-      <Field label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+      <Field label={`Amount (${currencyInfo(view.currency).symbol.trim()})`} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
       <Text style={styles.label}>{view.direction === 'lent' ? 'Came into' : 'Paid from'}</Text>
       <Chips>
-        {accounts.map((b) => (
+        {accounts.filter((b) => b.currency === view.currency).map((b) => (
           <Chip key={b.account.id} label={b.account.name} selected={accountId === b.account.id} onPress={() => setAccountId(b.account.id)} />
         ))}
       </Chips>

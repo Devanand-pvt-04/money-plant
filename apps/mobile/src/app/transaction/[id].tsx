@@ -4,7 +4,7 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMoney, formatRupees, paise } from '@money-plant/core';
 import { describePattern, type Rule } from '@money-plant/categoriser';
-import { REVIEW_REASON_LABELS, USER_SET_FIELDS, type LedgerSource, type UserSetField } from '@money-plant/matcher';
+import { REVIEW_REASON_LABELS, USER_SET_FIELDS, foreignAmount, isEstimated, type LedgerSource, type UserSetField } from '@money-plant/matcher';
 import { AccountPicker } from '@/components/account-picker';
 import { EditFieldSheet, ownLeg, type EditField } from '@/components/edit-field-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
@@ -98,6 +98,7 @@ export default function TransactionDetail() {
   const split = tx.postings.length > 2 && tx.kind === 'expense';
   const twoLegs = tx.postings.length === 2;
   const own = ownLeg(row);
+  const foreign = foreignAmount(tx);
   const firstSource = [...tx.sources].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))[0];
   const badge = firstSource ? (SOURCE_BADGES[firstSource.kind] ?? 'Added') : null;
   const canSplit = tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0;
@@ -185,6 +186,13 @@ export default function TransactionDetail() {
         <Line label="When" value={`${formatDay(tx.occurredAt)} · ${formatTime(tx.occurredAt)}`} onPress={() => setEditing('when')} />
         <Line label="Note" value={tx.note ?? 'Add a note'} muted={!tx.note} onPress={() => setEditing('note')} />
         {twoLegs && <Line label="Amount" value={formatAmount(Math.abs(own?.amount ?? 0), own?.currency)} onPress={() => setEditing('amount')} />}
+        {foreign && (
+          // CAP-10: the bank sent a foreign amount; the rupee figure is the day's rate until the statement arrives.
+          <Line
+            label={isEstimated(tx) ? 'Paid abroad, estimated rate' : 'Paid abroad'}
+            value={formatAmount(foreign.amount, foreign.currency)}
+          />
+        )}
       </Card>
 
       {(canSplit || split || canRecur || canLend) && (

@@ -23,6 +23,7 @@ import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-
 import { notifyLedgerChange } from './events';
 import { loadRates, refreshTodayRates, todayKey } from './fx';
 import { homeCurrency } from './home-currency';
+import { homeConverter } from './home-money';
 
 /** Accounts that hold the user's money, as opposed to category and people accounts. */
 const NON_OWNED: AccountType[] = ['category', 'person', 'exchange'];
@@ -138,6 +139,8 @@ export interface TransactionRow {
   aiConfidence: number | null;
   /** The posting on the user's own account(s), for display. */
   legs: { accountId: string; accountName: string; amount: Paise; currency: CurrencyCode }[];
+  /** The first leg in the home currency at the entry's day, for totals (decision 0017); null while no rate is known. */
+  homeAmount: Paise | null;
   /** Names of every account the postings touch, including categories. */
   accountNames: Record<string, string>;
 }
@@ -168,15 +171,24 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
     const parent = account?.parentId ? byId.get(account.parentId) : undefined;
     return parent ? `${parent.name} › ${account!.name}` : (account?.name ?? 'Unknown category');
   };
+  const owned = (tx: LedgerTransaction) => tx.postings.filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'));
+  const converter = await homeConverter(txs.flatMap((tx) => owned(tx).slice(0, 1).map((p) => ({ currency: p.currency, occurredAt: tx.occurredAt }))));
   return txs.map((tx) => {
+    const legs = owned(tx).map((p) => ({
+      accountId: p.accountId,
+      accountName: byId.get(p.accountId)?.name ?? 'Unknown account',
+      amount: p.amount,
+      currency: p.currency ?? DEFAULT_CURRENCY,
+    }));
+    const first = legs[0];
+    const homeAmount = first ? converter.toHome(first.amount, first.currency, tx.occurredAt) : 0;
     const categoryLeg = tx.kind === 'transfer' ? undefined : tx.postings.find((p) => byId.get(p.accountId)?.type === 'category');
     return {
       tx,
       category: categoryLeg ? { id: categoryLeg.accountId, name: path(categoryLeg.accountId), key: keyOf(categoryLeg.accountId), look: lookOf(categoryLeg.accountId) } : null,
       aiConfidence: tx.categoryReason === 'ai' && tx.counterparty ? (merchants.get(normaliseMerchant(tx.counterparty)) ?? null) : null,
-      legs: tx.postings
-        .filter((p) => !NON_OWNED.includes(byId.get(p.accountId)?.type ?? 'category'))
-        .map((p) => ({ accountId: p.accountId, accountName: byId.get(p.accountId)?.name ?? 'Unknown account', amount: p.amount, currency: p.currency ?? DEFAULT_CURRENCY })),
+      legs,
+      homeAmount: homeAmount === null ? null : paise(homeAmount),
       accountNames: Object.fromEntries(tx.postings.map((p) => [p.accountId, byId.get(p.accountId)?.name ?? 'Unknown account'])),
     };
   });

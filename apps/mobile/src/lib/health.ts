@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { and, gte, inArray, isNull } from 'drizzle-orm';
-import { addReviewSeconds, dateKey, HEALTH_DAYS, healthFigures, type HealthEntry, type HealthFigures, type Paise } from '@money-plant/core';
+import { addReviewSeconds, dateKey, HEALTH_DAYS, healthFigures, type HealthEntry, type HealthFigures, type CurrencyCode, type Paise } from '@money-plant/core';
 import { sources, transactions } from '@money-plant/db-schema';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
@@ -66,6 +66,8 @@ export interface BalanceHealth {
   name: string;
   /** Bank balance minus ledger balance at the latest SMS balance; positive means the ledger is missing money. */
   gap: Paise;
+  /** The account's currency, which `gap` is in (decision 0017). */
+  currency: CurrencyCode;
   observedAt: string;
 }
 
@@ -113,6 +115,7 @@ export async function loadHealth(): Promise<Health> {
         accountId: b.account.id,
         name: b.account.name,
         gap: b.reconciliation!.latest.gap,
+        currency: b.currency,
         observedAt: b.reconciliation!.latest.anchor.observedAt,
       })),
     unchecked: banks.filter((b) => !b.reconciliation).map((b) => b.account.name),

@@ -124,8 +124,25 @@ export default function PersonDetail() {
       {person && (
         <View style={styles.hero}>
           <Initial name={person.account.name} size={56} />
-          <Text style={[styles.heroAmount, person.balance > 0 && { color: colors.primary }]}>{formatAmount(Math.abs(person.balance))}</Text>
-          <Text style={styles.meta}>{person.balance > 0 ? `${person.account.name} owes you` : person.balance < 0 ? `You owe ${person.account.name}` : 'Settled up'}</Text>
+          {person.balances.length === 0 ? (
+            <Text style={styles.heroAmount}>{formatAmount(0)}</Text>
+          ) : (
+            // Each currency on its own line, never added together (decision 0017).
+            person.balances.map((b) => (
+              <Text key={b.currency} style={[styles.heroAmount, b.amount > 0 && { color: colors.primary }]}>
+                {formatAmount(Math.abs(b.amount), b.currency)}
+              </Text>
+            ))
+          )}
+          <Text style={styles.meta}>
+            {person.balances.length === 0
+              ? 'Settled up'
+              : person.balances.every((b) => b.amount > 0)
+                ? `${person.account.name} owes you`
+                : person.balances.every((b) => b.amount < 0)
+                  ? `You owe ${person.account.name}`
+                  : person.balances.map((b) => `${b.amount > 0 ? 'they owe you' : 'you owe'} ${formatAmount(Math.abs(b.amount), b.currency)}`).join(', ')}
+          </Text>
         </View>
       )}
 

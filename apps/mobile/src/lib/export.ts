@@ -1,8 +1,9 @@
 import { Directory } from 'expo-file-system';
 import { asc, isNull } from 'drizzle-orm';
-import { ACCOUNT_TYPE_LABELS, dateKey, paise, rupeesDecimal, toCsv, type AccountType } from '@money-plant/core';
+import { ACCOUNT_TYPE_LABELS, dateKey, DEFAULT_CURRENCY, minorDecimal, toCsv, type AccountType } from '@money-plant/core';
 import { accountTypes, accounts, budgets, postings, recurring, transactions } from '@money-plant/db-schema';
 import { getDb } from './db';
+import { homeCurrency } from './home-currency';
 import { listIous } from './ious';
 
 export interface ExportResult {
@@ -22,6 +23,8 @@ const localTime = (iso: string) => {
  * example Downloads). Entries come one row each, readable in a spreadsheet;
  * postings.csv has every leg of every entry, so the ledger can be rebuilt
  * exactly. SMS text is never written: only the fields the app read from it.
+ * Every amount sits next to its currency (decision 0017); budgets are in the
+ * home currency.
  * Returns null when the user closes the folder picker.
  */
 export async function exportData(): Promise<ExportResult | null> {
@@ -65,10 +68,13 @@ async function buildFiles(): Promise<[string, string][]> {
   for (const p of postingRows) legs.set(p.transactionId, [...(legs.get(p.transactionId) ?? []), p]);
 
   const entries = txRows.map((t) => {
-    const own = legs.get(t.id) ?? [];
+    // The hidden currency-exchange legs of a transfer between currencies are left out here; postings.csv has them.
+    const own = (legs.get(t.id) ?? []).filter((p) => byId.get(p.accountId)?.type !== 'exchange');
     const out = own.filter((p) => p.amountPaise < 0);
     const into = own.filter((p) => p.amountPaise > 0);
-    const amount = into.reduce((s, p) => s + p.amountPaise, 0);
+    // What left, in its currency (for a transfer between currencies, what was sent).
+    const currency = (out[0] ?? into[0])?.currency ?? DEFAULT_CURRENCY;
+    const shownAmount = -out.filter((p) => p.currency === currency).reduce((s, p) => s + p.amountPaise, 0);
     const category = own.find((p) => byId.get(p.accountId)?.type === 'category');
     const person = own.find((p) => byId.get(p.accountId)?.type === 'person');
     return [
@@ -76,7 +82,8 @@ async function buildFiles(): Promise<[string, string][]> {
       localTime(t.occurredAt),
       t.kind,
       t.counterparty,
-      rupeesDecimal(paise(amount)),
+      minorDecimal(shownAmount, currency),
+      currency,
       out.map((p) => name(p.accountId)).join(' + '),
       into.map((p) => name(p.accountId)).join(' + '),
       category ? categoryPath(category.accountId) : '',
@@ -88,7 +95,7 @@ async function buildFiles(): Promise<[string, string][]> {
   });
 
   const postingsCsv = txRows.flatMap((t) =>
-    (legs.get(t.id) ?? []).map((p) => [t.id, t.occurredAt, p.accountId, name(p.accountId), rupeesDecimal(paise(p.amountPaise))]),
+    (legs.get(t.id) ?? []).map((p) => [t.id, t.occurredAt, p.accountId, name(p.accountId), minorDecimal(p.amountPaise, p.currency), p.currency]),
   );
 
   const accountsCsv = accountRows.map((a) => [
@@ -96,19 +103,22 @@ async function buildFiles(): Promise<[string, string][]> {
     a.type === 'category' ? categoryPath(a.id) : a.name,
     a.institution,
     a.last4,
-    MONEY.has(a.type) ? rupeesDecimal(paise(a.openingBalancePaise)) : '',
+    MONEY.has(a.type) ? minorDecimal(a.openingBalancePaise, a.currency) : '',
+    MONEY.has(a.type) ? a.currency : '',
     a.vpa,
     a.email,
     a.id,
   ]);
 
+  const home = homeCurrency();
   const budgetsCsv = budgetRows
     .filter((b) => b.limitPaise !== null)
-    .map((b) => [b.month ?? 'Every month', b.categoryAccountId ? categoryPath(b.categoryAccountId) : 'Overall', rupeesDecimal(paise(b.limitPaise!))]);
+    .map((b) => [b.month ?? 'Every month', b.categoryAccountId ? categoryPath(b.categoryAccountId) : 'Overall', minorDecimal(b.limitPaise!, home), home]);
 
   const recurringCsv = recurringRows.map((r) => [
     r.name,
-    rupeesDecimal(paise(r.amountPaise)),
+    minorDecimal(r.amountPaise, r.currency),
+    r.currency,
     r.cadence,
     r.nextDue,
     name(r.accountId),
@@ -121,19 +131,20 @@ async function buildFiles(): Promise<[string, string][]> {
     v.occurredOn,
     v.otherName,
     v.direction === 'lent' ? 'They owe me' : 'I owe them',
-    rupeesDecimal(v.amount),
-    rupeesDecimal(v.outstanding),
+    minorDecimal(v.amount, v.currency),
+    minorDecimal(v.outstanding, v.currency),
+    v.currency,
     v.dueDate,
     v.reason,
     v.state,
   ]);
 
   return [
-    ['entries', toCsv(['Date', 'Time', 'Kind', 'Payee', 'Amount', 'From', 'To', 'Category', 'Person', 'Note', 'Status', 'Entry ID'], entries)],
-    ['postings', toCsv(['Entry ID', 'When', 'Account ID', 'Account', 'Amount'], postingsCsv)],
-    ['accounts', toCsv(['Type', 'Name', 'Bank', 'Last 4', 'Opening balance', 'UPI ID', 'Email', 'ID'], accountsCsv)],
-    ['budgets', toCsv(['Month', 'Category', 'Limit'], budgetsCsv)],
-    ['recurring', toCsv(['Name', 'Amount', 'Every', 'Next due', 'Paid from', 'Category', 'Status', 'Payee'], recurringCsv)],
-    ['ious', toCsv(['Date', 'Person', 'Direction', 'Amount', 'Still owed', 'Due', 'Reason', 'State'], iousCsv)],
+    ['entries', toCsv(['Date', 'Time', 'Kind', 'Payee', 'Amount', 'Currency', 'From', 'To', 'Category', 'Person', 'Note', 'Status', 'Entry ID'], entries)],
+    ['postings', toCsv(['Entry ID', 'When', 'Account ID', 'Account', 'Amount', 'Currency'], postingsCsv)],
+    ['accounts', toCsv(['Type', 'Name', 'Bank', 'Last 4', 'Opening balance', 'Currency', 'UPI ID', 'Email', 'ID'], accountsCsv)],
+    ['budgets', toCsv(['Month', 'Category', 'Limit', 'Currency'], budgetsCsv)],
+    ['recurring', toCsv(['Name', 'Amount', 'Currency', 'Every', 'Next due', 'Paid from', 'Category', 'Status', 'Payee'], recurringCsv)],
+    ['ious', toCsv(['Date', 'Person', 'Direction', 'Amount', 'Still owed', 'Currency', 'Due', 'Reason', 'State'], iousCsv)],
   ];
 }

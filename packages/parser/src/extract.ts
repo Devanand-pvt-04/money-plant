@@ -1,4 +1,4 @@
-import { parseRupees, type Paise } from '@money-plant/core';
+import { DEFAULT_CURRENCY, isCurrency, parseMoney, parseRupees, type CurrencyCode, type Paise } from '@money-plant/core';
 import type { Channel, Direction, IgnoreReason, Instrument } from './types';
 
 /**
@@ -18,11 +18,33 @@ export interface Amounts {
   amount: Paise | null;
   balance: Paise | null;
   availableLimit: Paise | null;
+  /**
+   * CAP-10: a transaction amount in another currency, "USD 25.00 spent", in
+   * that currency's minor units. Only used when no rupee amount was found.
+   */
+  foreign: { amount: number; currency: CurrencyCode } | null;
+}
+
+// "USD 25.00", "EUR25", "AED 1,250.50", "KWD 3.250", and the common symbols.
+const FOREIGN_AMOUNT = /(?:\b([A-Z]{3})\s*|(US\$|\$|€|£|¥))([0-9][0-9,]*(?:\.[0-9]{1,3})?)/g;
+const SYMBOLS: Record<string, CurrencyCode> = { US$: 'USD', $: 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY' };
+
+/** The first foreign-currency amount that isn't a balance, limit or due amount. */
+function extractForeign(text: string): Amounts['foreign'] {
+  for (const match of text.matchAll(FOREIGN_AMOUNT)) {
+    const currency = match[1] ?? SYMBOLS[match[2]!];
+    if (!currency || currency === DEFAULT_CURRENCY || !isCurrency(currency)) continue;
+    const before = text.slice(Math.max(0, match.index - 30), match.index);
+    if (LIMIT_BEFORE.test(before) || BALANCE_BEFORE.test(before) || NOT_TXN_AMOUNT_BEFORE.test(before)) continue;
+    const amount = parseMoney(match[3]!, currency);
+    if (amount !== null && amount > 0) return { amount, currency };
+  }
+  return null;
 }
 
 /** Splits the amounts in a message into the transaction amount, balance and available limit. */
 export function extractAmounts(text: string): Amounts {
-  const result: Amounts = { amount: null, balance: null, availableLimit: null };
+  const result: Amounts = { amount: null, balance: null, availableLimit: null, foreign: null };
   for (const match of text.matchAll(CURRENCY_AMOUNT)) {
     const value = parseRupees(match[1]!);
     if (value === null) continue;
@@ -31,7 +53,8 @@ export function extractAmounts(text: string): Amounts {
     else if (BALANCE_BEFORE.test(before)) result.balance ??= value;
     else if (!NOT_TXN_AMOUNT_BEFORE.test(before)) result.amount ??= value;
   }
-  if (result.amount === null) {
+  if (result.amount === null) result.foreign = extractForeign(text);
+  if (result.amount === null && result.foreign === null) {
     const bare = BARE_AMOUNT.exec(text);
     if (bare) result.amount = parseRupees(bare[1]!);
   }

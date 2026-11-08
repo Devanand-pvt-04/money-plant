@@ -3,7 +3,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'r
 import { router, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatWholeRupees } from '@/components/format';
-import { Net, dueText } from '@/components/people-rows';
+import { Net, NetByCurrency, dueText } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
 import { ErrorText, Card, Initial, SectionTitle, colors, radius } from '@/components/ui';
 import { isOpen, listIous, type IouView } from '@/lib/ious';
@@ -22,12 +22,12 @@ async function load() {
 
 /** What a person's open IOUs are about, in a few words: "Owes you for Goa stay", "Lunch split, 2 entries". */
 function personNote(person: Person, ious: readonly IouView[], day: string): string {
-  if (person.balance === 0) return 'Settled up';
+  if (person.balances.length === 0) return 'Settled up';
   const open = ious.filter((v) => v.personId === person.account.id && isOpen(v)).sort((a, b) => b.occurredOn.localeCompare(a.occurredOn));
   const reason = open[0]?.reason?.replace(/^(Split|Share of): ?/, '') ?? null;
   if (open.length > 1) return reason ? `${reason} and ${open.length - 1} more` : `${open.length} open entries`;
   const due = open[0] ? dueText(open[0], day) : null;
-  const lead = person.balance > 0 ? (reason ? `Owes you for ${reason}` : 'Owes you') : reason ? `You owe for ${reason}` : 'You owe';
+  const lead = (person.balance || person.balances[0]!.amount) > 0 ? (reason ? `Owes you for ${reason}` : 'Owes you') : reason ? `You owe for ${reason}` : 'You owe';
   return due ? `${lead} · ${due}` : lead;
 }
 
@@ -48,6 +48,7 @@ export default function People() {
     });
   }, [navigation]);
 
+  // Totals in the home currency at today's rate (decision 0017); each person's row keeps their own currencies.
   const owing = data.people.filter((p) => p.balance > 0);
   const owed = data.people.filter((p) => p.balance < 0);
   const owedToMe = owing.reduce((s, p) => s + p.balance, 0);
@@ -89,7 +90,7 @@ export default function People() {
                     <Text style={styles.name}>{v.direction === 'borrowed' ? `You owe ${v.otherName}` : `${v.otherName} owes you`}</Text>
                     <Text style={styles.meta}>{v.reason ?? 'No reason given'} · tap to confirm</Text>
                   </View>
-                  <Text style={styles.amount}>{formatAmount(v.amount)}</Text>
+                  <Text style={styles.amount}>{formatAmount(v.amount, v.currency)}</Text>
                 </Pressable>
               ))}
             </Card>
@@ -113,10 +114,10 @@ export default function People() {
                   <View style={styles.grow}>
                     <Text style={styles.name}>{g.group.name}</Text>
                     <Text style={styles.meta}>
-                      {g.group.memberIds.length + 1} people · {g.expenses.length === 0 ? 'no expenses yet' : g.net === 0 && g.members.every((m) => m.balance === 0) ? 'settled up' : `${formatWholeRupees(g.spent)} spent`}
+                      {g.group.memberIds.length + 1} people · {g.expenses.length === 0 ? 'no expenses yet' : g.net === 0 && g.members.every((m) => m.balance === 0) ? 'settled up' : `${formatWholeRupees(g.spent, g.currency)} spent`}
                     </Text>
                   </View>
-                  <Net amount={g.net} />
+                  <Net amount={g.net} currency={g.currency} />
                 </Pressable>
               ))}
             </Card>
@@ -142,7 +143,7 @@ export default function People() {
                     {personNote(p, data.ious, day)}
                   </Text>
                 </View>
-                <Net amount={p.balance} />
+                <NetByCurrency balances={p.balances} />
               </Pressable>
             ))}
           </Card>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { dateOf, formatRupees, isDateKey, paise, parseRupees, type Paise } from '@money-plant/core';
+import { currencyInfo, dateOf, formatMoney, isDateKey, paise, parseMoney, type Paise } from '@money-plant/core';
 import type { IouDirection, LedgerTransaction } from '@money-plant/matcher';
 import { FormScroll } from '@/components/keyboard';
 import { DateField, DateTimeField, formatWhen } from '@/components/date-fields';
@@ -11,6 +11,7 @@ import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
 import { createIou, loanCandidates, type EntryLink } from '@/lib/ious';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { createPerson, findPersonForPayee, listPeople, type Person } from '@/lib/people';
+import { homeCurrency } from '@/lib/home-currency';
 import { isVpa } from '@/lib/me';
 
 const linkKey = (link: EntryLink | null) => (link === null ? '' : 'existingId' in link ? `tx:${link.existingId}` : `acc:${link.accountId}`);
@@ -56,7 +57,7 @@ export default function NewIou() {
       setFromTx(row.tx);
       setLink({ existingId: row.tx.id });
       setDirection(own.amount < 0 ? 'lent' : 'borrowed');
-      setAmount(formatRupees(paise(Math.abs(own.amount)), { symbol: false }).replace(/,/g, ''));
+      setAmount(formatMoney(paise(Math.abs(own.amount)), own.currency, { symbol: false }).replace(/,/g, ''));
       setOccurredAt(row.tx.occurredAt);
       if (!params.person && row.tx.counterparty) {
         const smsVpa = row.tx.sources.find((s) => s.kind === 'sms')?.parsedFields.vpa;
@@ -72,7 +73,14 @@ export default function NewIou() {
   }, [params.from, params.person, reloadPeople]);
 
   // Offer the bank entry that is probably this loan.
-  const parsed = parseRupees(amount);
+  // The loan is in its entry's currency, or the account's, else the home currency (decision 0017).
+  const linkedTx = link && 'existingId' in link ? [fromTx, ...candidates].find((tx) => tx?.id === link.existingId) : undefined;
+  const currency =
+    linkedTx?.postings.find((p) => p.currency)?.currency ??
+    (link && 'accountId' in link ? accounts.find((b) => b.account.id === link.accountId)?.currency : undefined) ??
+    homeCurrency();
+  const typed = parseMoney(amount, currency);
+  const parsed = typed === null ? null : paise(typed);
   useEffect(() => {
     if (fromTx || parsed === null || parsed <= 0 || !isDateKey(occurredOn)) return setCandidates([]);
     loanCandidates(direction, parsed as Paise, occurredOn).then(setCandidates);
@@ -131,7 +139,7 @@ export default function NewIou() {
         <Chip label="I lent money" selected={direction === 'lent'} onPress={() => !fromTx && setDirection('lent')} />
         <Chip label="I borrowed money" selected={direction === 'borrowed'} onPress={() => !fromTx && setDirection('borrowed')} />
       </Chips>
-      <Field label="Amount (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" editable={!fromTx} />
+      <Field label={`Amount (${currencyInfo(currency).symbol.trim()})`} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" editable={!fromTx} />
       <Field label="What for" value={reason} onChangeText={setReason} placeholder="Concert tickets" maxLength={200} />
       {fromTx ? (
         <Field label="When" value={formatWhen(fromTx.occurredAt)} editable={false} />
