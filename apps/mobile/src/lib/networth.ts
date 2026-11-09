@@ -1,11 +1,30 @@
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
-import { convertOn, DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
+import { convertOn, countedPeople, DEFAULT_CURRENCY, lentBorrowed, paise, type CurrencyCode, type LentBorrowed, type Paise } from '@money-plant/core';
 import { fxRates, postings, transactions } from '@money-plant/db-schema';
 import { getDb } from './db';
 import { loadRates, requestRates } from './fx';
 import { homeCurrency } from './home-currency';
 import { kvGet, kvSet } from './kv';
+import { doubtfulPeople } from './doubtful';
 import { netWorth, type AccountBalance } from './ledger';
+import { listPeople, type Person } from './people';
+
+export interface Owed extends LentBorrowed {
+  /** The person accounts that count: everyone but doubtful people who owe the user. */
+  counted: Person[];
+}
+
+/** NW-1: money lent and borrowed, from person balances in the home currency, without loans the user doubts. */
+export async function owedWorth(): Promise<Owed> {
+  const people = await listPeople();
+  const doubtful = doubtfulPeople();
+  const worths = people.map((p) => ({ id: p.account.id, balance: p.balance }));
+  const ids = new Set(countedPeople(worths, doubtful));
+  return { ...lentBorrowed(worths, doubtful), counted: people.filter((p) => ids.has(p.account.id)) };
+}
+
+/** Net worth today: the user's accounts plus what IOUs add (NW-1). */
+export const totalNetWorth = (balances: readonly AccountBalance[], owed: Pick<Owed, 'net'>): Paise => paise(netWorth(balances) + owed.net);
 
 const SNAPSHOT_PREFIX = 'networth.';
 const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -32,16 +51,20 @@ function readSnapshot(saved: string | null, home: CurrencyCode): Paise | null {
 
 const dayKey = (date: Date) => `${monthKey(date)}-${String(date.getDate()).padStart(2, '0')}`;
 
-export async function netWorthHistory(balances: readonly AccountBalance[], months = 6): Promise<NetWorthPoint[]> {
+export async function netWorthHistory(balances: readonly AccountBalance[], owed: Owed, months = 6): Promise<NetWorthPoint[]> {
   const now = new Date();
   const current = monthKey(now);
   const home = homeCurrency();
-  const value = netWorth(balances);
+  const value = totalNetWorth(balances, owed);
   await kvSet(`${SNAPSHOT_PREFIX}${current}`, `${value}|${home}`);
 
   const db = await getDb();
-  const counted = balances.filter((b) => b.inNetWorth);
-  const ids = counted.map((b) => b.account.id);
+  // Person accounts count too, so a month's lending and borrowing shows in it (NW-1).
+  const counted = [
+    ...balances.filter((b) => b.inNetWorth).map((b) => ({ id: b.account.id, currency: b.currency, opening: b.account.openingBalancePaise })),
+    ...owed.counted.map((p) => ({ id: p.account.id, currency: p.account.currency, opening: p.account.openingBalancePaise })),
+  ];
+  const ids = counted.map((b) => b.id);
   if (ids.length === 0) return [{ month: current, value }];
   const first = db
     .select({ at: sql<string | null>`min(${transactions.occurredAt})` })
@@ -50,7 +73,7 @@ export async function netWorthHistory(balances: readonly AccountBalance[], month
     .get()?.at;
   // NW-7: rebuilt months add up each currency, converted at that month's last rate.
   const openingBy = new Map<CurrencyCode, number>();
-  for (const b of counted) openingBy.set(b.currency, (openingBy.get(b.currency) ?? 0) + b.account.openingBalancePaise);
+  for (const b of counted) openingBy.set(b.currency, (openingBy.get(b.currency) ?? 0) + b.opening);
   const currencies = [...new Set([...openingBy.keys(), home])];
   const foreign = currencies.some((c) => c !== DEFAULT_CURRENCY);
   let rates = foreign ? await loadRates(currencies) : [];

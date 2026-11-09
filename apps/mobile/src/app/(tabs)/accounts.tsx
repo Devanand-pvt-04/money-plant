@@ -1,14 +1,15 @@
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { lentBorrowed } from '@money-plant/core';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatWholeRupees } from '@/components/format';
 import { ErrorText, MoneyCard, colors, figures, radius } from '@/components/ui';
 import { GROUPS, SLICE_COLOURS, SLICE_LABELS, type AccountGroup } from '@/lib/account-groups';
 import { marketValues } from '@/lib/demat';
 import { fundValues } from '@/lib/funds';
-import { homeValueOf, listAccountBalances, missingRates, netWorth, type AccountBalance } from '@/lib/ledger';
-import { netWorthHistory, type NetWorthPoint } from '@/lib/networth';
+import { homeValueOf, listAccountBalances, missingRates, type AccountBalance } from '@/lib/ledger';
+import { netWorthHistory, owedWorth, totalNetWorth, type NetWorthPoint, type Owed } from '@/lib/networth';
 import { recurringOverview, type UpcomingPayment } from '@/lib/recurring';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
@@ -34,9 +35,9 @@ async function gains(balances: readonly AccountBalance[]) {
 }
 
 async function load() {
-  const balances = await listAccountBalances();
-  const [recurring, history, gain] = await Promise.all([recurringOverview(), netWorthHistory(balances), gains(balances)]);
-  return { balances, upcoming: recurring.upcoming, history, gain };
+  const [balances, owed] = await Promise.all([listAccountBalances(), owedWorth()]);
+  const [recurring, history, gain] = await Promise.all([recurringOverview(), netWorthHistory(balances, owed), gains(balances)]);
+  return { balances, owed, upcoming: recurring.upcoming, history, gain };
 }
 
 const percent = (gain: number, invested: number) => {
@@ -49,7 +50,7 @@ export default function Accounts() {
   const insets = useSafeAreaInsets();
   const { data, reload } = useLedger(
     load,
-    { balances: [] as AccountBalance[], upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[], gain: { funds: null, stocks: null } as Awaited<ReturnType<typeof gains>> },
+    { balances: [] as AccountBalance[], owed: NO_OWED, upcoming: [] as UpcomingPayment[], history: [] as NetWorthPoint[], gain: { funds: null, stocks: null } as Awaited<ReturnType<typeof gains>> },
     'accounts',
   );
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
@@ -58,7 +59,10 @@ export default function Accounts() {
   const own = counted.filter((b) => homeValueOf(b) > 0).reduce((s, b) => s + homeValueOf(b), 0);
   const owe = counted.filter((b) => homeValueOf(b) < 0).reduce((s, b) => s - homeValueOf(b), 0);
   const unrated = missingRates(data.balances);
-  const worth = netWorth(data.balances);
+  // NW-1: money lent counts as owned and money borrowed as owed.
+  const { owed } = data;
+  const worth = totalNetWorth(data.balances, owed);
+  const showOwed = owed.lent > 0 || owed.borrowed > 0 || owed.leftOut > 0;
   const previous = data.history.length >= 2 ? data.history[data.history.length - 2]!.value : null;
   const change = previous === null ? null : worth - previous;
   const next = data.upcoming[0];
@@ -154,15 +158,15 @@ export default function Accounts() {
       <View style={styles.pair}>
         <View style={styles.tile}>
           <Text style={styles.meta}>You own</Text>
-          <Text style={styles.tileValue}>{formatWholeRupees(own)}</Text>
+          <Text style={styles.tileValue}>{formatWholeRupees(own + owed.lent)}</Text>
         </View>
         <View style={styles.tile}>
           <Text style={styles.meta}>You owe</Text>
-          <Text style={styles.tileValue}>{formatWholeRupees(owe)}</Text>
+          <Text style={styles.tileValue}>{formatWholeRupees(owe + owed.borrowed)}</Text>
         </View>
       </View>
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && !showOwed ? (
         <Text style={styles.empty}>No accounts yet. Read your bank SMS, or add accounts, cards and cash by hand. Import your mutual funds from a CAS.</Text>
       ) : (
         <View style={styles.card}>
@@ -193,6 +197,24 @@ export default function Accounts() {
               </Pressable>
             );
           })}
+          {showOwed && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/people')}
+              style={({ pressed }) => [styles.row, groups.length > 0 && styles.divided, pressed && styles.pressed]}
+            >
+              <View style={[styles.dot, owed.net < 0 ? styles.dotHollow : { backgroundColor: colors.track }]} />
+              <View style={styles.grow}>
+                <Text style={styles.name} numberOfLines={1}>
+                  Lent and borrowed
+                </Text>
+                <Text style={styles.status} numberOfLines={1}>
+                  {owedLine(owed)}
+                </Text>
+              </View>
+              <Text style={styles.amount}>{owed.net < 0 ? `−${formatWholeRupees(-owed.net)}` : formatWholeRupees(owed.net)}</Text>
+            </Pressable>
+          )}
         </View>
       )}
 
@@ -224,6 +246,15 @@ export default function Accounts() {
       </Pressable>
     </ScrollView>
   );
+}
+
+const NO_OWED: Owed = { ...lentBorrowed([]), counted: [] };
+
+/** "Lent ₹5,000 · Borrowed ₹2,000 · ₹1,000 left out". */
+function owedLine(owed: Owed): string {
+  const parts = [`Lent ${formatWholeRupees(owed.lent)}`, `Borrowed ${formatWholeRupees(owed.borrowed)}`];
+  if (owed.leftOut > 0) parts.push(`${formatWholeRupees(owed.leftOut)} left out`);
+  return parts.join(' · ');
 }
 
 function formatDue(days: number): string {
