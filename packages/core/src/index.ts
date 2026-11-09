@@ -14,3 +14,4 @@ export * from './health';
 export * from './demat';
 export * from './sync';
 export * from './fund-views';
+export * from './owed';

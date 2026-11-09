@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Share, StyleSheet, Switch, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
 import { formatAmount } from '@/components/format';
 import { IouRow } from '@/components/people-rows';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, colors } from '@/components/ui';
 import { contactById, pickContact } from '@/lib/contacts';
+import { setDoubtful, useDoubtfulPeople } from '@/lib/doubtful';
 import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/lib/friends';
 import { getMe } from '@/lib/me';
 import { markInvited } from '@/lib/setup';
@@ -35,6 +36,8 @@ export default function PersonDetail() {
   // ACC-9: whether this person is linked on Money Plant. Undefined while loading or offline.
   const [link, setLink] = useState<FriendLink | null | undefined>(undefined);
   const [inviting, setInviting] = useState(false);
+  const doubtful = useDoubtfulPeople();
+  const [savingDoubt, setSavingDoubt] = useState(false);
   const savedEmail = data.person?.account.email ?? null;
 
   useEffect(() => {
@@ -103,6 +106,19 @@ export default function PersonDetail() {
     }
   }
 
+  // NW-1: leave out of net worth what someone may never pay back. Saved on the server, so it needs the network.
+  async function countInNetWorth(count: boolean) {
+    setSavingDoubt(true);
+    setError(null);
+    try {
+      await setDoubtful(id, !count);
+    } catch (e) {
+      setError(e instanceof Error ? `Couldn't save: ${e.message}` : String(e));
+    } finally {
+      setSavingDoubt(false);
+    }
+  }
+
   async function linkContact() {
     try {
       const picked = await pickContact();
@@ -157,6 +173,15 @@ export default function PersonDetail() {
                 <IouRow key={v.id} view={v} today={day} first={i === 0} />
               ))}
             </Card>
+          )}
+          {(person.balance > 0 || doubtful.has(id)) && (
+            <View style={styles.switchRow}>
+              <View style={styles.grow}>
+                <Text style={styles.switchLabel}>Count what they owe in net worth</Text>
+                <Text style={styles.hint}>Turn off for a loan you doubt will come back. What you owe them always counts.</Text>
+              </View>
+              <Switch value={!doubtful.has(id)} onValueChange={countInNetWorth} disabled={savingDoubt} />
+            </View>
           )}
           <Button title="Add an expense with them" onPress={() => router.push(`/expense?person=${id}`)} />
           <Button title="Record a loan" variant="secondary" onPress={() => router.push(`/iou/new?person=${id}`)} />
@@ -223,4 +248,7 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   linked: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 6 },
   actions: { marginTop: 16, gap: 10 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 8 },
+  switchLabel: { fontSize: 15, color: colors.text },
+  grow: { flex: 1 },
 });
