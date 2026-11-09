@@ -17,3 +17,6 @@ coverage/
 __pycache__/
 .pytest_cache/
 .venv/
+
+# The age private key that decrypts cloud backups (scripts/backup/README.md). Never commit it.
+*backup-key*.txt
