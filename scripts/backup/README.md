@@ -8,8 +8,8 @@ Every Sunday at 11:00 India time, `.github/workflows/backup.yml` dumps the ledge
 
 ### Setup (once, about 10 minutes)
 
-1. **Install age on your PC:** `winget install FiloSottile.age` in PowerShell.
-2. **Make your key pair:** `age-keygen -o money-plant-backup-key.txt`. It prints `Public key: age1...`. The file is the private key: **only it can open the backups, and losing it means losing them.** Keep it offline, for example on a USB stick and in your password manager, never in the repo, Drive or GitHub.
+1. **Install age on your PC:** `winget install --id FiloSottile.age` in PowerShell, then close PowerShell and open a new window so `age-keygen` is found.
+2. **Make your key pair outside the repo folder:** `age-keygen -o "$HOME\Documents\money-plant-backup-key.txt"`. It prints `Public key: age1...`. The file is the private key: **only it can open the backups, and losing it means losing them.** Keep it offline, for example on a USB stick and in your password manager, never in the repo, Drive or GitHub.
 3. **Add two repository secrets** in GitHub → the repo → **Settings → Secrets and variables → Actions → New repository secret**:
    - `SUPABASE_DB_URL`: the **Session pooler** URI from the Supabase dashboard's **Connect** button, with `[YOUR-PASSWORD]` replaced by the database password (reset it under Settings → Database if needed).
    - `BACKUP_AGE_RECIPIENT`: the `age1...` public key from step 2.
