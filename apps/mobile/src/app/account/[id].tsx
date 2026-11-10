@@ -180,7 +180,7 @@ function BankView({ balance: item, rows, upcoming, footer }: { balance: AccountB
           <Stack.Screen options={{ title: accountLabel(account) }} />
           <MoneyCard>
             <Text style={styles.heroMuted}>Balance</Text>
-            <Text style={styles.heroAmount}>{formatWholeRupees(balance, account.currency)}</Text>
+            <Text style={styles.heroAmount}>{formatAmount(balance, account.currency)}</Text>
             {reconciliation && <Reconciled reconciliation={reconciliation} currency={account.currency} />}
             <View style={styles.heroStats}>
               <View style={styles.grow}>
@@ -221,7 +221,7 @@ function BankView({ balance: item, rows, upcoming, footer }: { balance: AccountB
       renderSectionHeader={({ section }) => (
         <View style={styles.day}>
           <Text style={styles.dayText}>{section.title.toUpperCase()}</Text>
-          <Text style={styles.dayAfter}>Balance after: {formatWholeRupees(section.after, account.currency)}</Text>
+          <Text style={styles.dayAfter}>Balance after: {formatAmount(section.after, account.currency)}</Text>
         </View>
       )}
       renderItem={({ item, index, section }) => (
