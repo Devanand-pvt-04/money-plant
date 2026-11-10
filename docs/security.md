@@ -38,6 +38,21 @@ Every PR description also says how its change was checked for security.
 - [ ] Supabase → Authentication → Users holds only people you invited.
 - [ ] Settings → Health and the `app_errors` table show nothing unusual.
 - [ ] The latest weekly backup exists and opens (decision 0016).
+- [ ] The newest APK has an APK security scan with no new high findings (see below).
+
+## APK scan (after each new build)
+
+CI checks the code, but a scanner looks at the finished APK the way an outside tester would. After each new production or preview build, go to **Actions → APK security scan → Run workflow** and pick the profile. It downloads the newest finished EAS build (or the build ID you give it), scans it with [MobSF](https://github.com/MobSF/Mobile-Security-Framework-MobSF) (free, open source), and keeps the report as the run's `mobsf-report` artifact for 90 days. The run summary lists the high and warning findings. Findings never fail the run. It uses the same `EXPO_TOKEN` secret as the OTA update workflow.
+
+Read each new high or warning finding and fix it, or add it to the list below with the reason. Bump the pinned MobSF image in `.github/workflows/apk-scan.yml` now and then.
+
+**Known false positives** (checked 2026-11-10, from an AndroBugs scan of preview 0.2.0):
+
+- *WebView remote code execution (`addJavascriptInterface`, CVE-2013-4710), WebView file access and JavaScript enabled.* The bug only affects Android 4.2 and older, and the app needs Android 7 (minSdk 24). The WebView is `@expo/dom-webview` in Expo's developer error screen (`@expo/log-box`); the app never opens a WebView.
+- *URLs not under SSL.* XML namespace and identifier strings inside libraries, not network calls. The app talks only to Supabase over HTTPS.
+- *External storage, `ANDROID_ID`, `getprop`, `File.delete`, signature and installer checks.* Expo, React Native and Google library code; the app's own code doesn't call them.
+- *No SQLCipher.* SQLCipher is built into expo-sqlite's native library (`useSQLCipher` in `app.json`), where some scanners don't look.
+- *SMS receiver and notification listener exported.* Android requires it; they only accept the system as caller (`BROADCAST_SMS` and `BIND_NOTIFICATION_LISTENER_SERVICE`).
 
 ## If something goes wrong
 

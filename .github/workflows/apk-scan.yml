@@ -1,0 +1,132 @@
+name: APK security scan
+
+# Scans an Android build with MobSF (free, open source) and keeps the report,
+# from the Actions tab: Run workflow after each new APK (docs/security.md).
+# By default it takes the newest finished EAS build of the chosen profile;
+# give a build ID to scan an older one. Needs the EXPO_TOKEN repository secret,
+# the same one the OTA update workflow uses. Findings never fail the run:
+# read the summary and the report, then decide (docs/security.md, "APK scan").
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Which app to scan (the newest finished build)
+        type: choice
+        options: [production, preview]
+        default: production
+      build_id:
+        description: Optional EAS build ID, to scan a specific build instead
+        type: string
+        required: false
+
+concurrency:
+  group: apk-scan
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Pinned so a new MobSF release can't change results silently. Bump by hand.
+  MOBSF_IMAGE: opensecurity/mobile-security-framework-mobsf:v4.5.3
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Start MobSF first: it takes a minute to boot while the APK downloads.
+      # The API key is random per run and the port is only open on the runner.
+      - name: Start MobSF
+        run: |
+          key="$(openssl rand -hex 32)"
+          echo "::add-mask::$key"
+          echo "MOBSF_KEY=$key" >> "$GITHUB_ENV"
+          docker run -d --name mobsf -p 127.0.0.1:8000:8000 -e MOBSF_API_KEY="$key" "$MOBSF_IMAGE"
+
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # eas-cli reads the app config, which needs the workspace installed.
+      - run: pnpm install --frozen-lockfile
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Inputs go through env, never into the script text.
+      - name: Download the APK
+        working-directory: apps/mobile
+        env:
+          PROFILE: ${{ inputs.profile }}
+          BUILD_ID: ${{ inputs.build_id }}
+        run: |
+          if [ -n "$BUILD_ID" ]; then
+            eas build:view "$BUILD_ID" --json > "$RUNNER_TEMP/build.json"
+          else
+            eas build:list --platform android --build-profile "$PROFILE" --status finished \
+              --limit 1 --json --non-interactive | jq '.[0]' > "$RUNNER_TEMP/build.json"
+          fi
+          url="$(jq -r '.artifacts.applicationArchiveUrl // .artifacts.buildUrl // empty' "$RUNNER_TEMP/build.json")"
+          if [ -z "$url" ]; then echo "::error::No finished Android build with an APK found"; exit 1; fi
+          case "$url" in *.apk) ;; *) echo "::error::Build artifact is not an APK: $url"; exit 1 ;; esac
+          jq -r '"Build \(.id), app \(.appVersion) (\(.appBuildVersion)), profile \(.buildProfile), finished \(.completedAt)"' \
+            "$RUNNER_TEMP/build.json" | tee "$RUNNER_TEMP/build.txt"
+          curl -sSfL "$url" -o "$RUNNER_TEMP/app.apk"
+
+      - name: Scan with MobSF
+        run: |
+          api=http://127.0.0.1:8000/api/v1
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null -H "Authorization: $MOBSF_KEY" "$api/scans" && break
+            sleep 5
+          done
+          hash="$(curl -sSf -H "Authorization: $MOBSF_KEY" -F "file=@$RUNNER_TEMP/app.apk" "$api/upload" | jq -r .hash)"
+          curl -sSf -o /dev/null -H "Authorization: $MOBSF_KEY" --max-time 1200 -d "hash=$hash" "$api/scan"
+          mkdir -p report
+          curl -sSf -H "Authorization: $MOBSF_KEY" -d "hash=$hash" "$api/report_json" > report/mobsf-report.json
+          curl -sSf -H "Authorization: $MOBSF_KEY" -d "hash=$hash" "$api/scorecard" > report/mobsf-scorecard.json
+          curl -sSf -H "Authorization: $MOBSF_KEY" -d "hash=$hash" "$api/download_pdf" -o report/mobsf-report.pdf \
+            || echo "::warning::MobSF could not make the PDF; the JSON report is still saved"
+          cp "$RUNNER_TEMP/build.txt" report/build.txt
+
+      - name: Summary
+        run: |
+          s=report/mobsf-scorecard.json
+          {
+            echo "## MobSF scan"
+            echo
+            cat report/build.txt
+            echo
+            echo "Security score: $(jq -r '.security_score // "n/a"' "$s")"
+            echo
+            echo "| Severity | Count |"
+            echo "| --- | --- |"
+            for k in high warning info secure hotspot; do
+              echo "| $k | $(jq -r --arg k "$k" '(.[$k] // []) | length' "$s") |"
+            done
+            echo
+            echo "### High"
+            jq -r '(.high // [])[] | "- **\(.title)**: \(.section // "")"' "$s"
+            echo
+            echo "### Warning"
+            jq -r '(.warning // [])[] | "- **\(.title)**: \(.section // "")"' "$s"
+            echo
+            echo "Full report: the mobsf-report artifact of this run. Known false positives are listed in docs/security.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobsf-report
+          path: report/
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: MobSF logs on failure
+        if: failure()
+        run: docker logs mobsf | tail -50
