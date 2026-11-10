@@ -1,6 +1,6 @@
 import type { CurrencyCode, Paise } from '@money-plant/core';
 
-export const BANKS = ['hdfc', 'icici', 'sbi', 'hsbc', 'slice'] as const;
+export const BANKS = ['hdfc', 'icici', 'sbi', 'hsbc', 'pnb', 'slice'] as const;
 export type BankId = (typeof BANKS)[number];
 
 export const BANK_NAMES: Record<BankId, string> = {
@@ -8,6 +8,7 @@ export const BANK_NAMES: Record<BankId, string> = {
   icici: 'ICICI Bank',
   sbi: 'SBI',
   hsbc: 'HSBC',
+  pnb: 'Punjab National Bank',
   slice: 'slice',
 };
 

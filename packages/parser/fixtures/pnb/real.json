@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {
+      "sender": "AX-PNBSMS-S",
+      "body": "A/c X1234 debited INR 5.00 Dt 06-11-26 16:39:18 to Ravi  K thru UPI:629412345678.Bal INR 12345.00 Not u?Fwd this SMS to 9264092640 to block UPI.-PNB",
+      "expect": { "bank": "pnb", "template": "pnb.debit", "direction": "debit", "amount": 500, "instrument": "account", "accountLast": "1234", "counterparty": "Ravi K", "reference": "629412345678", "balance": 1234500, "channel": "upi" }
+    },
+    {
+      "sender": "VM-PNBSMS",
+      "body": "A/c X1234 credited for INR 6000.00 on 10-06-26 09:49:10 by PRIYA S thru UPI.AvlBal INR 18830.05(UPI:629412345679).-PNB",
+      "expect": { "bank": "pnb", "template": "pnb.credit", "direction": "credit", "amount": 600000, "instrument": "account", "accountLast": "1234", "counterparty": "PRIYA S", "reference": "629412345679", "balance": 1883005, "channel": "upi" }
+    }
+  ]
+}

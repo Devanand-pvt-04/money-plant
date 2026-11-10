@@ -22,6 +22,10 @@ describe('senders', () => {
     ['VM-ATMSBI', 'sbi'],
     ['AD-SBICRD', 'sbi'],
     ['VM-HSBCIN', 'hsbc'],
+    ['AX-PNBSMS-S', 'pnb'],
+    ['VM-PUNBNK', 'pnb'],
+    ['VM-PNBHFL', null],
+    ['VM-PNBMET', null],
     ['VM-HDFCMF', null],
     ['VM-SBIMF', null],
     ['VM-SBILIF', null],
@@ -30,6 +34,13 @@ describe('senders', () => {
     ['VM-AMAZON', null],
   ])('identifies %s', (address, bank) => {
     expect(identifyBankSender(address)).toBe(bank);
+  });
+});
+
+describe('general reader', () => {
+  it('stops a payee at "thru" (PNB wording, any sender)', () => {
+    const result = parseAnySms({ sender: 'VM-NEWBNK', body: 'A/c X1234 debited INR 5.00 on 06-11-26 to RAVI KUMAR thru UPI:629412345678.Bal INR 100.00' });
+    expect(result).toMatchObject({ status: 'parsed', transaction: { bank: null, counterparty: 'RAVI KUMAR', reference: '629412345678' } });
   });
 });
 

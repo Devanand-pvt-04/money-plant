@@ -105,7 +105,7 @@ export default function Capture() {
     <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.body}>
         {readsAnySender
-          ? 'Money Plant checks SMS from banks and other businesses, never from people, and reads only the ones about money. ICICI, HDFC, HSBC, SBI and slice have tuned rules; any other sender is read by a general reader and waits in Review until you say which account it is for.'
+          ? 'Money Plant checks SMS from banks and other businesses, never from people, and reads only the ones about money. ICICI, HDFC, HSBC, SBI, PNB and slice have tuned rules; any other sender is read by a general reader and waits in Review until you say which account it is for.'
           : 'Money Plant reads messages only from ICICI, HDFC, HSBC, SBI and slice. The next app update reads any bank.'}{' '}
         The message text stays on this phone in the encrypted database. Only the amount, account digits, payee and reference are synced.
       </Text>

@@ -80,6 +80,13 @@ export const TEMPLATES: readonly Template[] = [
   t('sbi.card_payment', 'sbi', 'credit', 'credit_card',
     String.raw`(?:We have received (?:a )?payment of|Payment of) ${CUR}${A} (?:has been received )?(?:towards|for|on) your SBI Credit Card ending (?:with )?(?<last>\d{4})`),
 
+  // Punjab National Bank: "A/c X1234 debited INR 5.00 Dt 06-11-26 16:39:18 to NAME thru UPI:<ref>.Bal INR ...-PNB"
+  t('pnb.debit', 'pnb', 'debit', 'account',
+    String.raw`A\/c ${MASK}(?<last>\d{3,4}) debited (?:for |with |by )?${CUR}${A} (?:Dt|on) [\d\-\/]+(?: [\d:]+)? to (?<cp>[^\n]+?) thru [A-Z]+(?::\s*(?<ref>\d+))?\.?\s*(?:Avl\s*)?Bal ${CUR}${BAL}`),
+  // "A/c X1234 credited for INR 6000.00 on 10-06-26 09:49:10 by NAME thru UPI.AvlBal INR ...(UPI:<ref>).-PNB"
+  t('pnb.credit', 'pnb', 'credit', 'account',
+    String.raw`A\/c ${MASK}(?<last>\d{3,4}) credited (?:for |with |by )?${CUR}${A} (?:Dt|on) [\d\-\/]+(?: [\d:]+)? by (?<cp>[^\n]+?) thru [A-Z]+\.?\s*(?:Avl\s*)?Bal ${CUR}${BAL}`),
+
   // HSBC
   t('hsbc.card_spent', 'hsbc', 'debit', 'credit_card',
     String.raw`Thank you for using (?:your )?HSBC Credit Card ending (?:with )?(?<last>\d{4}) for ${CUR}${A} on .+? at (?<cp>[^\n]+?)\.\s*Your available limit is ${CUR}${LIMIT}`),

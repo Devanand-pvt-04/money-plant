@@ -149,7 +149,7 @@ export function extractVpa(text: string): string | null {
   return match ? match[1]!.toLowerCase() : null;
 }
 
-const STOP = String.raw`(?=\s*\(|\s+on\b|\s+On\b|\s+for\b|\.\s|\.$|\s*\n|\s+UPI\b|\s+Ref|\s+Avl|\s+Bal\b|\s+IMPS\b|\s+NEFT\b|,|;|$)`;
+const STOP = String.raw`(?=\s*\(|\s+on\b|\s+On\b|\s+for\b|\.\s|\.$|\s*\n|\s+UPI\b|\s+thru\b|\s+Ref|\s+Avl|\s+Bal\b|\s+IMPS\b|\s+NEFT\b|,|;|$)`;
 const COUNTERPARTY_PATTERNS: readonly RegExp[] = [
   /\bto\s+VPA\s+([\w.\-]+@[a-z]+)/i,
   /\btrf\s+to\s+([^\n]+?)(?=\s+Ref|\s+on\b|\.|$)/i,
