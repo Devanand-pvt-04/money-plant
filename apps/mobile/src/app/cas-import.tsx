@@ -17,6 +17,7 @@ const ERRORS: Record<PdfErrorCode, string> = {
   wrong_password: "That password didn't open the PDF. It's the one you chose when you asked for the statement.",
   not_a_cas: "This doesn't look like a CAS. Use the detailed statement from KFinTech or CAMS, or the monthly one from NSDL or CDSL.",
   not_a_statement: "This doesn't look like a CAS from CAMS or KFintech.",
+  no_text: "This PDF has no text to read. Use the CAS as it came from CAMS, KFintech, NSDL or CDSL.",
   demat_not_supported: "This statement couldn't be read.",
   too_large: 'The PDF is over 10 MB.',
   not_configured: "The statement reader isn't set up on the server yet.",
