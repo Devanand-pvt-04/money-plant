@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
@@ -10,7 +10,7 @@ import { formatWhen, pickDateTime } from '@/components/date-fields';
 import { formatWholeRupees } from '@/components/format';
 import { KeyboardGap, useKeyboard } from '@/components/keyboard';
 import { CategoryIcon } from '@/components/sheet';
-import { Button, colors, radius } from '@/components/ui';
+import { Button, radius, useColors, makeStyles } from '@/components/ui';
 import { categoryNames, type CategoryNode } from '@/lib/categories';
 import { addManualEntry, addManualTransfer } from '@/lib/entries';
 import type { AccountBalance } from '@/lib/ledger';
@@ -51,6 +51,8 @@ const MODE_LABELS: Record<Mode, string> = { debit: 'Spent', credit: 'Received', 
  * its own picker (NAV-2).
  */
 export default function QuickAdd() {
+  const colors = useColors();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   // While the note is typed, the phone's keyboard takes the keypad's place.
   const typing = useKeyboard().height > 0;
@@ -315,7 +317,7 @@ export default function QuickAdd() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   empty: { paddingHorizontal: 24, gap: 12, justifyContent: 'center' },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
@@ -379,4 +381,4 @@ const styles = StyleSheet.create({
   keyPressed: { backgroundColor: colors.pressed },
   keyText: { fontSize: 26, fontWeight: '500', color: colors.text },
   save: { paddingHorizontal: 16, paddingTop: 8 },
-});
+}));

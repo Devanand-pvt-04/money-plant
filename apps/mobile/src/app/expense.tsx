@@ -8,7 +8,7 @@ import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount } from '@/components/format';
 import { Sheet } from '@/components/sheet';
-import { Button, ErrorText, Initial, colors, radius } from '@/components/ui';
+import { Button, ErrorText, Initial, radius, useColors, makeStyles } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { createPerson, listPeople, type Person } from '@/lib/people';
@@ -55,6 +55,8 @@ function names(list: readonly string[]): string {
  * person's page.
  */
 export default function Expense() {
+  const colors = useColors();
+  const styles = useStyles();
   const params = useLocalSearchParams<{ from?: string; group?: string; person?: string }>();
   const from = params.from ?? null;
   const [people, setPeople] = useState<Person[]>([]);
@@ -397,6 +399,7 @@ export default function Expense() {
 }
 
 function Tile(props: { label: string; value: string; disabled?: boolean; onPress: () => void }) {
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
@@ -413,7 +416,7 @@ function Tile(props: { label: string; value: string; disabled?: boolean; onPress
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 10 },
   amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   rupee: { fontSize: 40, fontWeight: '700', color: colors.muted },
@@ -449,4 +452,4 @@ const styles = StyleSheet.create({
   remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },
   removeText: { fontSize: 14, fontWeight: '600', color: colors.danger },
   option: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 4 },
-});
+}));

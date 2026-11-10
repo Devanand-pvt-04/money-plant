@@ -1,14 +1,16 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { CADENCE_LABELS } from '@money-plant/core';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { dueLabel, setRecurringStatus, type UpcomingPayment } from '@/lib/recurring';
 import { formatAmount, formatDate } from './format';
-import { Button, colors, radius } from './ui';
+import { Button, radius, useColors, makeStyles } from './ui';
 
 /** One payment in a "coming up" list (HOME-1, REC-3). */
 export function UpcomingRow({ upcoming, first }: { upcoming: UpcomingPayment; first: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { item, days, overdue, accountName, short } = upcoming;
   const status = overdue ? 'Not seen paid yet' : dueLabel(days);
   return (
@@ -35,6 +37,7 @@ export function UpcomingRow({ upcoming, first }: { upcoming: UpcomingPayment; fi
 
 /** A detected recurring payment waiting for a yes or no (REC-1). */
 export function Suggestion({ item }: { item: RecurringPayment }) {
+  const styles = useStyles();
   return (
     <View style={styles.suggestion}>
       <Text style={styles.suggestionTitle}>
@@ -55,7 +58,7 @@ export function Suggestion({ item }: { item: RecurringPayment }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 16, paddingVertical: 12 },
   divided: { borderTopWidth: 1, borderTopColor: colors.divider },
   pressed: { backgroundColor: colors.pressed },
@@ -69,4 +72,4 @@ const styles = StyleSheet.create({
   suggestionText: { fontSize: 14, color: colors.text, lineHeight: 20 },
   actions: { flexDirection: 'row', gap: 8 },
   action: { flex: 1 },
-});
+}));

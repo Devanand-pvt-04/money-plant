@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { BUDGET_SORTS, addMonths, budgetPace, combineBudgets, paise, sortBudgets, type BudgetSort, type MonthKey, type Paise, type SortableBudget } from '@money-plant/core';
@@ -9,7 +9,7 @@ import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatWholeRupees } from '@/components/format';
 import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
-import { ErrorText, Button, MoneyCard, ProgressBar, colors, figures, radius } from '@/components/ui';
+import { ErrorText, Button, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
 import {
   currentMonth,
   daysLeft,
@@ -57,6 +57,8 @@ const budgetHref = (id: string, month: MonthKey) => `/budget/${id}?month=${month
 
 /** BUD-1, BUD-2 and CAT-1: the month's spending against budget, and the categories behind it. */
 export default function Budgets() {
+  const colors = useColors();
+  const styles = useStyles();
   const [month, setMonth] = useState(currentMonth());
   const [segment, setSegment] = useState<Segment>('spending');
   const [showAll, setShowAll] = useState(false);
@@ -251,6 +253,8 @@ function perDay(line: BudgetLine, month: MonthKey): Paise | null {
 
 /** BUD-1 and BUD-2 on the money card: the total budget, its pace and what's left a day (decision 0015). */
 function Overall({ line, outside, month, elapsed }: { line: BudgetLine; outside: Paise; month: MonthKey; elapsed: number }) {
+  const colors = useColors();
+  const styles = useStyles();
   const days = daysLeft(month);
   const status = line.pace?.status ?? 'ok';
   const budgeted = line.limit !== null;
@@ -294,6 +298,8 @@ function Overall({ line, outside, month, elapsed }: { line: BudgetLine; outside:
 
 /** BUD-4: the month review for a past month, or last month's while viewing this one. */
 function ReviewLink({ month }: { month: MonthKey }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(`/month-review?month=${month}`)} style={({ pressed }) => [styles.card, styles.row, pressed && styles.pressed]}>
       <Feather name="file-text" size={18} color={colors.primary} />
@@ -305,6 +311,7 @@ function ReviewLink({ month }: { month: MonthKey }) {
 
 /** "Over by", "On pace for", and while under budget this month, what's left a day (BUD-2). */
 function PaceNote({ line, month }: { line: BudgetLine; month: MonthKey }) {
+  const styles = useStyles();
   const daily = perDay(line, month);
   const note =
     line.pace?.status === 'over' ? (
@@ -322,6 +329,8 @@ function PaceNote({ line, month }: { line: BudgetLine; month: MonthKey }) {
 }
 
 function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLine[]; elapsed: number; childBudgets: boolean; open: boolean; onToggle: () => void; onSet: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { month, sub } = props;
   // BUD-2: a category budgeted through its sub-categories paces against their budgets added up.
   const childLimit = props.childBudgets ? sub.reduce((sum, c) => sum + (c.limit ?? 0), 0) : 0;
@@ -387,6 +396,8 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
 }
 
 function IncomeList({ month, income }: { month: MonthKey; income: { category: CategoryNode; amount: Paise }[] }) {
+  const colors = useColors();
+  const styles = useStyles();
   const total = income.reduce((sum, line) => sum + line.amount, 0);
   return (
     <>
@@ -418,7 +429,7 @@ function IncomeList({ month, income }: { month: MonthKey; income: { category: Ca
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 16, paddingBottom: 48, gap: 10 },
   months: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
@@ -462,4 +473,4 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   more: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   actions: { marginTop: 8 },
-});
+}));

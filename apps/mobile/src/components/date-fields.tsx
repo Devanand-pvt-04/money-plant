@@ -1,9 +1,9 @@
-import { Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import Feather from '@expo/vector-icons/Feather';
 import { dateKey, type DateKey } from '@money-plant/core';
 import { formatDay, formatTime } from './format';
-import { colors, radius } from './ui';
+import { radius, useColors, makeStyles } from './ui';
 
 /** A date key at noon, so a time zone shift never moves it to another day. */
 const fromKey = (key: DateKey) => new Date(`${key}T12:00:00`);
@@ -47,6 +47,8 @@ export function formatWhen(iso: string): string {
 }
 
 function Row(props: { label: string; value: string; placeholder?: boolean; onPress: () => void; onClear?: () => void; style?: StyleProp<ViewStyle> }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
@@ -114,7 +116,7 @@ export function DateField(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -133,4 +135,4 @@ const styles = StyleSheet.create({
   value: { fontSize: 15, fontWeight: '600', color: colors.text },
   placeholder: { color: colors.placeholder, fontWeight: '500' },
   clear: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-});
+}));

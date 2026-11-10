@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { AccountPicker } from './account-picker';
-import { Button, colors, radius } from './ui';
+import { Button, radius, makeStyles } from './ui';
 import { ignoreSender, linkSender, setAppApproved, type CaptureQuestions } from '@/lib/senders';
 
 /**
@@ -23,6 +23,7 @@ export function CaptureQuestionCards({ questions, onError }: { questions: Captur
 }
 
 function NewSender({ sender, name, waiting, onError }: { sender: string; name: string; waiting: number; onError: (message: string) => void }) {
+  const styles = useStyles();
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const run = async (work: () => Promise<unknown>) => {
@@ -60,6 +61,7 @@ function NewSender({ sender, name, waiting, onError }: { sender: string; name: s
 }
 
 function NewApp({ packageName, name, onError }: { packageName: string; name: string; onError: (message: string) => void }) {
+  const styles = useStyles();
   const answer = (yes: boolean) => () => setAppApproved(packageName, yes).catch((e) => onError(e instanceof Error ? e.message : String(e)));
   return (
     <View style={styles.card}>
@@ -76,9 +78,9 @@ function NewApp({ packageName, name, onError }: { packageName: string; name: str
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   card: { padding: 16, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 8, marginBottom: 12 },
   title: { fontSize: 15, fontWeight: '600', color: colors.text },
   text: { fontSize: 14, color: colors.muted, lineHeight: 20 },
   actions: { gap: 8 },
-});
+}));

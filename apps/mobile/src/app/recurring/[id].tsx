@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import {
   CADENCES,
@@ -19,7 +19,7 @@ import { FormScroll } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { DateField } from '@/components/date-fields';
 import { formatDate, formatDateTime } from '@/components/format';
-import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
 import { homeCurrency } from '@/lib/home-currency';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
@@ -33,6 +33,7 @@ const ORIGIN_LABELS: Record<RecurringPayment['origin'], string> = {
 
 /** REC-2: add or edit a recurring payment. `/recurring/new?from=<entry id>` starts from an existing entry. */
 export default function RecurringDetail() {
+  const styles = useStyles();
   const { id, from } = useLocalSearchParams<{ id: string; from?: string }>();
   const navigation = useNavigation();
   const isNew = id === 'new';
@@ -216,7 +217,7 @@ export default function RecurringDetail() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48 },
   status: { padding: 16, borderRadius: 18, backgroundColor: colors.subtle, gap: 4 },
   statusTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
@@ -228,4 +229,4 @@ const styles = StyleSheet.create({
   actions: { marginTop: 24, gap: 10 },
   remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },
   removeText: { fontSize: 14, fontWeight: '600', color: colors.danger },
-});
+}));

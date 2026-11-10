@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardGap } from '@/components/keyboard';
-import { Button, ErrorText, Field, colors } from '@/components/ui';
+import { Button, ErrorText, Field, makeStyles } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 
 const NOT_INVITED =
@@ -11,6 +11,7 @@ const NOT_INVITED =
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignIn() {
+  const styles = useStyles();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
@@ -94,10 +95,10 @@ export default function SignIn() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   safe: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, padding: 24, justifyContent: 'center' },
   title: { fontSize: 32, fontWeight: '700', color: colors.primary },
   subtitle: { fontSize: 16, color: colors.muted, marginTop: 8 },
   actions: { marginTop: 24, gap: 12 },
-});
+}));

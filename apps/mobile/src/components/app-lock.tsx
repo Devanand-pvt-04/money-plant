@@ -3,7 +3,7 @@ import { AppState, BackHandler, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { LOCK_AFTER_MS, lockAvailable, lockEnabled, unlock } from '@/lib/lock';
 import { setUnlocked, takeRestartPass } from '@/lib/lock-pass';
-import { Button, colors } from './ui';
+import { Button, useColors, makeStyles } from './ui';
 
 /** Whether the lock applies right now: switched on, and the phone has something to unlock with. */
 async function shouldLock(): Promise<boolean> {
@@ -16,6 +16,8 @@ async function shouldLock(): Promise<boolean> {
  * screens instead of replacing them, so where the user was is kept.
  */
 export function AppLock({ active }: { active: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   // null while checking: the cover stays up, so no amount shows before the check.
   const [locked, setLocked] = useState<boolean | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -98,7 +100,7 @@ export function AppLock({ active }: { active: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   cover: {
     ...StyleSheet.absoluteFill,
     alignItems: 'center',
@@ -112,4 +114,4 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '700', color: colors.text, marginTop: 8 },
   hint: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20 },
   action: { alignSelf: 'stretch', marginTop: 20 },
-});
+}));

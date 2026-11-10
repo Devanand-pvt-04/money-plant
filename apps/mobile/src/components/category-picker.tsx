@@ -6,7 +6,7 @@ import { wantIcon } from '@/lib/ai-icons';
 import { createCategory, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { kvGet, kvSet } from '@/lib/kv';
 import { CategoryIcon, Sheet } from './sheet';
-import { Button, colors, radius } from './ui';
+import { Button, radius, useColors, makeStyles } from './ui';
 
 const RECENT_KEY = 'picker.recentCategories';
 const RECENT_SHOWN = 4;
@@ -34,6 +34,8 @@ type Row = { node: CategoryNode; depth: 0 | 1; parentName?: string };
  * without leaving the screen.
  */
 export function CategoryPicker(props: Props) {
+  const colors = useColors();
+  const styles = useStyles();
   const { visible, flow, topLevelOnly, exclude = [], title = 'Category', onPick, onClose } = props;
   const allowCreate = props.allowCreate ?? !topLevelOnly;
   const [tree, setTree] = useState<CategoryNode[]>([]);
@@ -210,6 +212,8 @@ export function NewCategory(props: {
   onCancel: () => void;
   onCreated: (id: string) => void;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [name, setName] = useState(props.initialName);
   const [parentId, setParentId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -266,7 +270,7 @@ export function NewCategory(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   search: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -336,4 +340,4 @@ const styles = StyleSheet.create({
   parentText: { fontSize: 14, color: colors.secondary },
   parentTextOn: { color: colors.text, fontWeight: '600' },
   formActions: { gap: 10, marginTop: 16 },
-});
+}));

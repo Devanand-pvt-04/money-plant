@@ -1,11 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { cleanCounterparty } from '@money-plant/parser';
 import type { TransactionRow } from '@/lib/ledger';
 import { isEstimated } from '@money-plant/matcher';
 import Feather from '@expo/vector-icons/Feather';
 import { CategoryIcon } from './sheet';
-import { Initial, colors } from './ui';
+import { Initial, useColors, makeStyles, type Palette } from './ui';
 import { formatAmount, formatSigned, formatTime } from './format';
 
 export function transactionTitle({ tx, legs }: TransactionRow): string {
@@ -42,7 +42,7 @@ const CHANNEL_IN: Record<string, string> = {
 };
 
 /** The entry's amount as shown in lists: transfers unsigned, money out with a minus, money in with a plus. */
-export function displayAmount({ tx, legs }: TransactionRow): { text: string; color: string } {
+export function displayAmount({ tx, legs }: TransactionRow, colors: Palette): { text: string; color: string } {
   // Someone else paid (SPL-2): no account of the user's moved, so show their share as money out.
   const amount = legs[0]?.amount ?? -tx.postings.reduce((sum, p) => sum + Math.max(0, p.amount), 0);
   // Each entry shows in its own currency (decision 0017).
@@ -62,12 +62,14 @@ export function displayAmount({ tx, legs }: TransactionRow): { text: string; col
  * grouped by day; otherwise the account is shown.
  */
 export function TransactionItem({ row, showTime }: { row: TransactionRow; showTime?: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { tx, legs } = row;
   const payee = transactionTitle(row);
   // HOME-2: the user's note is what they recall an entry by, so it leads when there is one.
   const note = tx.note?.trim() || null;
   const title = note ?? payee;
-  const { text, color } = displayAmount(row);
+  const { text, color } = displayAmount(row, colors);
   const detail = tx.kind === 'transfer' ? 'Transfer' : (row.category?.name ?? 'No category');
   const pick = tx.kind !== 'transfer' && tx.status === 'pending' && !row.category;
   const where = showTime ? formatTime(tx.occurredAt) : tx.kind !== 'transfer' ? legs[0]?.accountName : undefined;
@@ -104,7 +106,7 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8 },
   pressed: { opacity: 0.6 },
   transfer: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.subtle, alignItems: 'center', justifyContent: 'center' },
@@ -113,4 +115,4 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted, marginTop: 2 },
   amount: { fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
   pick: { color: colors.warning, fontWeight: '600' },
-});
+}));

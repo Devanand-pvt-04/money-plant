@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Share, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { currencyInfo, formatMoney, isDateKey, paise, parseMoney } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
@@ -7,7 +7,7 @@ import { FormScroll } from '@/components/keyboard';
 import { DateField, DateTimeField } from '@/components/date-fields';
 import { formatAmount, formatDate, formatDateTime } from '@/components/format';
 import { dueText } from '@/components/people-rows';
-import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, colors, radius } from '@/components/ui';
+import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import {
   deleteIou,
   getIou,
@@ -29,6 +29,8 @@ import { useLedger } from '@/lib/use-ledger';
 
 /** One IOU: what is still owed, its repayments, and the ways to settle it (IOU-2 to IOU-5). */
 export default function IouDetail() {
+  const colors = useColors();
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const load = useCallback(() => getIou(id), [id]);
@@ -148,6 +150,7 @@ export default function IouDetail() {
 
 /** IOU-2: the other person confirms an IOU shared with them, and says where the money is in their ledger. */
 function Respond({ view, accounts, onError }: { view: IouView; accounts: AccountBalance[]; onError: (e: unknown) => void }) {
+  const styles = useStyles();
   const [candidates, setCandidates] = useState<LedgerTransaction[]>([]);
   const [link, setLink] = useState<EntryLink | null>(null);
   const [busy, setBusy] = useState(false);
@@ -200,6 +203,7 @@ function Respond({ view, accounts, onError }: { view: IouView; accounts: Account
 
 /** IOU-4 by hand: cash, or an account the app doesn't read. */
 function Repayment({ view, accounts, onDone, onError }: { view: IouView; accounts: AccountBalance[]; onDone: () => void; onError: (e: unknown) => void }) {
+  const styles = useStyles();
   const [amount, setAmount] = useState(formatMoney(view.outstanding, view.currency, { symbol: false }).replace(/,/g, ''));
   const [accountId, setAccountId] = useState<string | null>(null);
   const [paidAt, setPaidAt] = useState(() => new Date().toISOString());
@@ -238,6 +242,7 @@ function Repayment({ view, accounts, onDone, onError }: { view: IouView; account
 }
 
 function OwnerEdit({ view, onError }: { view: IouView; onError: (e: unknown) => void }) {
+  const styles = useStyles();
   const [reason, setReason] = useState(view.reason ?? '');
   const [dueDate, setDueDate] = useState(view.dueDate ?? '');
   const [busy, setBusy] = useState(false);
@@ -283,7 +288,7 @@ function OwnerEdit({ view, onError }: { view: IouView; onError: (e: unknown) => 
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 12 },
   hero: { alignItems: 'center', gap: 4, paddingVertical: 12 },
   title: { fontSize: 17, fontWeight: '600', color: colors.text, marginTop: 10, textAlign: 'center' },
@@ -303,4 +308,4 @@ const styles = StyleSheet.create({
   link: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 4 },
   remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },
   removeText: { fontSize: 14, fontWeight: '600', color: colors.danger },
-});
+}));

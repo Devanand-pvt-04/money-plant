@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { currencyInfo, dateOf, formatMoney, isDateKey, paise, parseMoney, type Paise } from '@money-plant/core';
 import type { IouDirection, LedgerTransaction } from '@money-plant/matcher';
@@ -7,7 +7,7 @@ import { FormScroll } from '@/components/keyboard';
 import { DateField, DateTimeField, formatWhen } from '@/components/date-fields';
 import { formatDate } from '@/components/format';
 import { PersonPicker } from '@/components/person-picker';
-import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
 import { createIou, loanCandidates, type EntryLink } from '@/lib/ious';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { createPerson, findPersonForPayee, listPeople, type Person } from '@/lib/people';
@@ -21,6 +21,7 @@ const linkKey = (link: EntryLink | null) => (link === null ? '' : 'existingId' i
  * (Review's "Lent" action), `?person=<id>` from a person.
  */
 export default function NewIou() {
+  const styles = useStyles();
   const params = useLocalSearchParams<{ from?: string; person?: string }>();
   const [people, setPeople] = useState<Person[]>([]);
   const [accounts, setAccounts] = useState<AccountBalance[]>([]);
@@ -190,11 +191,11 @@ export default function NewIou() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48 },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
   value: { fontSize: 15, color: colors.text },
   date: { marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   actions: { marginTop: 24, gap: 10 },
-});
+}));

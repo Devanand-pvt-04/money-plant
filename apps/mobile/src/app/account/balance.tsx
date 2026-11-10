@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { currencyInfo, paise, parseMoney, type CurrencyCode } from '@money-plant/core';
-import { Button, ErrorText, Field, colors } from '@/components/ui';
+import { Button, ErrorText, Field, makeStyles } from '@/components/ui';
 import { listAccountBalances, setCurrentBalance } from '@/lib/ledger';
 
 /** The user types today's balance; the opening balance is worked out from it. */
 export default function SetBalance() {
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -41,8 +42,8 @@ export default function SetBalance() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16 },
   body: { fontSize: 14, color: colors.muted, lineHeight: 20 },
   actions: { marginTop: 24 },
-});
+}));

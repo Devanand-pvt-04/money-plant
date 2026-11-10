@@ -1,11 +1,11 @@
 import { type ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { allowContacts } from '@/lib/contacts';
 import { dismissSetup, type SetupState, type SetupStep } from '@/lib/setup';
 import { openNotificationAccessSettings } from '../../modules/sms-reader';
-import { Card, colors } from './ui';
+import { Card, useColors, makeStyles } from './ui';
 
 const STEPS: Record<SetupStep, { icon: ComponentProps<typeof Feather>['name']; title: string; why: string; go: () => unknown }> = {
   notifications: {
@@ -42,6 +42,8 @@ const STEPS: Record<SetupStep, { icon: ComponentProps<typeof Feather>['name']; t
 
 /** ACC-10: the optional setup steps, on Home until they're done or dismissed. */
 export function SetupCard({ state, onChange }: { state: SetupState; onChange: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const left = state.steps.filter((s) => !s.done);
   return (
     <Card>
@@ -84,7 +86,7 @@ export function SetupCard({ state, onChange }: { state: SetupState; onChange: ()
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   head: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 },
   title: { fontSize: 16, fontWeight: '700', color: colors.text },
   close: { minWidth: 48, minHeight: 48, alignItems: 'flex-end', justifyContent: 'center' },
@@ -93,4 +95,4 @@ const styles = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
   name: { fontSize: 15, fontWeight: '500', color: colors.text },
   meta: { fontSize: 12, color: colors.muted, marginTop: 2 },
-});
+}));

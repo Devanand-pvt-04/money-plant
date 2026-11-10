@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import {
@@ -23,7 +23,7 @@ import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { DateField } from '@/components/date-fields';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
-import { Button, Chip, Chips, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { getDeposit, saveDeposit, suggestPayee } from '@/lib/deposits';
 import { listAccountBalances } from '@/lib/ledger';
 import { requestNotificationPermission } from '@/lib/notifications';
@@ -59,6 +59,8 @@ const SCHEME_KINDS = Object.keys(SCHEMES) as SchemeKind[];
 
 /** NW-2, NW-6: the terms of an FD, RD or savings scheme, from which the app works out interest, maturity and reminders. */
 export default function DepositTermsScreen() {
+  const colors = useColors();
+  const styles = useStyles();
   const params = useLocalSearchParams<{ account: string }>();
   const [kind, setKind] = useState<DepositKind | null>(null);
   const [amount, setAmount] = useState('');
@@ -257,7 +259,7 @@ function previewOf(terms: DepositTerms): string {
   return daysBetween(terms.startDate, today) > 0 ? `${matures} Worth about ${rupees(valueOn(terms, today))} today.` : matures;
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48, gap: 4 },
   label: { fontSize: 14, color: colors.muted, marginTop: 12, marginBottom: 6 },
   picker: {
@@ -277,4 +279,4 @@ const styles = StyleSheet.create({
   preview: { padding: 14, borderRadius: radius.md, backgroundColor: colors.subtle, marginTop: 12 },
   previewText: { fontSize: 14, color: colors.text, lineHeight: 20 },
   actions: { marginTop: 20 },
-});
+}));

@@ -1,15 +1,16 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { CADENCE_LABELS } from '@money-plant/core';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { formatAmount } from '@/components/format';
-import { Button, Card, SectionTitle, colors } from '@/components/ui';
+import { Button, Card, SectionTitle, makeStyles } from '@/components/ui';
 import { Suggestion, UpcomingRow } from '@/components/recurring-rows';
 import { recurringOverview, type UpcomingPayment } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
 
 /** REC-1 to REC-3: every autopay, EMI and subscription, soonest first, with suggestions to confirm. */
 export default function RecurringList() {
+  const styles = useStyles();
   const { data } = useLedger(recurringOverview, { upcoming: [] as UpcomingPayment[], proposed: [] as RecurringPayment[], paused: [] as RecurringPayment[] });
   const empty = data.upcoming.length === 0 && data.proposed.length === 0 && data.paused.length === 0;
 
@@ -69,7 +70,7 @@ export default function RecurringList() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 8 },
   intro: { fontSize: 14, color: colors.secondary, lineHeight: 20 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 16, paddingVertical: 12 },
@@ -80,4 +81,4 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted, marginTop: 2 },
   amountMuted: { fontSize: 15, fontWeight: '600', color: colors.muted, fontVariant: ['tabular-nums'] },
   add: { marginTop: 16 },
-});
+}));

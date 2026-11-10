@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { FormScroll } from '@/components/keyboard';
 import { Sheet } from '@/components/sheet';
-import { Button, Card, ErrorText, Field, SectionTitle, colors, radius } from '@/components/ui';
+import { Button, Card, ErrorText, Field, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { clearMyData, deleteAccount } from '@/lib/account';
 import { exportData, type ExportResult } from '@/lib/export';
 
@@ -35,6 +35,7 @@ const DANGER: Record<Danger, { title: string; word: string; button: string; poin
 
 /** ACC-4 and ACC-7: export everything, clear it, or delete the account. */
 export default function YourData() {
+  const styles = useStyles();
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState<ExportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +100,8 @@ export default function YourData() {
 }
 
 function DangerRow(props: { icon: 'refresh-ccw' | 'user-x'; title: string; meta: string; onPress: () => void; first?: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={props.onPress} style={({ pressed }) => [styles.row, !props.first && styles.divided, pressed && styles.pressed]}>
       <Feather name={props.icon} size={18} color={colors.danger} />
@@ -113,6 +116,8 @@ function DangerRow(props: { icon: 'refresh-ccw' | 'user-x'; title: string; meta:
 
 /** Typed confirmation, with the export offered first (ACC-4, ACC-7). */
 function Confirm(props: { kind: Danger; exported: boolean; exporting: boolean; onExport: () => void; onDone: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const copy = DANGER[props.kind];
   const [typed, setTyped] = useState('');
   const [working, setWorking] = useState(false);
@@ -166,7 +171,7 @@ function Confirm(props: { kind: Danger; exported: boolean; exporting: boolean; o
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 8 },
   card: { padding: 16, gap: 12 },
   body: { fontSize: 14, color: colors.muted, lineHeight: 20 },
@@ -184,4 +189,4 @@ const styles = StyleSheet.create({
   dangerButtonText: { fontSize: 16, fontWeight: '700', color: colors.onInk },
   disabled: { opacity: 0.4 },
   pressedButton: { opacity: 0.85 },
-});
+}));

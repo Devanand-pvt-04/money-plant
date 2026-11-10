@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatWholeRupees } from '@/components/format';
 import { Net } from '@/components/people-rows';
-import { Card, Initial, SectionTitle, colors, radius } from '@/components/ui';
+import { Card, Initial, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { groupOverview, type GroupExpense, type GroupOverview } from '@/lib/splits';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -16,6 +16,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
  * everything, so one payment settles them everywhere.
  */
 export default function GroupDetail() {
+  const colors = useColors();
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const { data } = useLedger(() => groupOverview(id), null as GroupOverview | null);
@@ -37,7 +39,7 @@ export default function GroupDetail() {
         </View>
       ),
     });
-  }, [data, id, navigation]);
+  }, [data, id, navigation, colors, styles]);
 
   if (!data) return null;
   const people = data.group.memberIds.length + 1;
@@ -84,6 +86,7 @@ export default function GroupDetail() {
 }
 
 function ExpenseRow({ expense, first }: { expense: GroupExpense; first: boolean }) {
+  const styles = useStyles();
   const d = new Date(expense.occurredAt);
   const how = expense.payerName === null ? `You paid ${formatWholeRupees(expense.total, expense.currency)}${expense.ways > 1 ? ` · split ${expense.ways} ways` : ''}` : `${expense.payerName} paid ${formatWholeRupees(expense.total, expense.currency)}`;
   return (
@@ -103,7 +106,7 @@ function ExpenseRow({ expense, first }: { expense: GroupExpense; first: boolean 
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 96, gap: 8 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 20, marginRight: 8 },
   link: { fontSize: 15, fontWeight: '600', color: colors.primary },
@@ -136,4 +139,4 @@ const styles = StyleSheet.create({
   },
   fabPressed: { opacity: 0.85 },
   fabText: { fontSize: 16, fontWeight: '700', color: colors.onInk },
-});
+}));

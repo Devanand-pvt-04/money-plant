@@ -6,12 +6,14 @@ import type { CategoryFlow } from '@money-plant/categoriser';
 import { FormScroll } from '@/components/keyboard';
 import { NewCategory } from '@/components/category-picker';
 import { CategoryIcon, Sheet } from '@/components/sheet';
-import { colors, radius } from '@/components/ui';
+import { radius, useColors, makeStyles } from '@/components/ui';
 import { listCategories, type CategoryNode } from '@/lib/categories';
 import { useLedger } from '@/lib/use-ledger';
 
 /** CAT-1 and CAT-5: the user's categories, two levels deep, opened from Budgets. */
 export default function Categories() {
+  const colors = useColors();
+  const styles = useStyles();
   const { data: tree } = useLedger(listCategories, [] as CategoryNode[]);
   const [flow, setFlow] = useState<CategoryFlow>('expense');
   const [creating, setCreating] = useState(false);
@@ -100,6 +102,8 @@ export default function Categories() {
 }
 
 function Row({ node, child = false }: { node: CategoryNode; child?: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
@@ -116,7 +120,7 @@ function Row({ node, child = false }: { node: CategoryNode; child?: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 48, gap: 10 },
   segment: { flexDirection: 'row', backgroundColor: colors.subtle, borderRadius: radius.sm, padding: 3 },
   segmentItem: { flex: 1, minHeight: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
@@ -137,4 +141,4 @@ const styles = StyleSheet.create({
   addPressed: { opacity: 0.85 },
   addText: { fontSize: 15, fontWeight: '600', color: colors.onInk },
   addMatch: { color: colors.primary, fontWeight: '600' },
-});
+}));

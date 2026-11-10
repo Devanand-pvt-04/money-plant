@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMoney } from '@money-plant/core';
 import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
 import { SwipeRow } from '@/components/swipe-row';
-import { Button, Card, colors, radius } from '@/components/ui';
+import { Button, Card, radius, useColors, makeStyles } from '@/components/ui';
 import { formatDate, formatDateTime, formatDay, formatTime, formatWholeRupees, reviewTime } from '@/components/format';
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { whyLabel } from '@/components/why';
@@ -62,6 +62,8 @@ async function load() {
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
 export default function Review() {
+  const colors = useColors();
+  const styles = useStyles();
   useReviewTimer();
   const { data } = useLedger(
     load,
@@ -133,9 +135,11 @@ function ReviewCard({
   guess: RepaymentGuess | null;
   onChangeCategory: (id: string, flow: 'expense' | 'income', merchant: string | null) => void;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { tx, legs } = row;
   const isTransfer = tx.kind === 'transfer';
-  const amount = displayAmount(row);
+  const amount = displayAmount(row, colors);
   const reason = tx.reviewReason ? REVIEW_REASON_LABELS[tx.reviewReason] : null;
   const why = whyLabel(tx, row.aiConfidence);
   const change = () => onChangeCategory(tx.id, tx.kind === 'income' ? 'income' : 'expense', tx.counterparty);
@@ -282,6 +286,7 @@ function BulkReview({
   pending: TransactionRow[];
   onChangeCategory: (ids: string[], flow: 'expense' | 'income', merchant: string | null) => void;
 }) {
+  const styles = useStyles();
   const [showAll, setShowAll] = useState(false);
   const groups = useMemo(() => payeeGroups(pending), [pending]);
   const cutoff = new Date(Date.now() - OLD_AFTER_DAYS * 86_400_000).toISOString();
@@ -352,6 +357,7 @@ function BulkReview({
 
 /** CAT-8: a pattern learned from the user's corrections, waiting for a yes or no. */
 function PatternCard({ proposal }: { proposal: Proposal }) {
+  const styles = useStyles();
   const [autoConfirm, setAutoConfirm] = useState(false);
   return (
     <View style={styles.patternCard}>
@@ -376,6 +382,7 @@ function PatternCard({ proposal }: { proposal: Proposal }) {
 }
 
 function Gaps({ gaps }: { gaps: AccountBalance[] }) {
+  const styles = useStyles();
   return (
     <View style={styles.gaps}>
       {gaps.map(({ account, reconciliation }) => {
@@ -399,7 +406,7 @@ function Gaps({ gaps }: { gaps: AccountBalance[] }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   list: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 32, gap: 12 },
   count: { fontSize: 13, color: colors.muted, marginBottom: 4 },
   card: { padding: 16, gap: 12 },
@@ -441,4 +448,4 @@ const styles = StyleSheet.create({
   gapText: { fontSize: 14, color: colors.text, lineHeight: 20 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   switchLabel: { fontSize: 14, color: colors.text, flex: 1 },
-});
+}));

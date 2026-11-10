@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { File } from 'expo-file-system';
 import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
-import { Button, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { listAccountBalances } from '@/lib/ledger';
 import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
 import { importStatement, previewStatement, readStatement, type StatementImportResult, type StatementPreview } from '@/lib/statements';
@@ -31,6 +31,8 @@ interface Target {
 
 /** CAP-5: import a bank statement PDF, filling in payments the SMS missed without doubling the ones it caught. */
 export default function StatementImport() {
+  const colors = useColors();
+  const styles = useStyles();
   const params = useLocalSearchParams<{ account?: string }>();
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState('');
@@ -177,7 +179,7 @@ export default function StatementImport() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48, gap: 4 },
   intro: { fontSize: 15, color: colors.text, lineHeight: 22 },
   label: { fontSize: 14, color: colors.muted, marginTop: 12, marginBottom: 6 },
@@ -200,4 +202,4 @@ const styles = StyleSheet.create({
   total: { fontSize: 24, fontWeight: '700', color: colors.text },
   meta: { fontSize: 12, color: colors.muted },
   actions: { marginTop: 20, gap: 10 },
-});
+}));

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, Share, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Platform, Share, Switch, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
 import { formatAmount } from '@/components/format';
 import { IouRow } from '@/components/people-rows';
-import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, colors } from '@/components/ui';
+import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, useColors, makeStyles } from '@/components/ui';
 import { contactById, pickContact } from '@/lib/contacts';
 import { setDoubtful, useDoubtfulPeople } from '@/lib/doubtful';
 import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/lib/friends';
@@ -17,6 +17,8 @@ import { useLedger } from '@/lib/use-ledger';
 
 /** A person: their UPI ID and email (IOU-2, IOU-3), the phone contact they are (SPL-4), and every IOU with them. */
 export default function PersonDetail() {
+  const colors = useColors();
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const isNew = id === 'new';
@@ -239,7 +241,7 @@ export default function PersonDetail() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 8 },
   hero: { alignItems: 'center', gap: 4, paddingVertical: 12 },
   heroAmount: { fontSize: 36, fontWeight: '700', color: colors.text, letterSpacing: -1, fontVariant: ['tabular-nums'], marginTop: 8 },
@@ -251,4 +253,4 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 8 },
   switchLabel: { fontSize: 15, color: colors.text },
   grow: { flex: 1 },
-});
+}));

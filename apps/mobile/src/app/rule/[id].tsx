@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Switch, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { formatRupees, parseRupees, type Paise } from '@money-plant/core';
 import { normaliseMerchant, type PatternMatch, type Rule, type RuleMatch } from '@money-plant/categoriser';
 import { FormScroll } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
-import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
 import { categoryNames, recategoriseHistory } from '@/lib/categories';
 import { deleteRule, getRule, updateRule } from '@/lib/rules-store';
 
@@ -15,6 +15,7 @@ const hour = (minute: number) => String(Math.floor(minute / 60));
 
 /** CAT-7: edit, pause or delete one rule or pattern. */
 export default function RuleDetail() {
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [rule, setRule] = useState<Rule | null>(null);
   const [category, setCategory] = useState<{ id: string; name: string } | null>(null);
@@ -167,7 +168,7 @@ export default function RuleDetail() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48, gap: 4 },
   label: { fontSize: 14, color: colors.muted, marginBottom: 6, marginTop: 16 },
   pair: { flexDirection: 'row', gap: 12 },
@@ -176,4 +177,4 @@ const styles = StyleSheet.create({
   switchLabel: { fontSize: 15, color: colors.text, flex: 1 },
   meta: { fontSize: 13, color: colors.muted, marginTop: 8 },
   actions: { marginTop: 24, gap: 12 },
-});
+}));

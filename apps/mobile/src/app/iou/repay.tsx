@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { IouDirection } from '@money-plant/matcher';
 import { formatAmount } from '@/components/format';
 import { FormScroll } from '@/components/keyboard';
-import { Button, Card, ErrorText, Initial, colors } from '@/components/ui';
+import { Button, Card, ErrorText, Initial, useColors, makeStyles } from '@/components/ui';
 import { repaymentOptions, settleWithEntry, type RepaymentOption } from '@/lib/ious';
 
 /**
@@ -14,6 +14,8 @@ import { repaymentOptions, settleWithEntry, type RepaymentOption } from '@/lib/i
  * ("GOBAL NAIR" for Gobal). `?from=<entry id>`, optionally `&person=<id>`.
  */
 export default function Repay() {
+  const colors = useColors();
+  const styles = useStyles();
   const params = useLocalSearchParams<{ from: string; person?: string }>();
   const [data, setData] = useState<{ amount: number; direction: IouDirection; options: RepaymentOption[] } | null>(null);
   const [selected, setSelected] = useState<string | null>(params.person ?? null);
@@ -88,7 +90,7 @@ export default function Repay() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 20, paddingBottom: 48, gap: 12 },
   lead: { fontSize: 15, color: colors.text, lineHeight: 21 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingHorizontal: 16, paddingVertical: 10 },
@@ -99,4 +101,4 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted, marginTop: 2, lineHeight: 18 },
   hint: { fontSize: 12, color: colors.muted, lineHeight: 17 },
   actions: { marginTop: 8 },
-});
+}));

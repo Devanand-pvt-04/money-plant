@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { costFromAverage, formatRupees, parseRupees, scaleDecimal } from '@money-plant/core';
 import type { LocalHolding } from '@money-plant/db-schema';
-import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
 import { getHolding, setHoldingCost } from '@/lib/demat';
 
 /** NW-5: depository statements have no purchase price, so the user adds what they paid for a holding. */
 export default function HoldingCost() {
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [holding, setHolding] = useState<LocalHolding | null>(null);
   const [mode, setMode] = useState<'average' | 'total'>('average');
@@ -58,9 +59,9 @@ export default function HoldingCost() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, gap: 10 },
   title: { fontSize: 18, fontWeight: '700', color: colors.text },
   body: { fontSize: 14, color: colors.muted, lineHeight: 20 },
   actions: { marginTop: 16 },
-});
+}));

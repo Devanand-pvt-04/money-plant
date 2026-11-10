@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { File } from 'expo-file-system';
 import { dematGroups, paise, type CasStatement, type DematGroup, type DematStatement } from '@money-plant/core';
 import { FormScroll } from '@/components/keyboard';
 import { formatDay, formatWholeRupees as rupees } from '@/components/format';
-import { Button, Card, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, Card, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
 import { heldFundIsins, importDemat } from '@/lib/demat';
 import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
@@ -31,6 +31,8 @@ const KIND_LABEL: Record<string, string> = { share: 'Share', etf: 'ETF', gold_bo
  * NW-5, NW-6: or shares, ETFs, gold bonds, bonds and NPS from an NSDL or CDSL statement.
  */
 export default function CasImport() {
+  const colors = useColors();
+  const styles = useStyles();
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState('');
   const [reading, setReading] = useState(false);
@@ -214,7 +216,7 @@ export default function CasImport() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48, gap: 4 },
   intro: { fontSize: 15, color: colors.text, lineHeight: 22 },
   link: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40 },
@@ -245,4 +247,4 @@ const styles = StyleSheet.create({
   amount: { fontSize: 15, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
   actions: { marginTop: 20, gap: 10 },
   group: { gap: 2 },
-});
+}));

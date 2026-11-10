@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { currencyInfo, formatMoney, paise, parseMoney, suggestionStep, type Paise } from '@money-plant/core';
 import { formatAmount } from './format';
 import { homeCurrency } from '@/lib/home-currency';
 import { Sheet } from './sheet';
-import { Button, ErrorText, colors, radius } from './ui';
+import { Button, ErrorText, radius, useColors, makeStyles } from './ui';
 
 /** Budgets are in the home currency (decision 0017). */
 const plain = (amount: Paise) => formatMoney(amount, homeCurrency(), { symbol: false }).replace(/\.0+$/, '');
@@ -28,6 +28,8 @@ export function BudgetSheet(props: {
   onSave: (limit: Paise | null) => void;
   onClose: () => void;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -71,11 +73,11 @@ export function BudgetSheet(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   note: { fontSize: 14, color: colors.muted, marginHorizontal: 4 },
   amount: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 64, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.subtle },
   rupee: { fontSize: 28, fontWeight: '600', color: colors.muted },
   input: { flex: 1, fontSize: 28, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'], paddingVertical: 8 },
   remove: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   removeText: { fontSize: 15, fontWeight: '600', color: colors.danger },
-});
+}));

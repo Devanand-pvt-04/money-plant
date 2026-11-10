@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { displayName, getMe, type Me } from '@/lib/me';
 import { supabase } from '@/lib/supabase';
-import { colors } from './ui';
+import { useColors, makeStyles } from './ui';
 
 /** The user's initial on a round tile, for the Home header and settings. */
 export function Avatar({ me, size = 40 }: { me: Me | null; size?: number }) {
+  const colors = useColors();
+  const styles = useStyles();
   const letter = me ? displayName(me).trim().charAt(0).toUpperCase() : '';
   return (
     <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>
@@ -32,7 +34,7 @@ export function useMe(): Me | null {
   return me;
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   avatar: { backgroundColor: colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
   text: { fontWeight: '700', color: colors.primary },
-});
+}));

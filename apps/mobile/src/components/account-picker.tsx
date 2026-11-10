@@ -8,7 +8,7 @@ import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { syncNow } from '@/lib/sync';
 import { formatAmount } from './format';
 import { Sheet } from './sheet';
-import { Button, colors, radius } from './ui';
+import { Button, radius, useColors, makeStyles } from './ui';
 
 /** The types offered when adding an account from a picker; the full list stays on the Add account screen. */
 const QUICK_TYPES: readonly AccountType[] = ['bank', 'cash', 'wallet', 'credit_card'];
@@ -37,6 +37,8 @@ export function AccountPicker(props: {
   onPick: (account: AccountBalance) => void;
   onClose: () => void;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { visible, title = 'Account', exclude = [], onPick, onClose } = props;
   const [accounts, setAccounts] = useState<AccountBalance[]>([]);
   const [creating, setCreating] = useState(false);
@@ -90,6 +92,8 @@ export function AccountPicker(props: {
 }
 
 function NewAccount(props: { onCancel: () => void; onCreated: (id: string) => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [type, setType] = useState<AccountType>('bank');
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
@@ -162,7 +166,7 @@ function NewAccount(props: { onCancel: () => void; onCreated: (id: string) => vo
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   list: { flexGrow: 0, flexShrink: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.divider },
   pressed: { backgroundColor: colors.pressed },
@@ -210,4 +214,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   actions: { gap: 10, marginTop: 6 },
-});
+}));

@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from 'react';
-import { PermissionsAndroid, Platform, Pressable, Share, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { PermissionsAndroid, Platform, Pressable, Share, Switch, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { formatMoney, formatRupees } from '@money-plant/core';
 import { BANKS, BANK_NAMES, anonymiseSms, parseBankText, type BankId, type SmsParseResult } from '@money-plant/parser';
 import { addMonthsToDate, dateKey, type DateKey } from '@money-plant/core';
 import { FormScroll } from '@/components/keyboard';
 import { DateField } from '@/components/date-fields';
-import { Button, Chip, Chips, ErrorText, Field, colors } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
 import { formatDateTime } from '@/components/format';
 import { DEFAULT_IMPORT_MONTHS, hasImportedInbox, importInbox, importRange, retryFailedMessages, type ImportProgress } from '@/lib/capture';
 import { captureStats } from '@/lib/ledger';
@@ -44,6 +44,7 @@ const initial: Awaited<ReturnType<typeof load>> = {
 };
 
 export default function Capture() {
+  const styles = useStyles();
   const { data, reload } = useLedger(load, initial);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [busy, setBusy] = useState(false);
@@ -220,6 +221,7 @@ export default function Capture() {
  * and opens the share sheet only when they tap Share. Nothing is sent on its own.
  */
 function ShareSample({ sender, rawText }: { sender: string; rawText: string }) {
+  const styles = useStyles();
   const [text, setText] = useState(() => anonymiseSms(rawText));
   return (
     <View style={styles.sample}>
@@ -247,6 +249,7 @@ const RANGES: { value: RangeChoice; label: string }[] = [
 
 /** Paste a message to see what the parser reads. Nothing is saved. */
 function TestMessage() {
+  const styles = useStyles();
   const [bank, setBank] = useState<BankId | null>('hdfc');
   const [text, setText] = useState('');
   const [result, setResult] = useState<SmsParseResult | null>(null);
@@ -301,6 +304,7 @@ function describe(result: SmsParseResult): string {
  * account, ignored, or asked about again; one can be added before its first message.
  */
 function Senders({ rows, onChange, onError }: { rows: SenderRow[]; onChange: () => void; onError: (message: string) => void }) {
+  const styles = useStyles();
   const [linking, setLinking] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -361,6 +365,7 @@ function Senders({ rows, onChange, onError }: { rows: SenderRow[]; onChange: () 
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
+  const styles = useStyles();
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -369,7 +374,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48, gap: 16 },
   section: { backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
@@ -405,4 +410,4 @@ const styles = StyleSheet.create({
   chipSelected: { borderColor: colors.primary, backgroundColor: colors.pressed },
   chipText: { color: colors.text },
   chipTextSelected: { color: colors.primary, fontWeight: '600' },
-});
+}));

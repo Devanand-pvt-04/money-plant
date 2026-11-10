@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, radius } from '@/components/ui';
+import { radius, makeStyles } from '@/components/ui';
 import { fetchLatestUpdate, restartToUpdate, updatesOn } from '@/lib/updates';
 
 /** Clears the tab bar, so the banner never covers the tabs. */
@@ -15,6 +15,7 @@ const TAB_BAR = 64;
  * the next start.
  */
 export function UpdateBanner() {
+  const styles = useStyles();
   const { isUpdatePending, downloadedUpdate, isRestarting } = Updates.useUpdates();
   const insets = useSafeAreaInsets();
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -61,7 +62,7 @@ export function UpdateBanner() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   banner: {
     position: 'absolute',
     left: 16,
@@ -83,4 +84,4 @@ const styles = StyleSheet.create({
   restart: { minHeight: 36, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.primary, justifyContent: 'center' },
   restartText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
   pressed: { opacity: 0.8 },
-});
+}));

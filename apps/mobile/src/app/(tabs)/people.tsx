@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatWholeRupees } from '@/components/format';
 import { Net, NetByCurrency, dueText } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
-import { ErrorText, Card, Initial, SectionTitle, colors, radius } from '@/components/ui';
+import { ErrorText, Card, Initial, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { isOpen, listIous, type IouView } from '@/lib/ious';
 import { listPeople, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
@@ -33,6 +33,8 @@ function personNote(person: Person, ious: readonly IouView[], day: string): stri
 
 /** IOU-1 to IOU-5, SPL-1, SPL-3: who owes whom, groups, and one way to add an expense with people. */
 export default function People() {
+  const colors = useColors();
+  const styles = useStyles();
   const navigation = useNavigation();
   const [adding, setAdding] = useState(false);
   const { data, reload } = useLedger(load, { people: [] as Person[], ious: [] as IouView[], toConfirm: [] as IouView[], groups: [] as GroupOverview[] }, 'people');
@@ -46,7 +48,7 @@ export default function People() {
         </Pressable>
       ),
     });
-  }, [navigation]);
+  }, [navigation, colors, styles]);
 
   // Totals in the home currency at today's rate (decision 0017); each person's row keeps their own currencies.
   const owing = data.people.filter((p) => p.balance > 0);
@@ -181,7 +183,7 @@ export default function People() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 96, gap: 8 },
   headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
   totals: { flexDirection: 'row', gap: 12, paddingVertical: 8 },
@@ -212,4 +214,4 @@ const styles = StyleSheet.create({
   fabPressed: { opacity: 0.85 },
   fabText: { fontSize: 16, fontWeight: '700', color: colors.onInk },
   option: { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 56, paddingHorizontal: 8, borderRadius: radius.md },
-});
+}));

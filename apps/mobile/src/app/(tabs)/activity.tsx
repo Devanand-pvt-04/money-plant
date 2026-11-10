@@ -6,7 +6,7 @@ import { addMonths, currencyInfo, dateOf, monthOf, type MonthKey } from '@money-
 import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } from '@/components/activity-filters';
 import { formatAmount, formatDay, formatMonth, formatWholeRupees } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
-import { ErrorText, colors, figures, radius } from '@/components/ui';
+import { ErrorText, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { useAiWaiting } from '@/lib/ai-settings';
 import { flatten, listCategories } from '@/lib/categories';
 import { homeCurrency } from '@/lib/home-currency';
@@ -77,6 +77,8 @@ type Quick = 'all' | 'expense' | 'income' | 'review';
 
 /** HOME-2: a month of entries in day cards, with search, quick chips and filters (decision 0015). */
 export default function Activity() {
+  const colors = useColors();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { data, reload } = useLedger(load, { rows: [] as TransactionRow[], parents: new Map<string, string | null>() }, 'activity');
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
@@ -304,6 +306,7 @@ export default function Activity() {
 }
 
 function Total({ label, value, color, note }: { label: string; value: string; color?: string; note?: string | null }) {
+  const styles = useStyles();
   return (
     <View style={styles.total}>
       <Text style={styles.totalLabel}>{label}</Text>
@@ -319,7 +322,7 @@ function Total({ label, value, color, note }: { label: string; value: string; co
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   list: { paddingHorizontal: 16, paddingBottom: 32 },
   header: { gap: 14, paddingBottom: 4 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -397,4 +400,4 @@ const styles = StyleSheet.create({
   waiting: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   waitingText: { fontSize: 13, color: colors.muted },
   empty: { textAlign: 'center', color: colors.muted, fontSize: 15, marginTop: 48 },
-});
+}));

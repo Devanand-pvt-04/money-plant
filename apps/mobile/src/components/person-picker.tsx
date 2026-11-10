@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Chip, Chips, colors, radius } from '@/components/ui';
+import { Alert, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { Chip, Chips, radius, useColors, makeStyles } from '@/components/ui';
 import { pickContact } from '@/lib/contacts';
 import { createPerson, type Person } from '@/lib/people';
 
@@ -21,6 +21,8 @@ export function PersonPicker(props: {
    */
   draft?: { name: string; selected: boolean; onToggle: () => void } | null;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
 
@@ -86,7 +88,7 @@ export function PersonPicker(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   add: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 10 },
   input: {
     flex: 1,
@@ -102,4 +104,4 @@ const styles = StyleSheet.create({
   action: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 10 },
   actionText: { fontSize: 14, fontWeight: '600', color: colors.primary },
   disabled: { opacity: 0.4 },
-});
+}));

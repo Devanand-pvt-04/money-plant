@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
 import { CurrencyPicker, currencyLabel } from '@/components/currency-picker';
 import { FormScroll } from '@/components/keyboard';
-import { Button, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { setHomeCurrency, useHomeCurrency } from '@/lib/home-currency';
 import { getMe, updateMe, type Me } from '@/lib/me';
 
 /** How friends see the user on shared IOUs (IOU-2), and the UPI ID in "pay me" links (IOU-5). */
 export default function Profile() {
+  const colors = useColors();
+  const styles = useStyles();
   const [me, setMe] = useState<Me | null>(null);
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
@@ -75,7 +77,7 @@ export default function Profile() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48 },
   meta: { fontSize: 13, color: colors.muted, marginTop: 8 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
@@ -93,4 +95,4 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1, fontSize: 15, color: colors.text },
   pressed: { backgroundColor: colors.pressed },
-});
+}));
