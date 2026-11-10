@@ -101,6 +101,11 @@ export default function Activity() {
   const { sections, totals, sources, toReview } = useMemo(() => {
     const q = query.trim().toLowerCase();
     const shown = data.rows.filter((r) => inRange(r, filters) && passes(r, filters, data.parents) && matchesQuery(r, q));
+    // The summary cards ignore the kind filter: picking Spends or Money in narrows
+    // the list, but both totals stay (only category, account and other filters
+    // change them). Otherwise the opposite card would always read zero.
+    const anyKind = { ...filters, kind: 'all' as const };
+    const counted = filters.kind === 'all' ? shown : data.rows.filter((r) => inRange(r, filters) && passes(r, anyKind, data.parents) && matchesQuery(r, q));
     const days = new Map<string, TransactionRow[]>();
     for (const row of shown) {
       const day = formatDay(row.tx.occurredAt);
