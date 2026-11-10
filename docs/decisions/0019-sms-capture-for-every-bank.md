@@ -16,4 +16,4 @@ Per-bank parser rules (`packages/parser`) still exist; they are an internal deta
 
 ## Shipping
 
-The app changes are JavaScript only and ship over the air; they also work on 0.11.x builds, which still send other apps' names and get them dropped. The listener change in `PaymentNotificationListener.kt` (built-in apps only) takes effect with the next APK build; it adds no native code the JavaScript needs, so `version` stays as it is.
+JavaScript only, over the air, so friends on 0.11.0 get it without a new APK. The 0.11.0 listener still passes on the names of other apps' money notifications; the JavaScript drops them. Changing `PaymentNotificationListener.kt` to drop them natively needs a version bump, which would stop this update reaching 0.11.0, so it waits for the next APK that has other native changes.
