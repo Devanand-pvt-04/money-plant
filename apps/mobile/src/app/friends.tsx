@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, RefreshControl, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, Share, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
-import { Button, Card, ErrorText, Field, Initial, SectionTitle, colors } from '@/components/ui';
+import { Button, Card, ErrorText, Field, Initial, SectionTitle, makeStyles } from '@/components/ui';
 import {
   INVITE_LIMIT,
   inviteFriend,
@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabase';
 
 /** ACC-8 and ACC-9: invite friends by email, answer friend requests, and see who you're linked with. */
 export default function Friends() {
+  const styles = useStyles();
   const [invites, setInvites] = useState<Invite[]>([]);
   const [links, setLinks] = useState<FriendLink[]>([]);
   const [admin, setAdmin] = useState(false);
@@ -210,7 +211,7 @@ export default function Friends() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 8 },
   lead: { fontSize: 14, color: colors.text, lineHeight: 20, marginTop: 8 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
@@ -225,4 +226,4 @@ const styles = StyleSheet.create({
   small: { minHeight: 48, minWidth: 48, paddingHorizontal: 8, justifyContent: 'center', alignItems: 'center' },
   smallText: { fontSize: 14, fontWeight: '600', color: colors.primary },
   smallMuted: { fontSize: 14, fontWeight: '600', color: colors.muted },
-});
+}));

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, Switch, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { currencyInfo, paise, parseMoney, type DateKey, type Paise } from '@money-plant/core';
 import type { SourceKind } from '@money-plant/matcher';
@@ -11,7 +11,7 @@ import { DateField } from './date-fields';
 import { formatAmount } from './format';
 import { FormScroll } from './keyboard';
 import { Sheet } from './sheet';
-import { Button, colors, radius } from './ui';
+import { Button, radius, useColors, makeStyles } from './ui';
 
 export type Kind = 'all' | 'expense' | 'income' | 'transfer';
 export type Origin = 'sms' | 'app' | 'manual';
@@ -98,6 +98,8 @@ export function activeChips(f: ActivityFilters): { label: string; clear: Partial
 
 /** HOME-2: the filter sheet. Changes apply when the user taps Show. */
 export function FilterSheet(props: { visible: boolean; value: ActivityFilters; count: (f: ActivityFilters) => number; onApply: (f: ActivityFilters) => void; onClose: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [f, setF] = useState<ActivityFilters>(props.value);
   const [min, setMin] = useState('');
   const [max, setMax] = useState('');
@@ -213,6 +215,8 @@ export function FilterSheet(props: { visible: boolean; value: ActivityFilters; c
 }
 
 function PickRow(props: { label: string; value: string; onPress: () => void; onClear?: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={props.onPress} style={({ pressed }) => [styles.pick, pressed && styles.pressed]}>
       <View style={styles.grow}>
@@ -230,7 +234,7 @@ function PickRow(props: { label: string; value: string; onPress: () => void; onC
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginHorizontal: 4 },
   title: { fontSize: 19, fontWeight: '700', color: colors.text },
   clear: { fontSize: 14, fontWeight: '600', color: colors.muted },
@@ -255,4 +259,4 @@ const styles = StyleSheet.create({
   originTextOn: { color: colors.primary, fontWeight: '600' },
   toggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, marginTop: 8 },
   toggleText: { fontSize: 15, color: colors.text },
-});
+}));

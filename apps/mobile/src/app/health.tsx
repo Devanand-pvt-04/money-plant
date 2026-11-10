@@ -1,8 +1,8 @@
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { balanceMet, formatMoney, HEALTH_DAYS, HEALTH_TARGETS, type Share as Ratio } from '@money-plant/core';
-import { Button, Card, colors, SectionTitle } from '@/components/ui';
+import { Button, Card, SectionTitle, useColors, makeStyles } from '@/components/ui';
 import { formatDateTime } from '@/components/format';
 import { loadHealth, type Health as HealthData } from '@/lib/health';
 import { useLedger } from '@/lib/use-ledger';
@@ -18,6 +18,7 @@ function minutes(seconds: number): string {
 
 /** HOME-3: the PRD's success metrics, measured on this phone over the last 30 days. */
 export default function Health() {
+  const styles = useStyles();
   const { data } = useLedger<HealthData | null>(loadHealth, null, 'health');
 
   function share() {
@@ -114,6 +115,8 @@ function Metric(props: {
   first?: boolean;
   onPress?: () => void;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const tone = props.met === null ? colors.muted : props.met ? colors.primary : colors.warning;
   return (
     <Pressable
@@ -135,7 +138,7 @@ function Metric(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 20, paddingBottom: 48, gap: 12 },
   hint: { fontSize: 14, color: colors.muted, lineHeight: 20 },
   pad: { padding: 16 },
@@ -148,4 +151,4 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: colors.muted, marginTop: 2 },
   value: { fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
   actions: { marginTop: 8 },
-});
+}));

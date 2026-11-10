@@ -1,10 +1,10 @@
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { lentBorrowed } from '@money-plant/core';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatWholeRupees } from '@/components/format';
-import { ErrorText, MoneyCard, colors, figures, radius } from '@/components/ui';
+import { ErrorText, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { GROUPS, SLICE_COLOURS, SLICE_LABELS, type AccountGroup } from '@/lib/account-groups';
 import { marketValues } from '@/lib/demat';
 import { fundValues } from '@/lib/funds';
@@ -47,6 +47,8 @@ const percent = (gain: number, invested: number) => {
 
 /** NAV-1, NW-1, NW-4 (decision 0015): net worth, where it sits, and one row per group. */
 export default function Accounts() {
+  const colors = useColors();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { data, reload } = useLedger(
     load,
@@ -269,6 +271,8 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 /** NW-4: net worth at the end of each recent month, as bars scaled between the lowest and highest month. */
 function History({ points }: { points: NetWorthPoint[] }) {
+  const colors = useColors();
+  const styles = useStyles();
   const values = points.map((p) => p.value);
   const low = Math.min(0, ...values);
   const high = Math.max(...values);
@@ -296,7 +300,7 @@ function History({ points }: { points: NetWorthPoint[] }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 16, paddingBottom: 48, gap: 14 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { flex: 1, fontSize: 24, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
@@ -356,4 +360,4 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-});
+}));

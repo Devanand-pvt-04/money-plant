@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { formatMoney, paise, parseMoney } from '@money-plant/core';
 import type { TransactionRow } from '@/lib/ledger';
 import { editEntry, recentNotes } from '@/lib/entries';
 import { DateTimeField } from './date-fields';
 import { Sheet } from './sheet';
 import { transactionTitle, displayAmount } from './transaction-item';
-import { ErrorText, colors, figures, radius } from './ui';
+import { ErrorText, figures, radius, useColors, makeStyles } from './ui';
 
 export type EditField = 'payee' | 'note' | 'amount' | 'when';
 
@@ -21,6 +21,8 @@ export const ownLeg = (row: TransactionRow) => row.legs.find((leg) => row.tx.kin
  * user set it.
  */
 export function EditFieldSheet({ row, field, onClose }: { row: TransactionRow; field: EditField | null; onClose: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [text, setText] = useState('');
   const [when, setWhen] = useState(row.tx.occurredAt);
   const [notes, setNotes] = useState<string[]>([]);
@@ -70,7 +72,7 @@ export function EditFieldSheet({ row, field, onClose }: { row: TransactionRow; f
     }
   }
 
-  const amount = displayAmount(row);
+  const amount = displayAmount(row, colors);
   const own = ownLeg(row);
   return (
     <Sheet visible={field !== null} onClose={onClose}>
@@ -123,7 +125,7 @@ export function EditFieldSheet({ row, field, onClose }: { row: TransactionRow; f
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   summary: { alignItems: 'center', gap: 2, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.divider },
   payee: { fontSize: 15, fontWeight: '600', color: colors.text },
   amount: { fontSize: 24, fontWeight: '700', ...figures },
@@ -150,4 +152,4 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { maxWidth: '100%', paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.subtle },
   chipText: { fontSize: 13, color: colors.text },
-});
+}));

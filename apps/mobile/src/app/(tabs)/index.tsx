@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { AppState, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
@@ -7,7 +7,7 @@ import { formatMonth, formatWholeRupees, reviewTime } from '@/components/format'
 import { SetupCard } from '@/components/setup-card';
 import { TransactionItem } from '@/components/transaction-item';
 import { Avatar, useMe } from '@/components/avatar';
-import { ErrorText, MoneyCard, ProgressBar, colors, figures, radius } from '@/components/ui';
+import { ErrorText, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { ensureDefaultCategories } from '@/lib/categories';
 import { currentMonth, incomeThisMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
 import { hasImportedInbox } from '@/lib/capture';
@@ -52,6 +52,8 @@ function greeting(now: Date): string {
 
 /** HOME-1: is this month on track, what needs a look, and what's coming up (decision 0015). */
 export default function Home() {
+  const colors = useColors();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { data, reload } = useLedger(
     loadHome,
@@ -190,6 +192,8 @@ export default function Home() {
  * transfers and repayments never inflate it.
  */
 function MonthCard({ line, outside, income, elapsed }: { line: BudgetLine; outside: number; income: number; elapsed: number }) {
+  const colors = useColors();
+  const styles = useStyles();
   const status = line.pace?.status ?? 'ok';
   const monthName = formatMonth(currentMonth()).split(' ')[0];
   const today = new Date();
@@ -231,6 +235,7 @@ function MonthCard({ line, outside, income, elapsed }: { line: BudgetLine; outsi
 }
 
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
+  const styles = useStyles();
   return (
     <View style={styles.stat}>
       <Text style={styles.statLabel}>{label}</Text>
@@ -245,6 +250,8 @@ type FeatherName = React.ComponentProps<typeof Feather>['name'];
 
 /** HOME-1: the four things a user starts from Home. Scan & pay needs the Android UPI hand-off. */
 function Shortcuts({ pending }: { pending: number }) {
+  const colors = useColors();
+  const styles = useStyles();
   // Adding an entry is the floating + on every tab, so it isn't repeated here.
   const items: { icon: FeatherName; label: string; href: '/pay' | '/review' | '/expense'; count?: number }[] = [
     ...(Platform.OS === 'android' ? [{ icon: 'maximize' as const, label: 'Scan & pay', href: '/pay' as const }] : []),
@@ -294,6 +301,8 @@ function dueLabel(item: DueItem, todayKey: string, tomorrowKey: string): string 
 
 /** HOME-1: bills, EMIs and IOUs due in the next 7 days, as small cards to scroll sideways. */
 function ComingUp({ items }: { items: DueItem[] }) {
+  const colors = useColors();
+  const styles = useStyles();
   const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const now = new Date();
   const todayKey = key(now);
@@ -334,7 +343,7 @@ function ComingUp({ items }: { items: DueItem[] }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   container: { paddingHorizontal: 16, paddingBottom: 112, gap: 20 },
   date: { fontSize: 13, color: colors.muted },
@@ -432,4 +441,4 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   fabPressed: { opacity: 0.85 },
-});
+}));

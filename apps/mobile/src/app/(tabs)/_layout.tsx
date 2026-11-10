@@ -3,13 +3,18 @@ import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { Tabs } from 'expo-router/js-tabs';
-import { colors } from '@/components/ui';
+import { useColors } from '@/components/ui';
 import { countPending } from '@/lib/ledger';
 import { useLedger } from '@/lib/use-ledger';
 
 /** The active tab's icon sits on a sage pill (decision 0015). */
 function icon(name: ComponentProps<typeof Feather>['name']) {
-  return ({ focused }: { focused: boolean }) => (
+  return ({ focused }: { focused: boolean }) => <TabIcon name={name} focused={focused} />;
+}
+
+function TabIcon({ name, focused }: { name: ComponentProps<typeof Feather>['name']; focused: boolean }) {
+  const colors = useColors();
+  return (
     <View style={[pill, focused && { backgroundColor: colors.primarySurface }]}>
       <Feather name={name} color={focused ? colors.primary : colors.muted} size={20} />
     </View>
@@ -20,6 +25,7 @@ const pill = { width: 56, height: 30, borderRadius: 15, alignItems: 'center', ju
 
 /** NAV-1: the five places a user goes every day. Everything else opens on top of them. */
 export default function TabsLayout() {
+  const colors = useColors();
   const { data: pending } = useLedger(countPending, 0, 'tab badge');
   const insets = useSafeAreaInsets();
   return (

@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { LocalHolding } from '@money-plant/db-schema';
 import { accountIcon, accountLabel } from '@/components/account-picker';
 import { formatAmount, formatDate, formatWholeRupees } from '@/components/format';
-import { MoneyCard, colors, figures, radius } from '@/components/ui';
+import { MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { GROUPS, isGroupKey } from '@/lib/account-groups';
 import { fetchNavHistory } from '@/lib/fund-chart';
 import { fundValues, listHoldings, type FundValue } from '@/lib/funds';
@@ -29,6 +29,7 @@ const signedRupees = (amount: number) => `${amount >= 0 ? '+' : '−'}${formatWh
 
 /** NW-4 (decision 0015): one group's accounts, opened from Accounts. Mutual funds get their own page (NW-3). */
 export default function GroupPage() {
+  const styles = useStyles();
   const { group: key } = useLocalSearchParams<{ group: string }>();
   const group = GROUPS.find((g) => g.key === key);
   const { data } = useLedger(load, { balances: [] as AccountBalance[], holdings: [] as LocalHolding[], values: new Map<string, FundValue>() }, 'group');
@@ -55,6 +56,8 @@ export default function GroupPage() {
 }
 
 function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { account, value, reconciliation, typeLabel, currency, homeValue } = item;
   const foreign = currency !== homeCurrency();
   return (
@@ -94,6 +97,8 @@ const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 
 /** NW-3 (decision 0015): value, invested, gain and return, the next SIPs, then each fund with its share. */
 function Funds({ rows, holdings, values }: { rows: AccountBalance[]; holdings: LocalHolding[]; values: Map<string, FundValue> }) {
+  const colors = useColors();
+  const styles = useStyles();
   useEffect(() => {
     fetchNavHistory().catch(() => {});
   }, []);
@@ -191,6 +196,8 @@ function Funds({ rows, holdings, values }: { rows: AccountBalance[]; holdings: L
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'in' | 'out' }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <View style={styles.grow}>
       <Text style={styles.statLabel}>{label}</Text>
@@ -201,7 +208,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: 'in
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 32, gap: 14 },
   heroMuted: { fontSize: 13, color: colors.heroMuted },
   heroAmount: { fontSize: 34, fontWeight: '700', color: colors.heroText, letterSpacing: -1, ...figures },
@@ -232,4 +239,4 @@ const styles = StyleSheet.create({
   footnote: { fontSize: 12, color: colors.muted, textAlign: 'center' },
   headerButton: { height: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
   headerButtonText: { fontSize: 13, fontWeight: '600', color: colors.text },
-});
+}));

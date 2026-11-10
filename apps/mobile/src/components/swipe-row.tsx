@@ -1,8 +1,8 @@
 import { useRef, type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import Swipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Feather from '@expo/vector-icons/Feather';
-import { colors, radius } from './ui';
+import { radius, useColors, makeStyles } from './ui';
 
 /** How far a finger must move sideways before the row moves, so a slightly slanted scroll stays a scroll. */
 const DRAG_START = 24;
@@ -21,6 +21,8 @@ export function SwipeRow(props: {
   /** Shows the second action in red with a bin, for one that removes something (it should still ask first). */
   otherDestructive?: boolean;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { onOther, otherLabel } = props;
   const ref = useRef<SwipeableMethods>(null);
   return (
@@ -61,7 +63,7 @@ export function SwipeRow(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   action: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, borderRadius: radius.lg },
   accept: { backgroundColor: colors.primary, justifyContent: 'flex-start' },
   acceptText: { fontSize: 15, fontWeight: '600', color: colors.onInk },
@@ -69,4 +71,4 @@ const styles = StyleSheet.create({
   otherText: { fontSize: 15, fontWeight: '600', color: colors.text },
   destructive: { backgroundColor: colors.danger },
   destructiveText: { color: colors.onInk },
-});
+}));

@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { BACKGROUND, scheme } from '@/lib/theme';
+import { BACKGROUND, useScheme, type Scheme } from '@/lib/theme';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 
 /**
@@ -75,7 +75,32 @@ const dark: typeof light = {
   heroLine: 'rgba(255,255,255,0.1)',
 };
 
-export const colors = scheme === 'dark' ? dark : light;
+export type Palette = typeof light;
+const palettes: Record<Scheme, Palette> = { light, dark };
+
+/** The palette of the scheme on screen; the component draws again when the theme changes. */
+export function useColors(): Palette {
+  return palettes[useScheme()];
+}
+
+/** The palette of one scheme, outside a component. */
+export function paletteFor(scheme: Scheme): Palette {
+  return palettes[scheme];
+}
+
+/**
+ * Styles that use the palette: makeStyles((colors) => ({ ... })) at the top of
+ * a file gives a hook that returns them for the scheme on screen. Each
+ * scheme's sheet is built once, the first time it's needed, so a theme change
+ * costs one draw and no new objects after that.
+ */
+export function makeStyles<S extends Parameters<typeof StyleSheet.create>[0]>(build: (colors: Palette) => S): () => Readonly<S> {
+  const sheets: Partial<Record<Scheme, Readonly<S>>> = {};
+  return function useThemedStyles() {
+    const scheme = useScheme();
+    return (sheets[scheme] ??= StyleSheet.create(build(palettes[scheme])));
+  };
+}
 
 export const radius = { sm: 10, md: 14, lg: 18, pill: 999 };
 
@@ -86,6 +111,8 @@ export function Button(props: {
   loading?: boolean;
   variant?: 'primary' | 'secondary';
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { title, onPress, disabled, loading, variant = 'primary' } = props;
   const primary = variant === 'primary';
   return (
@@ -110,6 +137,8 @@ export function Button(props: {
 }
 
 export function Field(props: TextInputProps & { label: string }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { label, style, ...rest } = props;
   return (
     <>
@@ -120,11 +149,13 @@ export function Field(props: TextInputProps & { label: string }) {
 }
 
 export function ErrorText({ children }: { children: ReactNode }) {
+  const styles = useStyles();
   return <Text style={styles.error}>{children}</Text>;
 }
 
 /** A selectable pill, for picking one of a few options. */
 export function Chip(props: { label: string; selected: boolean; onPress: () => void }) {
+  const styles = useStyles();
   const { label, selected, onPress } = props;
   return (
     <Pressable
@@ -139,6 +170,7 @@ export function Chip(props: { label: string; selected: boolean; onPress: () => v
 }
 
 export function Chips({ children }: { children: ReactNode }) {
+  const styles = useStyles();
   return <View style={styles.chips}>{children}</View>;
 }
 
@@ -149,6 +181,8 @@ export function Chips({ children }: { children: ReactNode }) {
  * bar on the charcoal money card.
  */
 export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'over'; marker?: number; color?: string; onHero?: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { value, status = 'ok', marker, onHero } = props;
   const color = onHero
     ? status === 'over' ? colors.heroDanger : status === 'pace' ? colors.heroWarning : (props.color ?? colors.heroAccent)
@@ -170,16 +204,19 @@ export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'ov
 
 /** The charcoal money card that holds a screen's main number (decision 0015). */
 export function MoneyCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const styles = useStyles();
   return <View style={[styles.money, style]}>{children}</View>;
 }
 
 /** A bordered panel. */
 export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const styles = useStyles();
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
 /** A first letter on a tinted tile, standing in for a merchant logo. */
 export function Initial({ name, size = 40 }: { name: string; size?: number }) {
+  const styles = useStyles();
   return (
     <View style={[styles.initial, { width: size, height: size, borderRadius: size * 0.3 }]}>
       <Text style={[styles.initialText, { fontSize: size * 0.36 }]}>{name.trim().charAt(0).toUpperCase() || '?'}</Text>
@@ -188,13 +225,14 @@ export function Initial({ name, size = 40 }: { name: string; size?: number }) {
 }
 
 export function SectionTitle({ children }: { children: ReactNode }) {
+  const styles = useStyles();
   return <Text style={styles.section}>{children}</Text>;
 }
 
 /** Every amount uses tabular figures, so columns of money line up. */
 export const figures = { fontVariant: ['tabular-nums'] } as const;
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   button: {
     minHeight: 48,
     borderRadius: radius.md,
@@ -244,4 +282,4 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: 'hidden' },
   initial: { backgroundColor: colors.subtle, alignItems: 'center', justifyContent: 'center' },
   initialText: { fontWeight: '700', color: colors.secondary },
-});
+}));

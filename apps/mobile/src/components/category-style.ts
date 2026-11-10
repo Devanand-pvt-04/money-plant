@@ -1,7 +1,7 @@
 import type MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { resolveLook, type CategoryLook } from '@money-plant/categoriser';
 import { ICON_SET } from '@/lib/icon-set';
-import { scheme } from '@/lib/theme';
+import { getScheme } from '@/lib/theme';
 
 export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -57,5 +57,6 @@ const lookOf = (category: CategoryLike): CategoryLook =>
 export function categoryStyle(category: CategoryLike): CategoryStyle {
   const { icon, colorKey } = resolveLook(lookOf(category), ICON_SET);
   const [darkColor, darkTint, lightColor, lightTint] = (colorKey && STYLES[colorKey]) || OTHER;
+  const scheme = getScheme();
   return { icon: icon as IconName, color: scheme === 'dark' ? darkColor : lightColor, tint: scheme === 'dark' ? darkTint : lightTint };
 }

@@ -1,13 +1,12 @@
 import * as SecureStore from 'expo-secure-store';
 
 /**
- * The app restarts its own JavaScript for a theme change, an update or "Try
- * again". Each restart is noted here just before it happens, so the next start
+ * The app restarts its own JavaScript for an update or "Try again". Each restart is noted here just before it happens, so the next start
  * knows why it began and how many restarts came one after another. Kept in
  * SecureStore (synchronous, no database) because it is read before anything
  * else has loaded.
  */
-export type RestartReason = 'theme-choice' | 'theme-system' | 'update' | 'try-again';
+export type RestartReason = 'update' | 'try-again';
 
 interface RestartNote {
   at: number;

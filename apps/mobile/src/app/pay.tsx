@@ -12,7 +12,7 @@ import { KeyboardGap, useKeyboard } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount, formatTime } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
-import { Button, ErrorText, Initial, colors, radius } from '@/components/ui';
+import { Button, ErrorText, Initial, radius, useColors, makeStyles } from '@/components/ui';
 import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { editEntry, setCategoryForEntries } from '@/lib/entries';
 import { listAccountBalances } from '@/lib/ledger';
@@ -29,6 +29,7 @@ const MAX_AMOUNT = 10_000_000;
  * what it was for.
  */
 export default function ScanAndPay() {
+  const styles = useStyles();
   const [payment, setPayment] = useState<UpiPayment | null>(null);
   const [guess, setGuess] = useState<PayeeGuess | null>(null);
   const [result, setResult] = useState<{ payment: PaymentResult; amount: Paise; at: string } | null>(null);
@@ -67,6 +68,8 @@ export default function ScanAndPay() {
 }
 
 function Scan({ onPayee }: { onPayee: (payment: UpiPayment) => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [permission, requestPermission] = useCameraPermissions();
   const [torch, setTorch] = useState(false);
   const [typed, setTyped] = useState('');
@@ -209,6 +212,7 @@ const SCAN_MUTED = '#9AA39E';
 const SCAN_GREEN = '#3DBE8B';
 
 function Corners() {
+  const styles = useStyles();
   return (
     <>
       <View style={[styles.corner, { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 18 }]} />
@@ -220,6 +224,7 @@ function Corners() {
 }
 
 function ScanLine({ size }: { size: number }) {
+  const styles = useStyles();
   const progress = useSharedValue(0);
   useEffect(() => {
     progress.value = withRepeat(withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.quad) }), -1, true);
@@ -231,6 +236,8 @@ function ScanLine({ size }: { size: number }) {
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'back'] as const;
 
 function Amount(props: { payment: UpiPayment; guess: PayeeGuess | null; onBack: () => void; onPaid: (result: PaymentResult, amount: Paise) => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { payment, guess } = props;
   const fixed = payment.amount !== undefined;
   const [text, setText] = useState(fixed ? String(payment.amount! / 100) : '');
@@ -356,6 +363,8 @@ const TITLES: Record<UpiStatus, string> = {
 };
 
 function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: PaymentResult; amount: Paise; at: string; onRetry: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { payment, result, amount } = props;
   const [answered, setAnswered] = useState<boolean | null>(null);
   const [category, setCategory] = useState<{ id: string; name: string; key: string | null; hint: string | null; node: CategoryNode } | null>(null);
@@ -497,7 +506,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
   grow: { flex: 1, minWidth: 0 },
   meta: { fontSize: 13, color: colors.muted },
@@ -559,4 +568,4 @@ const styles = StyleSheet.create({
   tileText: { fontSize: 14, fontWeight: '600', color: colors.text },
   skip: { minHeight: 40, alignItems: 'center', justifyContent: 'center' },
   skipText: { fontSize: 14, color: colors.muted },
-});
+}));

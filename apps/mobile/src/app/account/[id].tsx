@@ -6,7 +6,7 @@ import { formatMoney, formatRupees, isBalanceScheme, monthOf, paise, SCHEMES, ty
 import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { accountLabel } from '@/components/account-picker';
 import { LineChart } from '@/components/line-chart';
-import { Button, MoneyCard, colors, figures, radius } from '@/components/ui';
+import { Button, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { formatAmount, formatDate, formatDay, formatTime, formatWholeRupees } from '@/components/format';
 import { TransactionItem } from '@/components/transaction-item';
 import { deleteAccount } from '@/lib/accounts';
@@ -49,6 +49,7 @@ const EMPTY = {
 
 /** NW-3, LED-7 (decision 0015): one account. Funds and bank accounts have pages of their own. */
 export default function AccountDetail() {
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data } = useLedger(() => load(id), EMPTY, 'account');
   if (!data.balance) return null;
@@ -72,6 +73,7 @@ export default function AccountDetail() {
 }
 
 function GenericView({ data, footer }: { data: typeof EMPTY; footer: React.ReactElement }) {
+  const styles = useStyles();
   const { account, balance, value, reconciliation, typeLabel } = data.balance!;
   const isDeposit = account.type === 'fd' || account.type === 'rd' || account.type === 'savings_scheme';
   const passbook = !!data.deposit && isBalanceScheme(data.deposit.kind);
@@ -112,6 +114,7 @@ function GenericView({ data, footer }: { data: typeof EMPTY; footer: React.React
 }
 
 function PillButton({ title, onPress }: { title: string; onPress: () => void }) {
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.pill, pressed && styles.pressedCard]}>
       <Text style={styles.pillText}>{title}</Text>
@@ -128,6 +131,8 @@ function when(iso: string): string {
 
 /** LED-7: whether the ledger matches the latest balance the bank reported, by SMS or statement. */
 function Reconciled({ reconciliation, currency }: { reconciliation: NonNullable<AccountBalance['reconciliation']>; currency: string }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { flagged, latest } = reconciliation;
   const said = `the bank's ${latest.anchor.from === 'statement' ? 'statement' : 'SMS'} of ${when(latest.anchor.observedAt)}`;
   return (
@@ -146,6 +151,8 @@ const legOf = (row: TransactionRow, id: string) => row.legs.find((l) => l.accoun
 
 /** LED-7 (decision 0015): balance, whether it matches the bank, this month's flows, what it pays, and its entries by day. */
 function BankView({ balance: item, rows, upcoming, footer }: { balance: AccountBalance; rows: TransactionRow[]; upcoming: UpcomingPayment[]; footer: React.ReactElement }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { account, balance, reconciliation } = item;
   const month = monthOf(new Date());
   let moneyIn = 0;
@@ -243,6 +250,8 @@ const fmtNav = (e4: number) => `₹${(e4 / 10_000).toLocaleString('en-IN', { min
 
 /** NW-3 (decision 0015): value and gain, 12 months of value against money put in, the numbers, the SIP and the history. */
 function FundView({ balance: item, fund, page, footer }: { balance: AccountBalance; fund: NonNullable<Fund>; page: FundPage; footer: React.ReactElement }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { account } = item;
   const { holding, value } = fund;
   useEffect(() => {
@@ -358,6 +367,7 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
 }
 
 function Tile({ label, value }: { label: string; value: string }) {
+  const styles = useStyles();
   return (
     <View style={styles.tile}>
       <Text style={styles.meta}>{label}</Text>
@@ -380,6 +390,7 @@ function daysUntil(day: number): number {
 
 /** NW-2, NW-6: what went in, interest so far and maturity; or a prompt to add the terms. */
 function DepositCard({ accountId, deposit, balance, value }: { accountId: string; deposit: LocalDeposit | null; balance: Paise; value: Paise }) {
+  const styles = useStyles();
   if (deposit && isBalanceScheme(deposit.kind)) {
     const info = SCHEMES[deposit.kind as SchemeKind];
     const rate = `${(deposit.rateBp / 100).toFixed(2).replace(/\.?0+$/, '')}%`;
@@ -423,6 +434,7 @@ function DepositCard({ accountId, deposit, balance, value }: { accountId: string
 
 /** NW-3: units, today's NAV and the gain on a fund imported from a CAS. */
 function FundCard({ fund, balance }: { fund: NonNullable<Fund>; balance: Paise }) {
+  const styles = useStyles();
   const { holding, value } = fund;
   const fmtUnits = (e4: number) => (e4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 4 });
   const units = fmtUnits(holding.unitsE4);
@@ -452,6 +464,7 @@ const fmtPrice = (e4: number) => `₹${(e4 / 10_000).toLocaleString('en-IN', { m
 
 /** NW-5, NW-6: each share, ETF, bond or NPS scheme at its latest price, with what was paid where known. */
 function HoldingsCard({ market }: { market: MarketAccountValue }) {
+  const styles = useStyles();
   const asOf = market.holdings[0]?.holding.asOf;
   return (
     <View style={styles.card}>
@@ -503,6 +516,7 @@ function ordinal(day: number): string {
 }
 
 function Line({ label, amount }: { label: string; amount: Paise }) {
+  const styles = useStyles();
   return (
     <View style={styles.line}>
       <Text style={styles.lineLabel}>{label}</Text>
@@ -511,7 +525,7 @@ function Line({ label, amount }: { label: string; amount: Paise }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   card: { padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, gap: 8 },
   pressedCard: { opacity: 0.85 },
   cardText: { fontSize: 14, color: colors.text, lineHeight: 20 },
@@ -578,4 +592,4 @@ const styles = StyleSheet.create({
   historyAmount: { fontSize: 14, fontWeight: '600', color: colors.text, ...figures },
   fundNote: { marginTop: 16, textAlign: 'center' },
   footer: { marginTop: 24 },
-});
+}));

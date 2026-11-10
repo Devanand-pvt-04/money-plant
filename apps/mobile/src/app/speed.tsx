@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react';
-import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, Share, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import * as Updates from 'expo-updates';
-import { Button, Card, colors } from '@/components/ui';
+import { Button, Card, makeStyles } from '@/components/ui';
 import { speedLog } from '@/lib/perf';
 
 /** The speed pass: how long each screen's data took to load on this phone since the app started. */
 export default function Speed() {
+  const styles = useStyles();
   const [log, setLog] = useState(speedLog);
   useFocusEffect(useCallback(() => setLog(speedLog()), []));
 
@@ -49,7 +50,7 @@ export default function Speed() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 20, paddingBottom: 48, gap: 12 },
   hint: { fontSize: 14, color: colors.muted, lineHeight: 20 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 10 },
@@ -59,4 +60,4 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: colors.muted, marginTop: 2 },
   value: { fontSize: 15, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
   actions: { marginTop: 8 },
-});
+}));

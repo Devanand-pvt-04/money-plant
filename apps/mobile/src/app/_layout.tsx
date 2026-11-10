@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
@@ -9,34 +9,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppLock } from '@/components/app-lock';
 import { ErrorScreen } from '@/components/error-screen';
 import { UpdateBanner } from '@/components/update-banner';
-import { Button, colors } from '@/components/ui';
+import { Button, useColors } from '@/components/ui';
 import { useConsent } from '@/lib/consent';
 import { flushErrors, reportError, watchErrors } from '@/lib/errors';
 import { applyHideInRecents } from '@/lib/privacy';
 import { watchSharedIous } from '@/lib/realtime';
 import { startedAt, startedFromRestart } from '@/lib/restart-log';
 import { useSession } from '@/lib/session';
-import { followSystemScheme, scheme } from '@/lib/theme';
+import { followSystemScheme, useScheme } from '@/lib/theme';
 import { restartApp } from '@/lib/updates';
 
 watchErrors();
 
 /** A crash anywhere below shows a way back instead of a blank screen. */
 export const ErrorBoundary = ErrorScreen;
-
-const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
-const navigationTheme = {
-  ...base,
-  colors: {
-    ...base.colors,
-    primary: colors.primary,
-    background: colors.background,
-    card: colors.background,
-    text: colors.text,
-    border: colors.border,
-    notification: colors.warning,
-  },
-};
 
 /** How long the first screen may wait before it says what it's waiting for. */
 const SLOW_START_MS = 8_000;
@@ -69,6 +55,24 @@ function useSlowStart(step: 'session' | 'consent' | null): boolean {
 }
 
 export default function RootLayout() {
+  const colors = useColors();
+  const scheme = useScheme();
+  // The navigator's own surfaces (headers, cards) follow the theme too.
+  const navigationTheme = useMemo(() => {
+    const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: colors.primary,
+        background: colors.background,
+        card: colors.background,
+        text: colors.text,
+        border: colors.border,
+        notification: colors.warning,
+      },
+    };
+  }, [scheme, colors]);
   const { session, loading } = useSession();
   const insets = useSafeAreaInsets();
   const lastResponse = Notifications.useLastNotificationResponse();

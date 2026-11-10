@@ -8,7 +8,7 @@ import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatDate, formatMonth, formatWholeRupees as rupees } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
-import { ProgressBar, SectionTitle, colors, radius } from '@/components/ui';
+import { ProgressBar, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { categoryBreakdown, currentMonth, daysLeft, monthOverview, setBudget, type BudgetLine, type CategoryBreakdown } from '@/lib/budgets';
 import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { requestNotificationPermission } from '@/lib/notifications';
@@ -47,6 +47,8 @@ const monthName = (month: MonthKey) => formatMonth(month).split(' ')[0]!;
  * the money went. Income categories show what came in, with no budget.
  */
 export default function CategoryMonth() {
+  const colors = useColors();
+  const styles = useStyles();
   const params = useLocalSearchParams<{ id: string; month?: string }>();
   const month = params.month ?? currentMonth();
   const { data } = useLedger(() => load(params.id, month), null as Data | null);
@@ -234,6 +236,7 @@ function paceText(line: BudgetLine, left: number | null): string {
 }
 
 function BudgetRow(props: { title: string; note: string; amount: Paise | null; divided?: boolean; onPress: () => void }) {
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={props.onPress} style={({ pressed }) => [styles.budgetRow, props.divided && styles.divided, pressed && styles.pressed]}>
       <View style={styles.grow}>
@@ -247,6 +250,8 @@ function BudgetRow(props: { title: string; note: string; amount: Paise | null; d
 
 /** Four bars, oldest first, the last one in the category's colour. */
 function History({ history, color }: { history: { month: MonthKey; total: Paise }[]; color: string }) {
+  const colors = useColors();
+  const styles = useStyles();
   const max = Math.max(1, ...history.map((h) => h.total));
   return (
     <View style={styles.chart} accessible accessibilityLabel={history.map((h) => `${formatMonth(h.month)} ${rupees(h.total)}`).join(', ')}>
@@ -269,6 +274,7 @@ function History({ history, color }: { history: { month: MonthKey; total: Paise 
 }
 
 function Row({ label, amount, onPress }: { label: string; amount: number; onPress?: () => void }) {
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole={onPress ? 'button' : undefined} disabled={!onPress} onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       <Text style={styles.label} numberOfLines={1}>
@@ -279,7 +285,7 @@ function Row({ label, amount, onPress }: { label: string; amount: number; onPres
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 10 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   overallIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
@@ -307,4 +313,4 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   label: { fontSize: 15, color: colors.text, flex: 1 },
   rowAmount: { fontSize: 15, color: colors.text, fontVariant: ['tabular-nums'] },
-});
+}));

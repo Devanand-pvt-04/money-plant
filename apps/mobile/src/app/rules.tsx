@@ -1,7 +1,7 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { describePattern, type Rule } from '@money-plant/categoriser';
-import { SectionTitle, colors } from '@/components/ui';
+import { SectionTitle, makeStyles } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
 import { listAccountBalances } from '@/lib/ledger';
 import { listRules } from '@/lib/rules-store';
@@ -22,6 +22,7 @@ async function load() {
 
 /** CAT-7: every rule and learned pattern, with how often each was right. */
 export default function Rules() {
+  const styles = useStyles();
   const { data } = useLedger(load, { rules: [] as Rule[], names: new Map<string, string>(), accountName: () => null as string | null });
   const rules = data.rules.filter((r) => r.match.kind === 'rule');
   const patterns = data.rules.filter((r) => r.match.kind === 'pattern');
@@ -53,7 +54,7 @@ export default function Rules() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, gap: 8 },
   row: { padding: 12, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 2 },
   pressed: { backgroundColor: colors.pressed },
@@ -62,4 +63,4 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.muted },
   empty: { fontSize: 14, color: colors.muted },
   footer: { height: 32 },
-});
+}));

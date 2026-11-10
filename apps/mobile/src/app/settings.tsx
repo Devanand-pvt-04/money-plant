@@ -1,16 +1,16 @@
 import { type ComponentProps, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { Avatar, useMe } from '@/components/avatar';
-import { Card, SectionTitle, colors, radius } from '@/components/ui';
+import { Card, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { aiEnabled, setAiEnabled } from '@/lib/ai-settings';
 import { lockAvailable, lockEnabled, setLockEnabled, unlock } from '@/lib/lock';
 import { displayName } from '@/lib/me';
 import { hideInRecents, setHideInRecents } from '@/lib/privacy';
 import { signOut } from '@/lib/session';
 import { fetchLatestUpdate, restartToUpdate, runningVersion, updatesOn, type UpdateCheck } from '@/lib/updates';
-import { setThemePreference, themePreference, type ThemePreference } from '@/lib/theme';
+import { setThemePreference, useThemePreference, type ThemePreference } from '@/lib/theme';
 
 const THEMES: { key: ThemePreference; label: string }[] = [
   { key: 'system', label: 'Phone' },
@@ -20,8 +20,10 @@ const THEMES: { key: ThemePreference; label: string }[] = [
 
 /** NAV-1: profile and settings, opened from the avatar on Home. */
 export default function Settings() {
+  const colors = useColors();
+  const styles = useStyles();
   const me = useMe();
-  const theme = themePreference();
+  const theme = useThemePreference();
   const lock = useLockSetting();
   const [hidden, setHidden] = useState<boolean | null>(null);
   const [ai, setAi] = useState<boolean | null>(null);
@@ -147,6 +149,8 @@ const CHECK_TEXT: Record<UpdateCheck | 'checking', string> = {
 
 /** What version is running, and a check for a newer update on tap. */
 function UpdateRow() {
+  const colors = useColors();
+  const styles = useStyles();
   const [state, setState] = useState<UpdateCheck | 'checking' | null>(null);
   async function check() {
     if (state === 'ready') return void restartToUpdate().catch(() => setState('failed'));
@@ -189,6 +193,8 @@ function useLockSetting() {
 }
 
 function Link(props: { icon: ComponentProps<typeof Feather>['name']; title: string; href: Href; first?: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
@@ -202,7 +208,7 @@ function Link(props: { icon: ComponentProps<typeof Feather>['name']; title: stri
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 8 },
   profile: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 20, backgroundColor: colors.subtle },
   profileName: { fontSize: 18, fontWeight: '700', color: colors.text },
@@ -220,4 +226,4 @@ const styles = StyleSheet.create({
   segmentTextOn: { color: colors.onInk },
   signOut: { minHeight: 52, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
   signOutText: { fontSize: 15, fontWeight: '600', color: colors.danger },
-});
+}));

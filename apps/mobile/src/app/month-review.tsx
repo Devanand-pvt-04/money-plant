@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { addMonths, type MonthKey, type Paise } from '@money-plant/core';
@@ -7,7 +7,7 @@ import { BudgetSheet } from '@/components/budget-sheet';
 import { formatDate, formatMonth, formatWholeRupees as rupees } from '@/components/format';
 import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon } from '@/components/sheet';
-import { ProgressBar, SectionTitle, colors, radius } from '@/components/ui';
+import { ProgressBar, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { aiReviewFor, type AiReview } from '@/lib/ai-review';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { acceptSuggestion, ignoreSuggestion, lastMonth, monthReview, type MonthReview, type ReviewOverspend, type ReviewSuggestion } from '@/lib/review';
@@ -23,6 +23,8 @@ const budgetHref = (id: string, month: MonthKey) => `/budget/${id}?month=${month
  * the numbers it was written from (decision 0012).
  */
 export default function MonthReviewScreen() {
+  const colors = useColors();
+  const styles = useStyles();
   const params = useLocalSearchParams<{ month?: string }>();
   const [month, setMonth] = useState<MonthKey>(params.month ?? lastMonth());
   const { data, reload } = useLedger(() => monthReview(month), null as MonthReview | null);
@@ -105,6 +107,8 @@ function useAiReview(review: MonthReview | null): AiReview {
 }
 
 function Body({ review, ai, onEdit, onIgnored }: { review: MonthReview; ai: AiReview; onEdit: (s: ReviewSuggestion) => void; onIgnored: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   const { month } = review;
   const empty = review.spent === 0 && review.income === 0;
   if (empty) return <Text style={styles.meta}>Nothing was recorded in {formatMonth(month)}.</Text>;
@@ -187,6 +191,8 @@ function causeFor(ai: AiReview, category: string): string | null {
 }
 
 function AiWriteUp({ ai }: { ai: AiReview }) {
+  const colors = useColors();
+  const styles = useStyles();
   if (ai.status === 'off') return null;
   return (
     <View style={styles.ai}>
@@ -202,6 +208,8 @@ function AiWriteUp({ ai }: { ai: AiReview }) {
 }
 
 function Headline({ review }: { review: MonthReview }) {
+  const colors = useColors();
+  const styles = useStyles();
   const kept = review.income - review.spent;
   const status = review.budget === null ? 'ok' : review.inBudgets > review.budget ? 'over' : 'ok';
   return (
@@ -230,6 +238,8 @@ function Headline({ review }: { review: MonthReview }) {
 }
 
 function Stat({ label, amount, tone }: { label: string; amount: Paise; tone?: 'good' | 'bad' }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <View style={styles.stat}>
       <Text style={styles.statLabel} numberOfLines={2}>
@@ -241,6 +251,8 @@ function Stat({ label, amount, tone }: { label: string; amount: Paise; tone?: 'g
 }
 
 function OverspendCard({ overspend: o, month, cause }: { overspend: ReviewOverspend; month: MonthKey; cause: string | null }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <View style={styles.card}>
       <Pressable accessibilityRole="button" onPress={() => router.push(budgetHref(o.categoryId, month))} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
@@ -295,6 +307,7 @@ function reason(s: ReviewSuggestion): string {
 }
 
 function SuggestionCard({ suggestion: s, onEdit, onIgnored }: { suggestion: ReviewSuggestion; onEdit: () => void; onIgnored: () => void }) {
+  const styles = useStyles();
   const [busy, setBusy] = useState(false);
   return (
     <View style={styles.card}>
@@ -329,6 +342,7 @@ function SuggestionCard({ suggestion: s, onEdit, onIgnored }: { suggestion: Revi
 }
 
 function Choice({ label, primary, onPress }: { label: string; primary?: boolean; onPress: () => void }) {
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.choice, primary && styles.choicePrimary, pressed && styles.pressed]}>
       <Text style={[styles.choiceText, primary && styles.choiceTextPrimary]}>{label}</Text>
@@ -336,7 +350,7 @@ function Choice({ label, primary, onPress }: { label: string; primary?: boolean;
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 10 },
   months: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
@@ -375,4 +389,4 @@ const styles = StyleSheet.create({
   cause: { flexDirection: 'row', gap: 6, paddingLeft: 46 },
   causeIcon: { marginTop: 3 },
   causeText: { fontSize: 13, color: colors.secondary, lineHeight: 19, flex: 1, fontStyle: 'italic' },
-});
+}));

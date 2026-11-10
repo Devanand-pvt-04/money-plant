@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ICON_CHOICES, searchIcons } from '@money-plant/categoriser';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
@@ -7,12 +7,14 @@ import { FormScroll } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { categoryStyle, type IconName } from '@/components/category-style';
 import { CategoryIcon } from '@/components/sheet';
-import { Button, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { ICON_NAMES } from '@/lib/icon-set';
 import { deleteCategory, flatten, listCategories, mergeCategory, moveCategory, renameCategory, setCategoryIcon, type CategoryNode } from '@/lib/categories';
 
 /** CAT-1, CAT-5: rename, change the icon, move, merge or delete one category. Entries keep their history. */
 export default function CategoryDetail() {
+  const colors = useColors();
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [category, setCategory] = useState<CategoryNode | null>(null);
   const [name, setName] = useState('');
@@ -141,7 +143,7 @@ export default function CategoryDetail() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48, gap: 12 },
   body: { fontSize: 14, color: colors.muted, marginTop: 16 },
   nameRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12 },
@@ -153,4 +155,4 @@ const styles = StyleSheet.create({
   autoText: { fontSize: 13, color: colors.text },
   chosen: { borderColor: colors.primary },
   actions: { gap: 12 },
-});
+}));

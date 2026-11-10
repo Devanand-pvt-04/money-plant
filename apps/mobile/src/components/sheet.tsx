@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { KeyboardGap } from './keyboard';
 import { categoryStyle, type CategoryLike } from './category-style';
-import { colors, radius } from './ui';
+import { radius, makeStyles } from './ui';
 
 /**
  * A panel that slides up from the bottom over a dimmed screen. Tapping the
@@ -12,6 +12,7 @@ import { colors, radius } from './ui';
  * for lists that scroll.
  */
 export function Sheet(props: { visible: boolean; onClose: () => void; title?: string; tall?: boolean; children: ReactNode }) {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={props.visible} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={props.onClose}>
@@ -31,6 +32,7 @@ export function Sheet(props: { visible: boolean; onClose: () => void; title?: st
 
 /** A category's icon on its coloured tile. */
 export function CategoryIcon({ category, size = 34 }: { category: CategoryLike; size?: number }) {
+  const styles = useStyles();
   const style = categoryStyle(category);
   return (
     <View style={[styles.icon, { width: size, height: size, borderRadius: size * 0.3, backgroundColor: style.tint }]}>
@@ -39,7 +41,7 @@ export function CategoryIcon({ category, size = 34 }: { category: CategoryLike; 
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   root: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.55)' },
   sheet: {
@@ -56,4 +58,4 @@ const styles = StyleSheet.create({
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: radius.pill, backgroundColor: colors.border },
   title: { fontSize: 19, fontWeight: '700', color: colors.text, marginHorizontal: 4 },
   icon: { alignItems: 'center', justifyContent: 'center' },
-});
+}));

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatMoney, formatRupees, paise } from '@money-plant/core';
@@ -8,7 +8,7 @@ import { REVIEW_REASON_LABELS, USER_SET_FIELDS, foreignAmount, isEstimated, type
 import { AccountPicker } from '@/components/account-picker';
 import { EditFieldSheet, ownLeg, type EditField } from '@/components/edit-field-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
-import { Button, Card, Initial, MoneyCard, colors, figures, radius } from '@/components/ui';
+import { Button, Card, Initial, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { formatAmount, formatDateTime, formatDay, formatTime } from '@/components/format';
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { useCategoryChange } from '@/components/use-category-change';
@@ -46,6 +46,8 @@ const SOURCE_BADGES: Record<string, string> = {
  * it, and a short history of where it came from and who changed what.
  */
 export default function TransactionDetail() {
+  const colors = useColors();
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: row } = useLedger(() => getTransaction(id), null as TransactionRow | null, 'entry');
   const [rule, setRule] = useState<Rule | null>(null);
@@ -90,7 +92,7 @@ export default function TransactionDetail() {
         ? (rule.match.merchant ?? rule.match.vpa ?? rule.match.keyword ?? '')
         : null;
 
-  const amount = displayAmount(row);
+  const amount = displayAmount(row, colors);
   const isTransfer = tx.kind === 'transfer';
   const why = whyLabel(tx, row.aiConfidence);
   const accounts = [...row.legs].sort((a, b) => a.amount - b.amount).map((leg) => leg.accountName).join(' → ') || 'Paid by someone else';
@@ -262,6 +264,8 @@ export default function TransactionDetail() {
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 
 function Line(props: { label: string; value: string; note?: string; muted?: boolean; warn?: boolean; first?: boolean; icon?: FeatherName; onPress?: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole={props.onPress ? 'button' : undefined}
@@ -281,6 +285,8 @@ function Line(props: { label: string; value: string; note?: string; muted?: bool
 }
 
 function Action({ icon, title, onPress }: { icon: FeatherName; title: string; onPress: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
       <Feather name={icon} size={16} color={colors.text} />
@@ -292,6 +298,8 @@ function Action({ icon, title, onPress }: { icon: FeatherName; title: string; on
 }
 
 function MenuItem({ icon, title, danger, onPress }: { icon: FeatherName; title: string; danger?: boolean; onPress: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}>
       <Feather name={icon} size={20} color={danger ? colors.danger : colors.text} />
@@ -301,6 +309,8 @@ function MenuItem({ icon, title, danger, onPress }: { icon: FeatherName; title: 
 }
 
 function Step({ icon, title, detail, last, children }: { icon: FeatherName; title: string; detail?: string; last?: boolean; children?: React.ReactNode }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <View style={styles.step}>
       <View style={styles.stepRail}>
@@ -320,6 +330,7 @@ function Step({ icon, title, detail, last, children }: { icon: FeatherName; titl
 
 /** Where the entry came from. Tapping an SMS shows what it said; its text never leaves the phone. */
 function SourceStep({ source }: { source: LedgerSource }) {
+  const styles = useStyles();
   const [open, setOpen] = useState(false);
   const fields = source.parsedFields as { template?: string; reference?: string | null; amount?: number; counterparty?: string | null };
   const title =
@@ -364,7 +375,7 @@ function SourceStep({ source }: { source: LedgerSource }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 48, gap: 14 },
   moreButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   hero: { gap: 10 },
@@ -418,4 +429,4 @@ const styles = StyleSheet.create({
   postingAmount: { fontSize: 14, color: colors.text, ...figures },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 52, paddingHorizontal: 4 },
   menuText: { fontSize: 15, fontWeight: '500', color: colors.text },
-});
+}));

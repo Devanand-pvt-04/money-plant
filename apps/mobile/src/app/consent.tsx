@@ -1,11 +1,11 @@
 import { type ComponentProps, useEffect, useState } from 'react';
-import { PermissionsAndroid, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { PermissionsAndroid, Platform, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { addMonthsToDate, dateKey, type CurrencyCode } from '@money-plant/core';
 import { CurrencyPicker, currencyLabel } from '@/components/currency-picker';
 import { FormScroll } from '@/components/keyboard';
-import { Button, Chip, Chips, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { importRange, type ImportProgress } from '@/lib/capture';
 import { agreedBefore, giveConsent } from '@/lib/consent';
 import { setHomeCurrency, useHomeCurrency } from '@/lib/home-currency';
@@ -66,6 +66,7 @@ type Step = 'welcome' | 'consent' | 'profile' | 'sms';
  * consent points again. Nothing is shown in the app until the last step.
  */
 export default function FirstRun() {
+  const styles = useStyles();
   const [returning, setReturning] = useState<boolean | null>(null);
   const [step, setStep] = useState<Step>('welcome');
 
@@ -105,6 +106,8 @@ export default function FirstRun() {
 }
 
 function Welcome({ onNext }: { onNext: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
   return (
     <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.title}>Welcome to Money Plant</Text>
@@ -126,6 +129,8 @@ function Welcome({ onNext }: { onNext: () => void }) {
 }
 
 function Consent(props: { returning: boolean; stepLabel: string | null; onAgree: () => Promise<unknown> }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,6 +177,8 @@ function Consent(props: { returning: boolean; stepLabel: string | null; onAgree:
 }
 
 function Profile({ stepLabel, onNext }: { stepLabel: string; onNext: () => Promise<unknown> }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
   // ACC-11: the currency totals show in, picked here and changeable in Profile.
@@ -239,6 +246,7 @@ function Profile({ stepLabel, onNext }: { stepLabel: string; onNext: () => Promi
 }
 
 function Sms({ stepLabel, onDone }: { stepLabel: string; onDone: () => Promise<unknown> }) {
+  const styles = useStyles();
   const [allowed, setAllowed] = useState(hasSmsPermission());
   const [months, setMonths] = useState<(typeof RANGES)[number]>(6);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
@@ -307,7 +315,7 @@ function Sms({ stepLabel, onDone }: { stepLabel: string; onDone: () => Promise<u
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   safe: { flex: 1, backgroundColor: colors.background },
   container: { padding: 24, paddingBottom: 48, gap: 16 },
   step: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 16 },
@@ -335,4 +343,4 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   welcomeText: { color: colors.text, fontSize: 15 },
   actions: { marginTop: 8, gap: 12 },
-});
+}));

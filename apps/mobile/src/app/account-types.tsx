@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Switch, Text, View } from 'react-native';
 import type { AccountClass } from '@money-plant/core';
 import type { LocalAccountType } from '@money-plant/db-schema';
 import { FormScroll } from '@/components/keyboard';
-import { Button, Chip, Chips, ErrorText, Field, SectionTitle, colors } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, SectionTitle, makeStyles } from '@/components/ui';
 import { createAccountType, deleteAccountType, listAccountTypes, updateAccountType } from '@/lib/account-types';
 import { useLedger } from '@/lib/use-ledger';
 
 /** ACC-6: account types the user names, on a fixed asset or liability class. */
 export default function AccountTypes() {
+  const styles = useStyles();
   const { data: types } = useLedger(listAccountTypes, [] as LocalAccountType[]);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<AccountClass>('asset');
@@ -61,7 +62,7 @@ export default function AccountTypes() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48, gap: 8 },
   body: { fontSize: 14, color: colors.muted },
   label: { fontSize: 14, color: colors.muted, marginTop: 8 },
@@ -80,4 +81,4 @@ const styles = StyleSheet.create({
   cardText: { flex: 1 },
   name: { fontSize: 16, fontWeight: '600', color: colors.text },
   meta: { fontSize: 13, color: colors.muted },
-});
+}));

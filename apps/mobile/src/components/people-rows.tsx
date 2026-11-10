@@ -1,18 +1,22 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { daysBetween, paise, type CurrencyCode } from '@money-plant/core';
 import type { IouView } from '@/lib/ious';
 import { formatAmount, formatDate } from './format';
-import { colors } from './ui';
+import { useColors, makeStyles } from './ui';
 
 /** A person's balance: above zero they owe the user (green); below, the user owes them. */
 export function Balance({ amount, currency }: { amount: number; currency?: CurrencyCode }) {
+  const colors = useColors();
+  const styles = useStyles();
   if (amount === 0) return <Text style={styles.amountMuted}>{formatAmount(0, currency)}</Text>;
   return <Text style={[styles.amount, amount > 0 && { color: colors.primary }]}>{formatAmount(paise(Math.abs(amount)), currency)}</Text>;
 }
 
 /** A balance with its sign, for lists: +₹1,800 they owe the user, −₹620 the user owes. */
 export function Net({ amount, currency }: { amount: number; currency?: CurrencyCode }) {
+  const colors = useColors();
+  const styles = useStyles();
   if (amount === 0) return <Text style={styles.amountMuted}>{formatAmount(0, currency)}</Text>;
   const text = formatAmount(paise(Math.abs(amount)), currency);
   return <Text style={[styles.amount, { color: amount > 0 ? colors.primary : colors.danger }]}>{amount > 0 ? `+${text}` : `−${text}`}</Text>;
@@ -20,6 +24,7 @@ export function Net({ amount, currency }: { amount: number; currency?: CurrencyC
 
 /** A person's balances, one line per currency, never added across currencies (decision 0017). */
 export function NetByCurrency({ balances }: { balances: readonly { currency: CurrencyCode; amount: number }[] }) {
+  const styles = useStyles();
   if (balances.length === 0) return <Net amount={0} />;
   if (balances.length === 1) return <Net amount={balances[0]!.amount} currency={balances[0]!.currency} />;
   return (
@@ -50,6 +55,8 @@ export function dueText(view: IouView, today: string): string | null {
 
 /** One IOU in a list: what for, its state, and what is still owed. */
 export function IouRow({ view, today, first, showName }: { view: IouView; today: string; first: boolean; showName?: boolean }) {
+  const colors = useColors();
+  const styles = useStyles();
   const settled = view.outstanding === 0;
   const parts = [
     view.direction === 'lent' ? (showName ? `${view.otherName} owes you` : 'You lent') : showName ? `You owe ${view.otherName}` : 'You borrowed',
@@ -80,7 +87,7 @@ export function IouRow({ view, today, first, showName }: { view: IouView; today:
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 16, paddingVertical: 12 },
   divided: { borderTopWidth: 1, borderTopColor: colors.divider },
   pressed: { backgroundColor: colors.pressed },
@@ -91,4 +98,4 @@ const styles = StyleSheet.create({
   settled: { color: colors.muted, fontWeight: '400' },
   amount: { fontSize: 15, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
   amountMuted: { fontSize: 15, color: colors.muted, fontVariant: ['tabular-nums'] },
-});
+}));

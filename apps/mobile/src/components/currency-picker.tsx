@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { CURRENCIES, currencyInfo, type CurrencyCode } from '@money-plant/core';
 import { Sheet } from './sheet';
-import { colors, radius } from './ui';
+import { radius, useColors, makeStyles } from './ui';
 
 /** A searchable list of currencies, the current one ticked (ACC-11, ACC-12). */
 export function CurrencyPicker(props: {
@@ -13,6 +13,8 @@ export function CurrencyPicker(props: {
   onPick: (code: CurrencyCode) => void;
   onClose: () => void;
 }) {
+  const colors = useColors();
+  const styles = useStyles();
   const [query, setQuery] = useState('');
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -62,7 +64,7 @@ export function currencyLabel(code: CurrencyCode): string {
   return `${currencyInfo(code).name} (${code})`;
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   search: {
     minHeight: 48,
     paddingHorizontal: 14,
@@ -77,4 +79,4 @@ const styles = StyleSheet.create({
   text: { flex: 1 },
   name: { fontSize: 15, color: colors.text },
   code: { fontSize: 12, color: colors.muted },
-});
+}));

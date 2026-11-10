@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
 import { PersonPicker } from '@/components/person-picker';
-import { Button, ErrorText, Field, colors } from '@/components/ui';
+import { Button, ErrorText, Field, makeStyles } from '@/components/ui';
 import { listPeople, type Person } from '@/lib/people';
 import { deleteGroup, listGroups, saveGroup } from '@/lib/splits';
 
 /** SPL-3: create or edit a personal group (a trip, flatmates): its name and people. */
 export default function GroupEdit() {
+  const styles = useStyles();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const navigation = useNavigation();
   const isNew = !id;
@@ -72,10 +73,10 @@ export default function GroupEdit() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 8 },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
   actions: { marginTop: 24, gap: 10 },
   remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16 },
   removeText: { fontSize: 14, fontWeight: '600', color: colors.danger },
-});
+}));

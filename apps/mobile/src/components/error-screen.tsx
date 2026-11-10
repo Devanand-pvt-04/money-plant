@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import type { ErrorBoundaryProps } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { reportError } from '@/lib/errors';
-import { Button, colors } from './ui';
+import { Button, useColors, makeStyles } from './ui';
 
 /** Shown instead of a blank screen when a screen crashes. The error goes to the error log. */
 export function ErrorScreen({ error, retry }: ErrorBoundaryProps) {
+  const colors = useColors();
+  const styles = useStyles();
   useEffect(() => {
     reportError(error, 'screen', true);
   }, [error]);
@@ -26,10 +28,10 @@ export function ErrorScreen({ error, retry }: ErrorBoundaryProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 32, backgroundColor: colors.background },
   title: { fontSize: 20, fontWeight: '700', color: colors.text, marginTop: 8 },
   hint: { fontSize: 14, color: colors.muted, textAlign: 'center', lineHeight: 20 },
   detail: { fontSize: 12, color: colors.muted, textAlign: 'center' },
   action: { alignSelf: 'stretch', marginTop: 20 },
-});
+}));

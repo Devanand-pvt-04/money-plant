@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { router } from 'expo-router';
 import { ACCOUNT_TYPE_LABELS, LIABILITY_TYPES, USER_ACCOUNT_TYPES, currencyInfo, paise, parseMoney, type AccountType, type CurrencyCode } from '@money-plant/core';
 import type { LocalAccountType } from '@money-plant/db-schema';
 import { CurrencyPicker, currencyLabel } from '@/components/currency-picker';
 import { FormScroll } from '@/components/keyboard';
-import { Button, Chip, Chips, ErrorText, Field, colors, radius } from '@/components/ui';
+import { Button, Chip, Chips, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { listAccountTypes } from '@/lib/account-types';
 import { createAccount, FOREIGN_CAPABLE_TYPES } from '@/lib/accounts';
 import { useHomeCurrency } from '@/lib/home-currency';
@@ -17,6 +17,8 @@ import { useLedger } from '@/lib/use-ledger';
 type Choice = { type: AccountType; custom: LocalAccountType | null };
 
 export default function AddAccount() {
+  const colors = useColors();
+  const styles = useStyles();
   const { data: customTypes } = useLedger(listAccountTypes, [] as LocalAccountType[]);
   const [choice, setChoice] = useState<Choice>({ type: 'bank', custom: null });
   const [name, setName] = useState('');
@@ -145,7 +147,7 @@ export default function AddAccount() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   container: { padding: 16, paddingBottom: 48 },
   label: { fontSize: 14, color: colors.muted, marginBottom: 6 },
   hint: { fontSize: 14, color: colors.muted, lineHeight: 20, marginTop: 16 },
@@ -163,4 +165,4 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1, fontSize: 15, color: colors.text },
   pressed: { backgroundColor: colors.pressed },
-});
+}));
