@@ -14,6 +14,7 @@ import { useConsent } from '@/lib/consent';
 import { flushErrors, reportError, watchErrors } from '@/lib/errors';
 import { applyHideInRecents } from '@/lib/privacy';
 import { watchSharedIous } from '@/lib/realtime';
+import { startedAt, startedFromRestart } from '@/lib/restart-log';
 import { useSession } from '@/lib/session';
 import { followSystemScheme, scheme } from '@/lib/theme';
 import { restartApp } from '@/lib/updates';
@@ -83,11 +84,24 @@ export default function RootLayout() {
   const consented = useConsent(userId);
   const waitingFor = loading ? 'session' : session && consented === null ? 'consent' : null;
   const slow = useSlowStart(waitingFor);
+  const signedIn = session !== null;
+  const ready = signedIn && consented === true;
   useEffect(() => (userId ? watchSharedIous(userId) : undefined), [userId]);
   // Balances stay out of the recent apps view once there is a ledger to hide.
   useEffect(() => {
     void (userId ? applyHideInRecents() : applyHideInRecents(false));
   }, [userId]);
+  // A start that followed the app's own restart (theme, update, Try again) is
+  // logged with how long it took to open, so a run of restarts or a slow
+  // return from one shows up in the error log.
+  const restartLogged = useRef(false);
+  useEffect(() => {
+    const restart = startedFromRestart();
+    if (!ready || !restart || restartLogged.current) return;
+    restartLogged.current = true;
+    const seconds = Math.round((Date.now() - startedAt) / 100) / 10;
+    reportError(new Error(`Restart: ${restart.reason}, ${restart.count} in a row, open after ${seconds} s`), 'restart');
+  }, [ready]);
   // Errors saved while offline or signed out go up once there is a session.
   useEffect(() => {
     if (userId) void flushErrors();
@@ -124,8 +138,6 @@ export default function RootLayout() {
     );
   }
 
-  const signedIn = session !== null;
-  const ready = signedIn && consented === true;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={navigationTheme}>
