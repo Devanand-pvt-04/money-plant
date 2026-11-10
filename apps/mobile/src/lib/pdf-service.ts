@@ -6,13 +6,14 @@ export type PdfErrorCode =
   | 'wrong_password'
   | 'not_a_cas'
   | 'not_a_statement'
+  | 'no_text'
   | 'demat_not_supported'
   | 'too_large'
   | 'not_configured'
   | 'service_unavailable'
   | 'unknown';
 
-const CODES: readonly PdfErrorCode[] = ['wrong_password', 'not_a_cas', 'not_a_statement', 'demat_not_supported', 'too_large', 'not_configured', 'service_unavailable'];
+const CODES: readonly PdfErrorCode[] = ['wrong_password', 'not_a_cas', 'not_a_statement', 'no_text', 'demat_not_supported', 'too_large', 'not_configured', 'service_unavailable'];
 
 /** The parser's limit is 10 MB of PDF; base64 makes it a third bigger on the way. */
 const MAX_BYTES = 10 * 1024 * 1024;

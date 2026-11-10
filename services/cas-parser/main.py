@@ -214,6 +214,8 @@ async def bank_statement(
         return statement.read_statement(io.BytesIO(data), password or None)
     except statement.WrongPassword:
         raise HTTPException(status_code=422, detail="wrong_password")
+    except statement.NoText:
+        raise HTTPException(status_code=422, detail="no_text")
     except statement.NotAStatement:
         raise HTTPException(status_code=422, detail="not_a_statement")
     finally:

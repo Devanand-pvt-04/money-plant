@@ -1,0 +1,26 @@
+{
+  "note": "Anonymised rows in the shape of PNB ONE's statement of account (November 2026): no payee line, remarks wrapped in a narrow column. Names, UPI IDs and references are made up.",
+  "bank": "pnb",
+  "cases": [
+    {
+      "row": { "date": "2026-11-10", "lines": ["UPI/DR/600000000001/TEA STALL/YESB/q0000", "00001@ybl/S"], "debit": "40.0", "credit": null, "balance": "117708.05" },
+      "expect": { "direction": "debit", "amount": 4000, "counterparty": "TEA STALL", "vpa": "q000000001@ybl", "reference": "600000000001", "balance": 11770805, "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-11-10", "lines": ["UPI/DR/600000000002/SOME", "SHOP/SBIN/someshop@oksb/Se"], "debit": "310.0", "credit": null, "balance": "19690.0" },
+      "expect": { "direction": "debit", "amount": 31000, "counterparty": "SOMESHOP", "reference": "600000000002", "balance": 1969000, "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-11-04", "lines": ["UPI/CR/600000000004/ANOTHER", "FRIEND/IOBA/another.friend1/"], "debit": null, "credit": "15.0", "balance": "119787.6" },
+      "expect": { "direction": "credit", "amount": 1500, "counterparty": "ANOTHERFRIEND", "reference": "600000000004", "channel": "upi" }
+    },
+    {
+      "row": { "date": "2026-11-10", "lines": ["ACH/SOME MUTUAL FUND/12345"], "debit": "2000.0", "credit": null, "balance": "117748.05" },
+      "expect": { "direction": "debit", "amount": 200000, "counterparty": "SOME MUTUAL FUND", "channel": "other" }
+    },
+    {
+      "row": { "date": "2026-11-04", "lines": ["000000PU00000001 : Closure Proceeds"], "debit": null, "credit": "100000.0", "balance": "119772.6" },
+      "expect": { "direction": "credit", "amount": 10000000, "counterparty": "000000PU00000001 : Closure Proceeds", "channel": "other" }
+    }
+  ]
+}

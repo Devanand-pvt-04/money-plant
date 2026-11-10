@@ -40,6 +40,8 @@ const CHANNELS: Record<string, Channel> = { UPI: 'upi', IMPS: 'imps', MMT: 'imps
  * Reads one statement row (CAP-5). ICICI prints the payee on the first line
  * and remarks like `UPI/ANNA IDLI/XX961w@pty/UPI/YES BANK/627460149987/ICI…`
  * after it, wrapped mid-word, so the wrapped lines are joined without spaces.
+ * Statements without that payee line (PNB ONE) start straight with the remarks,
+ * like `UPI/DR/631469291074/THALAMBU/YESB/q831977751@ybl/S`.
  * Null when the row moves no money.
  */
 export function parseStatementRow(bank: BankId | null, row: StatementRowInput): ParsedStatementRow | null {
@@ -47,18 +49,20 @@ export function parseStatementRow(bank: BankId | null, row: StatementRowInput): 
   const credit = toPaise(row.credit);
   const amount = debit && debit > 0 ? debit : credit && credit > 0 ? credit : null;
   if (amount === null || !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) return null;
-  const [title = '', ...rest] = row.lines;
-  // A one-line row is all remarks.
-  const remarks = rest.length > 0 ? rest.join('') : title;
+  // A first line like "UPI/DR/…" is already remarks, not a payee line.
+  const hasTitle = row.lines.length > 1 && !/^[A-Z]{2,5}\//i.test(row.lines[0] ?? '');
+  const [title = '', ...rest] = hasTitle ? row.lines : ['', ...row.lines];
+  const remarks = rest.join('');
   const parts = remarks.split('/').map((part) => part.trim());
   const kind = (parts[0] ?? '').toUpperCase();
   const channel = CHANNELS[kind] ?? (kind === 'CMS' && parts[1]?.toUpperCase() === 'UPI' ? 'upi' : 'other');
-  // UPI/<payee>/<vpa>/..., CMS/UPI/<payee>/..., MMT/IMPS/<ref>/<note>/<payee>/...
-  const payee = kind === 'UPI' ? parts[1] : kind === 'CMS' ? parts[2] : undefined;
+  // UPI/<payee>/<vpa>/..., UPI/DR/<ref>/<payee>/<bank>/<vpa>/..., CMS/UPI/<payee>/..., ACH/<payee>/<ref>, MMT/IMPS/<ref>/<note>/<payee>/...
+  const signed = kind === 'UPI' && /^(DR|CR)$/i.test(parts[1] ?? '');
+  const payee = signed ? parts[3] : kind === 'UPI' ? parts[1] : kind === 'CMS' ? parts[2] : kind === 'ACH' ? parts[1] : undefined;
   const vpa = parts.find((part) => /^[\w.\-]+@[\w.\-]+$/.test(part) && !/^X/i.test(part)) ?? null;
   const reference = parts.find((part) => /^\d{12}$/.test(part)) ?? parts.find((part) => /^[A-Z0-9]{10,22}$/.test(part) && /\d/.test(part) && part !== 'BANK') ?? null;
   // The first line is the payee cut to 10 letters, or a label like "Credit trxn"; the remarks have it in full.
-  const counterparty = cleanCounterparty(payee || title);
+  const counterparty = cleanCounterparty(payee || title || remarks);
   return {
     bank,
     date: row.date,

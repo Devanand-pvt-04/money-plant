@@ -14,6 +14,7 @@ import { importStatement, previewStatement, readStatement, type StatementImportR
 const ERRORS: Record<PdfErrorCode, string> = {
   wrong_password: "That password didn't open the PDF. Banks often use a mix of your name and date of birth; the email with the statement says which.",
   not_a_statement: "Couldn't read the transactions in this PDF yet. Statement layouts differ by bank, and the app learns them from samples.",
+  no_text: "This PDF has no text to read, only a picture of the page. A scan or a copy saved through Print to PDF looks like this. Use the statement as downloaded from your bank.",
   not_a_cas: "Couldn't find a transaction table in this PDF.",
   demat_not_supported: "Couldn't find a transaction table in this PDF.",
   too_large: 'The PDF is over 10 MB. Download a shorter period.',
