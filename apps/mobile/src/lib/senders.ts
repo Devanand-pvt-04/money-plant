@@ -1,33 +1,26 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, like, ne, notLike, sql } from 'drizzle-orm';
 import { accounts, captureLog } from '@money-plant/db-schema';
-import { identifyBankSender, normaliseSender, UPI_APP_PACKAGES } from '@money-plant/parser';
+import { normaliseSender } from '@money-plant/parser';
 import { setCaptureFilters } from '../../modules/sms-reader';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
 import { kvGet, kvSet } from './kv';
 
 /**
- * CAP-11 and CAP-12: which senders and apps the user linked, ignored or
- * approved. Kept on this phone, like contact links: the receiver reads a
- * copy before JavaScript starts (setCaptureFilters), and message text never
- * leaves the phone.
+ * CAP-11: which SMS senders the user linked to an account or ignored. Kept on
+ * this phone, like contact links: the receiver reads a copy before
+ * JavaScript starts (setCaptureFilters), and message text never leaves the
+ * phone. Every sender is treated the same; none is shown as a known bank.
  */
 
 const SENDERS_KEY = 'capture.senders';
-const APPS_KEY = 'capture.apps';
+/** Choices about other apps' notifications, which are no longer read (decision 0019). Cleared on the next scan. */
+const OLD_APPS_KEY = 'capture.apps';
+/** Before decision 0019, approved apps' notifications were logged under `APP:<package>`. */
+const OLD_APP_PREFIX = 'APP:';
 
-/** A sender without tuned rules: linked to an account, or ignored. Missing means not asked yet. */
+/** A sender linked to an account, or ignored. Missing means the app finds the account from each message, or asks. */
 export type SenderChoice = { accountId: string } | { ignored: true };
-
-/** An app outside the built-in list that posted a money notification (CAP-12). */
-export interface AppChoice {
-  name: string;
-  state: 'asked' | 'approved' | 'denied';
-}
-
-/** Messages from apps are logged under this sender, so apps and SMS senders share one list. */
-export const appSender = (packageName: string) => `APP:${packageName}`;
-export const appOfSender = (sender: string) => (sender.startsWith('APP:') ? sender.slice(4) : null);
 
 async function readJson<T>(key: string): Promise<Record<string, T>> {
   try {
@@ -40,25 +33,38 @@ async function readJson<T>(key: string): Promise<Record<string, T>> {
 }
 
 export const senderChoices = () => readJson<SenderChoice>(SENDERS_KEY);
-export const appChoices = () => readJson<AppChoice>(APPS_KEY);
 
-/** Hands the choices to the native receiver and listener, so ignored senders and apps are dropped there. */
+/** Hands the choices to the native receiver, so ignored senders are dropped there. No other app is ever read. */
 export async function syncCaptureFilters(): Promise<void> {
-  const [senders, apps] = await Promise.all([senderChoices(), appChoices()]);
+  const senders = await senderChoices();
   setCaptureFilters({
     ignoredSenders: Object.entries(senders).filter(([, c]) => 'ignored' in c).map(([s]) => s),
-    approvedApps: Object.entries(apps).filter(([, a]) => a.state === 'approved').map(([p]) => p),
-    deniedApps: Object.entries(apps).filter(([, a]) => a.state === 'denied').map(([p]) => p),
+    approvedApps: [],
+    deniedApps: [],
   });
+}
+
+/**
+ * Decision 0019: notifications from apps other than the built-in UPI and
+ * bank apps are no longer read. Forgets the old answers and the messages
+ * that waited under those apps, text included.
+ */
+export async function forgetOtherApps(): Promise<void> {
+  const [old, choices] = await Promise.all([kvGet(OLD_APPS_KEY), senderChoices()]);
+  const appKeys = Object.keys(choices).filter((s) => s.startsWith(OLD_APP_PREFIX));
+  if (old !== null) await kvSet(OLD_APPS_KEY, '{}');
+  if (appKeys.length > 0) {
+    for (const key of appKeys) delete choices[key];
+    await kvSet(SENDERS_KEY, JSON.stringify(choices));
+  }
+  const db = await getDb();
+  db.delete(captureLog)
+    .where(and(like(captureLog.sender, `${OLD_APP_PREFIX}%`), ne(captureLog.status, 'parsed')))
+    .run();
 }
 
 async function saveSenders(choices: Record<string, SenderChoice>): Promise<void> {
   await kvSet(SENDERS_KEY, JSON.stringify(choices));
-  await syncCaptureFilters();
-}
-
-async function saveApps(choices: Record<string, AppChoice>): Promise<void> {
-  await kvSet(APPS_KEY, JSON.stringify(choices));
   await syncCaptureFilters();
 }
 
@@ -102,63 +108,30 @@ export async function forgetSender(sender: string): Promise<void> {
   notifyLedgerChange();
 }
 
-/** CAP-12: an app outside the built-in list posted a money notification. Asked about once. */
-export async function noteAppCandidate(packageName: string, name: string): Promise<void> {
-  if (UPI_APP_PACKAGES[packageName]) return;
-  const apps = await appChoices();
-  if (apps[packageName]) return;
-  apps[packageName] = { name: name.slice(0, 60) || packageName, state: 'asked' };
-  await saveApps(apps);
-  notifyLedgerChange();
-}
-
-/** The user's answer to "Read payments from Revolut?". */
-export async function setAppApproved(packageName: string, approved: boolean): Promise<void> {
-  const apps = await appChoices();
-  const app = apps[packageName];
-  apps[packageName] = { name: app?.name ?? packageName, state: approved ? 'approved' : 'denied' };
-  await saveApps(apps);
-  notifyLedgerChange();
-}
-
-/** What Review asks about: new senders with waiting messages, and new apps. */
+/** What Review asks about: senders whose messages wait because the app couldn't tell the account. */
 export interface CaptureQuestions {
   senders: { sender: string; name: string; waiting: number }[];
-  apps: { packageName: string; name: string }[];
 }
 
 export async function captureQuestions(): Promise<CaptureQuestions> {
   const db = await getDb();
-  const [choices, apps] = await Promise.all([senderChoices(), appChoices()]);
+  const choices = await senderChoices();
   const waiting = db
     .select({ sender: captureLog.sender, count: sql<number>`count(*)` })
     .from(captureLog)
-    .where(eq(captureLog.status, 'waiting'))
+    .where(and(eq(captureLog.status, 'waiting'), notLike(captureLog.sender, `${OLD_APP_PREFIX}%`)))
     .groupBy(captureLog.sender)
     .orderBy(asc(captureLog.sender))
     .all();
   return {
-    senders: waiting
-      .filter((w) => !choices[w.sender])
-      .map((w) => ({ sender: w.sender, name: senderName(w.sender, apps), waiting: Number(w.count) })),
-    apps: Object.entries(apps)
-      .filter(([, a]) => a.state === 'asked')
-      .map(([packageName, a]) => ({ packageName, name: a.name })),
+    senders: waiting.filter((w) => !choices[w.sender]).map((w) => ({ sender: w.sender, name: w.sender, waiting: Number(w.count) })),
   };
-}
-
-/** "ENBD", or the app's name for notifications. */
-export function senderName(sender: string, apps: Record<string, AppChoice>): string {
-  const app = appOfSender(sender);
-  return app ? (apps[app]?.name ?? UPI_APP_PACKAGES[app] ?? app) : sender;
 }
 
 /** One row of Settings → Capture (CAP-11, CAP-8). */
 export interface SenderRow {
   sender: string;
   name: string;
-  /** Tuned rules (ICICI, HDFC, HSBC, SBI, PNB, slice), or the general reader. */
-  tuned: boolean;
   account: { id: string; name: string } | null;
   ignored: boolean;
   parsed: number;
@@ -169,7 +142,7 @@ export interface SenderRow {
 
 export async function listSenderRows(): Promise<SenderRow[]> {
   const db = await getDb();
-  const [choices, apps] = await Promise.all([senderChoices(), appChoices()]);
+  const choices = await senderChoices();
   const names = new Map(db.select({ id: accounts.id, name: accounts.name }).from(accounts).all().map((a) => [a.id, a.name]));
   const counts = db
     .select({
@@ -180,10 +153,11 @@ export async function listSenderRows(): Promise<SenderRow[]> {
       waiting: sql<number>`sum(case when ${captureLog.status} = 'waiting' then 1 else 0 end)`,
     })
     .from(captureLog)
+    .where(notLike(captureLog.sender, `${OLD_APP_PREFIX}%`))
     .groupBy(captureLog.sender)
     .all();
   const bySender = new Map(counts.map((c) => [c.sender, c]));
-  const all = new Set([...bySender.keys(), ...Object.keys(choices)]);
+  const all = new Set([...bySender.keys(), ...Object.keys(choices).filter((s) => !s.startsWith(OLD_APP_PREFIX))]);
   return [...all]
     .map((sender) => {
       const c = bySender.get(sender);
@@ -191,8 +165,7 @@ export async function listSenderRows(): Promise<SenderRow[]> {
       const accountId = choice && 'accountId' in choice ? choice.accountId : null;
       return {
         sender,
-        name: senderName(sender, apps),
-        tuned: !appOfSender(sender) && identifyBankSender(sender) !== null,
+        name: sender,
         account: accountId ? { id: accountId, name: names.get(accountId) ?? 'Removed account' } : null,
         ignored: !!choice && 'ignored' in choice,
         parsed: Number(c?.parsed ?? 0),
@@ -201,7 +174,7 @@ export async function listSenderRows(): Promise<SenderRow[]> {
         waiting: Number(c?.waiting ?? 0),
       };
     })
-    .sort((a, b) => Number(b.tuned) - Number(a.tuned) || a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Settings → Capture: the user adds a sender by name before its first message, already linked. */

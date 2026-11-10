@@ -306,7 +306,7 @@ function Sms({ stepLabel, onDone }: { stepLabel: string; onDone: () => Promise<u
       )}
       {error && <ErrorText>{error}</ErrorText>}
       <Text style={styles.body}>
-        Other banks may not be read correctly yet. Messages the app can't read are listed in Settings → Bank SMS, so they're never guessed into wrong entries.
+        Some banks write their messages in ways the app hasn't learnt yet. Messages it can't read are listed in Settings → Bank SMS, so they're never guessed into wrong entries, and you can share them so it learns.
       </Text>
       <View style={styles.actions}>
         <Button title={imported ? 'Open Money Plant' : 'Skip for now'} variant={imported ? 'primary' : 'secondary'} onPress={() => void onDone()} disabled={busy} />

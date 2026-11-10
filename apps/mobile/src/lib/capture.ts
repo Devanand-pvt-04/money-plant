@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import { and, asc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { addDays, addMonthsToDate, convertOn, dateKey, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey } from '@money-plant/core';
 import { accounts, captureLog, pendingNotifications, sources, transactions } from '@money-plant/db-schema';
-import { ingestNotification, ingestSms, type IngestResult, type PipelineContext } from '@money-plant/matcher';
+import { digitsMatch, ingestNotification, ingestSms, type IngestResult, type PipelineContext } from '@money-plant/matcher';
 import {
   BANK_SENDER_TOKENS,
   normaliseSender,
@@ -28,7 +28,7 @@ import { ensureBalanceRefs } from './ledger';
 import { loadRates, requestRates } from './fx';
 import { localDay } from './home-money';
 import { kvGet, kvSet } from './kv';
-import { appChoices, appSender, noteAppCandidate, senderChoices, setSenderReplay, syncCaptureFilters } from './senders';
+import { forgetOtherApps, senderChoices, setSenderReplay, syncCaptureFilters } from './senders';
 import { SqliteLedgerStore } from './ledger-store';
 import { supabase } from './supabase';
 import { syncNow } from './sync';
@@ -115,46 +115,60 @@ function logCapture(db: Awaited<ReturnType<typeof getDb>>, message: IncomingMess
 }
 
 /**
- * Reads one message into the ledger. Known banks use their tuned rules and
- * find the account from the message. Any other business sender (CAP-11)
- * goes through the general reader and waits, unread into the ledger, until
- * the user links it to an account in Review; then it posts there.
+ * The one account or card whose last digits the message names, for a sender
+ * whose bank the app has no rules for yet. Null when no account matches, or
+ * when several do and only the user can say which.
+ */
+function accountFromDigits(db: Awaited<ReturnType<typeof getDb>>, parsed: ParsedTransaction): { id: string; currency: CurrencyCode } | null {
+  const last = parsed.accountLast;
+  if (!last) return null;
+  const types: string[] = parsed.instrument === 'credit_card' ? ['credit_card'] : parsed.instrument === 'card' ? ['bank', 'credit_card'] : ['bank'];
+  const matches = db
+    .select({ id: accounts.id, type: accounts.type, last4: accounts.last4, currency: accounts.currency })
+    .from(accounts)
+    .where(and(isNull(accounts.deletedAt), isNotNull(accounts.last4)))
+    .all()
+    .filter((a) => types.includes(a.type) && digitsMatch(a.last4!, last));
+  return matches.length === 1 ? { id: matches[0]!.id, currency: matches[0]!.currency } : null;
+}
+
+/**
+ * Reads one message into the ledger (CAP-11). Every business sender is
+ * treated alike: the user's link or ignore comes first; otherwise the
+ * account is found from the message, by the bank's own rules where the app
+ * has learnt them or by the account digits matching exactly one of the
+ * user's accounts. When neither tells the account, the message waits, unread
+ * into the ledger, until the user picks one in Review; then it posts there.
  */
 async function readMessage(message: IncomingMessage): Promise<IngestResult | null> {
   const db = await getDb();
-  const tuned = message.address !== null && identifyBankSender(message.address) !== null;
+  const bank = message.address !== null ? identifyBankSender(message.address) : null;
   const result = message.address !== null ? parseAnySms({ sender: message.address, body: message.body }) : parseBankText(null, message.body);
   if (result.status === 'ignored' && result.reason === 'unknown_sender') return null;
 
   let accountId: string | undefined;
   let target: CurrencyCode = DEFAULT_CURRENCY;
   const choice = (await senderChoices())[message.key];
-  if (tuned && choice && 'accountId' in choice) {
-    // A sender the user linked before it got tuned rules (PNB): keep using the account they picked.
-    const account = db.select({ id: accounts.id, currency: accounts.currency }).from(accounts).where(eq(accounts.id, choice.accountId)).get();
-    if (account) {
-      accountId = account.id;
-      target = account.currency;
-    }
+  if (choice && 'ignored' in choice) {
+    logCapture(db, message, 'ignored', 'ignored_sender');
+    return null;
   }
-  if (!tuned) {
-    if (choice && 'ignored' in choice) {
-      logCapture(db, message, 'ignored', 'ignored_sender');
-      return null;
-    }
-    if (!choice) {
-      // Asked about in Review: "New sender: ENBD. Which account is this?"
-      if (result.status === 'ignored') logCapture(db, message, 'ignored', result.reason);
-      else logCapture(db, message, 'waiting', 'new_sender');
-      return null;
-    }
-    const account = db.select({ id: accounts.id, currency: accounts.currency }).from(accounts).where(eq(accounts.id, choice.accountId)).get();
-    if (!account) {
+  const linked =
+    choice && 'accountId' in choice
+      ? db.select({ id: accounts.id, currency: accounts.currency }).from(accounts).where(eq(accounts.id, choice.accountId)).get()
+      : undefined;
+  if (linked) {
+    accountId = linked.id;
+    target = linked.currency;
+  } else if (bank === null && result.status === 'parsed') {
+    const found = accountFromDigits(db, result.transaction);
+    if (!found) {
+      // Asked about in Review: "Which account are messages from ENBD for?"
       logCapture(db, message, 'waiting', 'new_sender');
       return null;
     }
-    accountId = account.id;
-    target = account.currency;
+    accountId = found.id;
+    target = found.currency;
   }
 
   if (result.status !== 'parsed') {
@@ -241,19 +255,19 @@ async function replaySender(sender: string): Promise<number> {
 setSenderReplay(replaySender);
 
 /**
- * Messages that waited for a sender the user hadn't linked yet, from a
- * sender that has since got tuned rules (PNB): read them now, as that
- * bank's, without asking. Runs before every inbox scan.
+ * Messages still waiting for an account: read them again before every inbox
+ * scan, as the app may now tell their account (the bank got its own rules,
+ * like PNB, or the user added an account with those digits). Ones it still
+ * can't place keep waiting.
  */
-async function readNewlyTunedSenders(): Promise<number> {
+async function readWaitingSenders(): Promise<number> {
   const db = await getDb();
   const senders = db
     .selectDistinct({ sender: captureLog.sender })
     .from(captureLog)
     .where(and(eq(captureLog.status, 'waiting'), eq(captureLog.channel, 'sms')))
     .all()
-    .map((row) => row.sender)
-    .filter((sender) => identifyBankSender(sender) !== null);
+    .map((row) => row.sender);
   let read = 0;
   for (const sender of senders) read += await replaySender(sender);
   return read;
@@ -265,17 +279,8 @@ export function captureSms(message: SmsMessage): Promise<IngestResult | null> {
 
 export function captureNotification(input: { packageName: string; title: string; text: string; receivedAt: number }) {
   return serial(async () => {
-    if (!UPI_APP_PACKAGES[input.packageName]) {
-      // CAP-12: an app the user approved. Read like a business SMS, under the app's name.
-      const body = `${input.title}\n${input.text}`.trim();
-      const fingerprint = await fingerprintOf('notification', input.packageName, input.receivedAt, input.title, input.text);
-      const db = await getDb();
-      if (db.select({ status: captureLog.status }).from(captureLog).where(eq(captureLog.fingerprint, fingerprint)).get()) return null;
-      const apps = await appChoices();
-      if (apps[input.packageName]?.state !== 'approved') return null;
-      await readMessage({ key: appSender(input.packageName), channel: 'notification', address: null, body, receivedAt: new Date(input.receivedAt).toISOString(), fingerprint });
-      return null;
-    }
+    // Decision 0019: only the built-in UPI and bank apps are read; an app build from before it may still pass others on.
+    if (!UPI_APP_PACKAGES[input.packageName]) return null;
     const parsed = parseNotification(input);
     if (!parsed) return null;
     const fingerprint = await fingerprintOf('notification', input.packageName, input.receivedAt, input.title, input.text);
@@ -322,9 +327,10 @@ function runImport(
       await syncNow().catch(() => {});
     }
     await ensureBalanceRefs();
-    // The receiver's copy of ignored senders and approved apps is lost when Android clears app data.
+    // The receiver's copy of ignored senders is lost when Android clears app data.
+    await forgetOtherApps().catch(reportBackground('forget-apps'));
     await syncCaptureFilters().catch(reportBackground('capture-filters'));
-    await readNewlyTunedSenders().catch(reportBackground('tuned-senders'));
+    await readWaitingSenders().catch(reportBackground('waiting-senders'));
     let since = from(stored === null ? null : Number(stored));
     let newest = stored === null ? 0 : Number(stored);
     const progress: ImportProgress = { read: 0, created: 0, merged: 0 };
@@ -482,8 +488,7 @@ export async function runCaptureTask(data: CaptureTaskData): Promise<void> {
     if (data.kind === 'sms') {
       await captureSms({ sender: data.sender, body: data.body, receivedAt: data.receivedAt, sentAt: data.sentAt });
     } else if (data.kind === 'app_candidate') {
-      // CAP-12: only the app's name came; Review asks once whether to read it.
-      await noteAppCandidate(data.packageName, data.appName);
+      // Decision 0019: other apps are never read. App builds from before it still send their names; drop them.
       return;
     } else {
       await captureNotification(data);

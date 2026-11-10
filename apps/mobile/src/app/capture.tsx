@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { PermissionsAndroid, Platform, Pressable, Share, Switch, Text, TextInput, View } from 'react-native';
+import { PermissionsAndroid, Platform, Pressable, Share, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { formatMoney, formatRupees } from '@money-plant/core';
-import { BANKS, BANK_NAMES, anonymiseSms, parseBankText, type BankId, type SmsParseResult } from '@money-plant/parser';
+import { anonymiseSms, parseAnySms, parseBankText, type SmsParseResult } from '@money-plant/parser';
 import { addMonthsToDate, dateKey, type DateKey } from '@money-plant/core';
 import { FormScroll } from '@/components/keyboard';
 import { DateField } from '@/components/date-fields';
@@ -10,7 +10,7 @@ import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/
 import { formatDateTime } from '@/components/format';
 import { DEFAULT_IMPORT_MONTHS, hasImportedInbox, importInbox, importRange, retryFailedMessages, type ImportProgress } from '@/lib/capture';
 import { captureStats } from '@/lib/ledger';
-import { addSender, appChoices, forgetSender, ignoreSender, linkSender, listSenderRows, setAppApproved, type SenderRow } from '@/lib/senders';
+import { addSender, forgetSender, ignoreSender, linkSender, listSenderRows, type SenderRow } from '@/lib/senders';
 import { AccountPicker } from '@/components/account-picker';
 import { useLedger } from '@/lib/use-ledger';
 import {
@@ -22,11 +22,10 @@ import {
 } from '../../modules/sms-reader';
 
 async function load() {
-  const [stats, imported, senders, apps] = await Promise.all([captureStats(), hasImportedInbox(), listSenderRows(), appChoices()]);
+  const [stats, imported, senders] = await Promise.all([captureStats(), hasImportedInbox(), listSenderRows()]);
   return {
     ...stats,
     senderRows: senders,
-    apps: Object.entries(apps).map(([packageName, a]) => ({ packageName, ...a })),
     imported,
     smsPermission: hasSmsPermission(),
     notificationAccess: isNotificationAccessGranted(),
@@ -36,7 +35,6 @@ async function load() {
 const initial: Awaited<ReturnType<typeof load>> = {
   senders: [],
   senderRows: [],
-  apps: [],
   failures: [],
   imported: false,
   smsPermission: false,
@@ -105,12 +103,12 @@ export default function Capture() {
     <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.body}>
         {readsAnySender
-          ? 'Money Plant checks SMS from banks and other businesses, never from people, and reads only the ones about money. ICICI, HDFC, HSBC, SBI, PNB and slice have tuned rules; any other sender is read by a general reader and waits in Review until you say which account it is for.'
-          : 'Money Plant reads messages only from ICICI, HDFC, HSBC, SBI and slice. The next app update reads any bank.'}{' '}
+          ? "Money Plant reads SMS about money from any bank or business, never from people. When a message doesn't show which of your accounts it is for, Review asks you once."
+          : 'This app version reads SMS from only a few banks. Install the latest Money Plant to read any bank.'}{' '}
         The message text stays on this phone in the encrypted database. Only the amount, account digits, payee and reference are synced.
       </Text>
       <Text style={styles.hint}>
-        If an entry looks wrong, or a message shows up below as unread, share it so the app learns to read that sender.
+        Some banks write their messages in ways the app hasn't seen yet. If an entry looks wrong, or a message shows up below as unread, share it so the app learns that bank.
       </Text>
 
       <Section title="1. SMS permission">
@@ -158,10 +156,7 @@ export default function Capture() {
 
       <Section title="3. App notifications (optional)">
         <Text style={styles.body}>
-          Adds payee names from Google Pay, PhonePe, your bank apps and slice to the matching SMS entry.
-          {readsAnySender
-            ? " When another app (Revolut, a bank abroad) shows a payment, Review asks once whether to read it. Apps you haven't said yes to are never read."
-            : " Other apps' notifications are ignored."}
+          Adds payee names from UPI and payment apps, such as Google Pay, PhonePe and Paytm, to the matching SMS entry. No other app's notifications are read.
         </Text>
         {data.notificationAccess ? (
           <Text style={styles.ok}>Turned on.</Text>
@@ -173,24 +168,6 @@ export default function Capture() {
       {error && <ErrorText>{error}</ErrorText>}
 
       <Senders rows={data.senderRows} onChange={reload} onError={setError} />
-
-      {data.apps.length > 0 && (
-        <Section title="Other apps">
-          {data.apps.map((a) => (
-            <View key={a.packageName} style={styles.statRow}>
-              <View style={styles.grow}>
-                <Text style={styles.statSender}>{a.name}</Text>
-                <Text style={styles.statText}>{a.state === 'approved' ? 'Payments are read' : a.state === 'denied' ? 'Not read' : 'Waiting for your answer in Review'}</Text>
-              </View>
-              <Switch
-                value={a.state === 'approved'}
-                accessibilityLabel={`Read payments from ${a.name}`}
-                onValueChange={(on) => void setAppApproved(a.packageName, on).then(reload)}
-              />
-            </View>
-          ))}
-        </Section>
-      )}
 
       {data.failures.length > 0 && (
         <Section title="Messages the app couldn't read">
@@ -250,35 +227,16 @@ const RANGES: { value: RangeChoice; label: string }[] = [
 /** Paste a message to see what the parser reads. Nothing is saved. */
 function TestMessage() {
   const styles = useStyles();
-  const [bank, setBank] = useState<BankId | null>('hdfc');
+  const [sender, setSender] = useState('');
   const [text, setText] = useState('');
   const [result, setResult] = useState<SmsParseResult | null>(null);
+  const read = () => setResult(sender.trim() ? parseAnySms({ sender: sender.trim(), body: text }) : parseBankText(null, text));
   return (
     <Section title="Test a message">
-      <View style={styles.chips}>
-        {BANKS.map((option) => (
-          <Pressable
-            key={option}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: option === bank }}
-            onPress={() => setBank(option)}
-            style={[styles.chip, option === bank && styles.chipSelected]}
-          >
-            <Text style={[styles.chipText, option === bank && styles.chipTextSelected]}>{BANK_NAMES[option]}</Text>
-          </Pressable>
-        ))}
-        <Pressable
-          accessibilityRole="radio"
-          accessibilityState={{ selected: bank === null }}
-          onPress={() => setBank(null)}
-          style={[styles.chip, bank === null && styles.chipSelected]}
-        >
-          <Text style={[styles.chipText, bank === null && styles.chipTextSelected]}>Any other sender</Text>
-        </Pressable>
-      </View>
+      <Field label="Sender (optional), as Messages shows it" value={sender} onChangeText={setSender} autoCapitalize="characters" placeholder="AX-HDFCBK" />
       <Field label="Message text" value={text} onChangeText={setText} multiline style={styles.input} placeholder="Paste a bank SMS" />
       <View style={styles.actions}>
-        <Button title="Read it" variant="secondary" onPress={() => setResult(parseBankText(bank, text))} disabled={text.trim() === ''} />
+        <Button title="Read it" variant="secondary" onPress={read} disabled={text.trim() === ''} />
       </View>
       {result && <Text selectable style={styles.raw}>{describe(result)}</Text>}
     </Section>
@@ -286,6 +244,7 @@ function TestMessage() {
 }
 
 function describe(result: SmsParseResult): string {
+  if (result.status === 'ignored' && result.reason === 'unknown_sender') return "Skipped: that sender looks like a person, and messages from people are never read.";
   if (result.status !== 'parsed') return `${result.status === 'ignored' ? 'Skipped' : 'Not readable'}: ${result.reason}`;
   const t = result.transaction;
   return [
@@ -299,9 +258,10 @@ function describe(result: SmsParseResult): string {
 }
 
 /**
- * CAP-11, CAP-8: every sender the app has seen, with its account and how its
- * messages were read. A sender without tuned rules can be linked to an
- * account, ignored, or asked about again; one can be added before its first message.
+ * CAP-11, CAP-8: every sender the app has seen, alike and in alphabetical
+ * order, with its account and how its messages were read. Any sender can be
+ * ignored; one whose messages wait for an account can be linked to one; one
+ * can be added before its first message.
  */
 function Senders({ rows, onChange, onError }: { rows: SenderRow[]; onChange: () => void; onError: (message: string) => void }) {
   const styles = useStyles();
@@ -316,24 +276,21 @@ function Senders({ rows, onChange, onError }: { rows: SenderRow[]; onChange: () 
       ) : (
         rows.map((s) => (
           <View key={s.sender} style={styles.senderRow}>
-            <Text style={styles.statSender}>
-              {s.name}
-              {s.tuned ? ' · tuned rules' : ''}
-            </Text>
+            <Text style={styles.statSender}>{s.name}</Text>
             <Text style={[styles.statText, s.failed > 0 && styles.warn]}>
-              {s.ignored ? 'Ignored · ' : s.account ? `Into ${s.account.name} · ` : !s.tuned ? 'Not linked yet · ' : ''}
-              {s.parsed} read · {s.skipped} skipped · {s.failed} failed{s.waiting > 0 ? ` · ${s.waiting} waiting` : ''}
+              {s.ignored ? 'Ignored · ' : s.account ? `Into ${s.account.name} · ` : ''}
+              {s.parsed} read · {s.skipped} skipped · {s.failed} failed{s.waiting > 0 ? ` · ${s.waiting} waiting for an account` : ''}
             </Text>
-            {!s.tuned && (
-              <View style={styles.chips}>
-                <Chip label={s.account ? 'Change account' : 'Link to an account'} selected={false} onPress={() => setLinking(s.sender)} />
-                {s.ignored || s.account ? (
-                  <Chip label={s.ignored ? 'Read again' : 'Unlink'} selected={false} onPress={() => act(() => forgetSender(s.sender))} />
-                ) : (
-                  <Chip label="Ignore" selected={false} onPress={() => act(() => ignoreSender(s.sender))} />
-                )}
-              </View>
-            )}
+            <View style={styles.chips}>
+              {(s.account || (!s.ignored && s.waiting > 0)) && (
+                <Chip label={s.account ? 'Change account' : 'Pick the account'} selected={false} onPress={() => setLinking(s.sender)} />
+              )}
+              {s.ignored || s.account ? (
+                <Chip label={s.ignored ? 'Read again' : 'Unlink'} selected={false} onPress={() => act(() => forgetSender(s.sender))} />
+              ) : (
+                <Chip label="Ignore" selected={false} onPress={() => act(() => ignoreSender(s.sender))} />
+              )}
+            </View>
           </View>
         ))
       )}
@@ -406,8 +363,4 @@ const useStyles = makeStyles((colors) => ({
   dates: { flexDirection: 'row', gap: 8 },
   grow: { flex: 1 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
-  chipSelected: { borderColor: colors.primary, backgroundColor: colors.pressed },
-  chipText: { color: colors.text },
-  chipTextSelected: { color: colors.primary, fontWeight: '600' },
 }));
