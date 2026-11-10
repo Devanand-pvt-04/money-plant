@@ -151,8 +151,9 @@ The production app, **Money Plant**, is the one to rely on (decision 0011). The 
 1. Once, and again whenever a PR bumps `version` in app.json: `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`. Install the APK and sign in; your ledger syncs down.
 2. Give SMS and notification access to the production app only.
 3. Ship a JavaScript fix to preview first (`--channel preview`, as above). Once it works there, send the same fix to the daily app: `npx eas-cli@latest update --channel production --message "<what changed>"`.
-4. Errors from the phones land in the `app_errors` table (Table Editor in the Supabase dashboard).
-5. Set up the weekly backup to your PC once: see [scripts/backup/README.md](../scripts/backup/README.md).
+4. Or ship an update from GitHub instead of your PC: **Actions → OTA update → Run workflow**, pick `preview` or `production` and describe the change. It runs typecheck and tests first, then publishes for Android. Once, before the first run: create an access token at expo.dev (Account settings → Access tokens) and add it as the repository secret `EXPO_TOKEN` (GitHub → Settings → Secrets and variables → Actions → New repository secret).
+5. Errors from the phones land in the `app_errors` table (Table Editor in the Supabase dashboard).
+6. Set up the weekly backup to your PC once: see [scripts/backup/README.md](../scripts/backup/README.md).
 
 The development build installs as **Money Plant (dev)** (`in.moneyplant.app.dev`). A local `npx expo run:android` uses the production package name unless you set `APP_VARIANT=development` first.
 
