@@ -14,7 +14,7 @@ export function normaliseSender(address: string): string {
 }
 
 /** Same company, not a bank account or card: insurance, mutual funds, broking. */
-const NON_BANK = /MF|AMC|LIF|LIFE|ERGO|PRU|LOMBRD|LOMBAR|GEN|INS|SEC|DIRECT|^HDFCLI$|^ICICIP$/;
+const NON_BANK = /MF|AMC|LIF|LIFE|ERGO|PRU|LOMBRD|LOMBAR|GEN|INS|SEC|DIRECT|^HDFCLI$|^ICICIP$|^PNB(?:HFL|HOU|MET)/;
 
 const BANK_PATTERNS: readonly [BankId, RegExp][] = [
   ['hdfc', /HDFC/],
@@ -22,6 +22,8 @@ const BANK_PATTERNS: readonly [BankId, RegExp][] = [
   ['hsbc', /HSBC/],
   // Checked after HSBC: "HSBC" doesn't contain "SBI", but keep the order explicit.
   ['sbi', /SBI/],
+  // Punjab National Bank: "PNBSMS", "PUNBNK". Its housing finance and MetLife arms are in NON_BANK.
+  ['pnb', /PNB|PUNB/],
   ['slice', /SLICE|SLCEIT/],
 ];
 

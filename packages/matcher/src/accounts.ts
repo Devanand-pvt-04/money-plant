@@ -9,6 +9,7 @@ export function institutionBank(institution: string | null): BankId | null {
   if (text.includes('icici')) return 'icici';
   if (text.includes('hsbc')) return 'hsbc';
   if (/\bsbi\b|state bank/.test(text)) return 'sbi';
+  if (/\bpnb\b|punjab national/.test(text)) return 'pnb';
   if (text.includes('slice')) return 'slice';
   return null;
 }

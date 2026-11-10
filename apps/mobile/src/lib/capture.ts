@@ -128,8 +128,16 @@ async function readMessage(message: IncomingMessage): Promise<IngestResult | nul
 
   let accountId: string | undefined;
   let target: CurrencyCode = DEFAULT_CURRENCY;
+  const choice = (await senderChoices())[message.key];
+  if (tuned && choice && 'accountId' in choice) {
+    // A sender the user linked before it got tuned rules (PNB): keep using the account they picked.
+    const account = db.select({ id: accounts.id, currency: accounts.currency }).from(accounts).where(eq(accounts.id, choice.accountId)).get();
+    if (account) {
+      accountId = account.id;
+      target = account.currency;
+    }
+  }
   if (!tuned) {
-    const choice = (await senderChoices())[message.key];
     if (choice && 'ignored' in choice) {
       logCapture(db, message, 'ignored', 'ignored_sender');
       return null;
@@ -232,6 +240,25 @@ async function replaySender(sender: string): Promise<number> {
 }
 setSenderReplay(replaySender);
 
+/**
+ * Messages that waited for a sender the user hadn't linked yet, from a
+ * sender that has since got tuned rules (PNB): read them now, as that
+ * bank's, without asking. Runs before every inbox scan.
+ */
+async function readNewlyTunedSenders(): Promise<number> {
+  const db = await getDb();
+  const senders = db
+    .selectDistinct({ sender: captureLog.sender })
+    .from(captureLog)
+    .where(and(eq(captureLog.status, 'waiting'), eq(captureLog.channel, 'sms')))
+    .all()
+    .map((row) => row.sender)
+    .filter((sender) => identifyBankSender(sender) !== null);
+  let read = 0;
+  for (const sender of senders) read += await replaySender(sender);
+  return read;
+}
+
 export function captureSms(message: SmsMessage): Promise<IngestResult | null> {
   return serial(() => captureSmsNow(message));
 }
@@ -297,6 +324,7 @@ function runImport(
     await ensureBalanceRefs();
     // The receiver's copy of ignored senders and approved apps is lost when Android clears app data.
     await syncCaptureFilters().catch(reportBackground('capture-filters'));
+    await readNewlyTunedSenders().catch(reportBackground('tuned-senders'));
     let since = from(stored === null ? null : Number(stored));
     let newest = stored === null ? 0 : Number(stored);
     const progress: ImportProgress = { read: 0, created: 0, merged: 0 };

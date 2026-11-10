@@ -157,7 +157,7 @@ export function senderName(sender: string, apps: Record<string, AppChoice>): str
 export interface SenderRow {
   sender: string;
   name: string;
-  /** Tuned rules (ICICI, HDFC, HSBC, SBI, slice), or the general reader. */
+  /** Tuned rules (ICICI, HDFC, HSBC, SBI, PNB, slice), or the general reader. */
   tuned: boolean;
   account: { id: string; name: string } | null;
   ignored: boolean;
