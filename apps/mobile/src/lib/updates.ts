@@ -2,6 +2,7 @@ import { DevSettings } from 'react-native';
 import * as Updates from 'expo-updates';
 import { formatDay, formatTime } from '@/components/format';
 import { passUnlockToRestart } from './lock-pass';
+import { noteRestart } from './restart-log';
 import { restartScreenColor } from './theme';
 
 /** Over-the-air updates only run in release builds that have expo-updates turned on. */
@@ -27,8 +28,10 @@ export function fetchLatestUpdate(force = false): Promise<UpdateCheck> {
     try {
       const check = await Updates.checkForUpdateAsync();
       if (!check.isAvailable) return 'latest';
-      const fetched = await Updates.fetchUpdateAsync();
-      return fetched.isNew ? 'ready' : 'latest';
+      // The server has a newer update than the one running. isNew is false when it
+      // was already downloaded (by the check on opening, say): it still needs a restart.
+      await Updates.fetchUpdateAsync();
+      return 'ready';
     } catch {
       return 'failed';
     } finally {
@@ -41,6 +44,7 @@ export function fetchLatestUpdate(force = false): Promise<UpdateCheck> {
 /** Restarts the app on the downloaded update. */
 export function restartToUpdate(): Promise<void> {
   passUnlockToRestart();
+  noteRestart('update');
   // The reload screen is white unless told otherwise.
   return Updates.reloadAsync({ reloadScreenOptions: { backgroundColor: restartScreenColor(), fade: true, spinner: { enabled: false } } });
 }
@@ -51,6 +55,7 @@ export function restartApp(): Promise<void> {
     DevSettings.reload();
     return Promise.resolve();
   }
+  noteRestart('try-again');
   return Updates.reloadAsync({ reloadScreenOptions: { backgroundColor: restartScreenColor(), spinner: { enabled: true } } });
 }
 
