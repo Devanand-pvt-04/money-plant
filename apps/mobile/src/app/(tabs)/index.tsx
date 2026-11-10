@@ -117,7 +117,7 @@ export default function Home() {
           <Pressable accessibilityRole="button" style={styles.callout} onPress={() => router.push('/capture')}>
             <Text style={styles.calloutTitle}>Read your bank SMS</Text>
             <Text style={styles.calloutText}>
-              Money Plant can fill your ledger from ICICI, HDFC, HSBC and SBI messages. The text stays on this phone.
+              Money Plant can fill your ledger from your bank's SMS, whichever bank it is. The text stays on this phone.
             </Text>
           </Pressable>
         )}

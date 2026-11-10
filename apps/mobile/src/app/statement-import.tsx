@@ -13,7 +13,7 @@ import { importStatement, previewStatement, readStatement, type StatementImportR
 
 const ERRORS: Record<PdfErrorCode, string> = {
   wrong_password: "That password didn't open the PDF. Banks often use a mix of your name and date of birth; the email with the statement says which.",
-  not_a_statement: "Couldn't find a transaction table in this PDF. ICICI statements work for now; other banks are coming.",
+  not_a_statement: "Couldn't read the transactions in this PDF yet. Statement layouts differ by bank, and the app learns them from samples.",
   not_a_cas: "Couldn't find a transaction table in this PDF.",
   demat_not_supported: "Couldn't find a transaction table in this PDF.",
   too_large: 'The PDF is over 10 MB. Download a shorter period.',
@@ -158,7 +158,7 @@ export default function StatementImport() {
   return (
     <FormScroll contentContainerStyle={styles.container}>
       <Text style={styles.intro}>
-        A statement fills in what the SMS missed: payments from before you installed the app, or messages that never arrived. Download it as a PDF from your bank's app or net banking. ICICI statements work now; HDFC, HSBC and SBI follow.
+        A statement fills in what the SMS missed: payments from before you installed the app, or messages that never arrived. Download it as a PDF from your bank's app or net banking.
       </Text>
 
       <Text style={styles.label}>Statement</Text>

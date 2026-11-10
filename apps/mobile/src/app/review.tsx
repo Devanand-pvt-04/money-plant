@@ -73,14 +73,14 @@ export default function Review() {
       proposals: [] as Proposal[],
       suggested: [] as RecurringPayment[],
       guesses: new Map<string, RepaymentGuess>(),
-      questions: { senders: [], apps: [] } as CaptureQuestions,
+      questions: { senders: [] } as CaptureQuestions,
     },
     'review',
   );
   const { picker, change } = useCategoryChange();
   const [questionError, setQuestionError] = useState<string | null>(null);
   const nothing =
-    data.gaps.length === 0 && data.proposals.length === 0 && data.suggested.length === 0 && data.questions.senders.length === 0 && data.questions.apps.length === 0;
+    data.gaps.length === 0 && data.proposals.length === 0 && data.suggested.length === 0 && data.questions.senders.length === 0;
 
   return (
     <>

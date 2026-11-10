@@ -2,21 +2,17 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { AccountPicker } from './account-picker';
 import { Button, radius, makeStyles } from './ui';
-import { ignoreSender, linkSender, setAppApproved, type CaptureQuestions } from '@/lib/senders';
+import { ignoreSender, linkSender, type CaptureQuestions } from '@/lib/senders';
 
 /**
- * CAP-11 and CAP-12 in Review: a sender the app has no rules for, whose
- * messages wait until the user says which account they are for; and an app
- * outside the built-in list that posted a payment notification.
+ * CAP-11 in Review: a sender whose messages didn't show which account they
+ * are for. They wait until the user picks one. Any bank can be asked about.
  */
 export function CaptureQuestionCards({ questions, onError }: { questions: CaptureQuestions; onError: (message: string) => void }) {
   return (
     <>
       {questions.senders.map((s) => (
         <NewSender key={s.sender} sender={s.sender} name={s.name} waiting={s.waiting} onError={onError} />
-      ))}
-      {questions.apps.map((a) => (
-        <NewApp key={a.packageName} packageName={a.packageName} name={a.name} onError={onError} />
       ))}
     </>
   );
@@ -38,10 +34,10 @@ function NewSender({ sender, name, waiting, onError }: { sender: string; name: s
   };
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>New sender: {name}</Text>
+      <Text style={styles.title}>Messages from {name}</Text>
       <Text style={styles.text}>
-        {waiting} {waiting === 1 ? 'message about money is' : 'messages about money are'} waiting. Which account {waiting === 1 ? 'is it' : 'are they'} for?
-        Nothing is added until you say.
+        {waiting} {waiting === 1 ? 'message about money from' : 'messages about money from'} {name} {waiting === 1 ? "doesn't" : "don't"} say which of
+        your accounts {waiting === 1 ? 'it is' : 'they are'} for. Nothing is added until you pick one.
       </Text>
       <View style={styles.actions}>
         <Button title="Pick the account" onPress={() => setPicking(true)} loading={busy} />
@@ -56,24 +52,6 @@ function NewSender({ sender, name, waiting, onError }: { sender: string; name: s
           void run(() => linkSender(sender, account.account.id));
         }}
       />
-    </View>
-  );
-}
-
-function NewApp({ packageName, name, onError }: { packageName: string; name: string; onError: (message: string) => void }) {
-  const styles = useStyles();
-  const answer = (yes: boolean) => () => setAppApproved(packageName, yes).catch((e) => onError(e instanceof Error ? e.message : String(e)));
-  return (
-    <View style={styles.card}>
-      <Text style={styles.title}>Read payments from {name}?</Text>
-      <Text style={styles.text}>
-        {name} showed a notification about money. Money Plant hasn't read it. Say yes to read {name}'s payment notifications from now
-        on; the text stays on this phone.
-      </Text>
-      <View style={styles.actions}>
-        <Button title="Yes, read them" onPress={answer(true)} />
-        <Button title="No" variant="secondary" onPress={answer(false)} />
-      </View>
     </View>
   );
 }

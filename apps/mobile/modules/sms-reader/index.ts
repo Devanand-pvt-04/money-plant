@@ -16,7 +16,7 @@ export interface InboxMessage {
 export type CaptureTaskData =
   | { kind: 'sms'; sender: string; body: string; receivedAt: number; sentAt: number }
   | { kind: 'notification'; packageName: string; title: string; text: string; receivedAt: number }
-  /** CAP-12: an app not yet approved posted a money notification. Only its name is passed, never the text. */
+  /** Sent only by 0.11.x builds: another app's money notification, name only. Dropped since decision 0019. */
   | { kind: 'app_candidate'; packageName: string; appName: string; receivedAt: number };
 
 interface SmsReaderNative {
@@ -25,7 +25,7 @@ interface SmsReaderNative {
   isNotificationAccessGranted(): boolean;
   openNotificationAccessSettings(): void;
   setSecureWindow?(on: boolean): Promise<void>;
-  /** From app 0.11.0 (CAP-11, CAP-12). */
+  /** From app 0.11.0 (CAP-11). The app lists are always empty since decision 0019. */
   setCaptureFilters?(ignoredSenders: string[], approvedApps: string[], deniedApps: string[]): void;
 }
 
@@ -61,10 +61,10 @@ export function setSecureWindow(on: boolean): Promise<void> {
   return native?.setSecureWindow?.(on) ?? Promise.resolve();
 }
 
-/** Whether this build reads any business sender and asks about new apps (0.11.0 and later). */
+/** Whether this build reads any business sender (0.11.0 and later). */
 export const readsAnySender = typeof native?.setCaptureFilters === 'function';
 
-/** Hands Settings → Capture's choices to the native receiver and listener. */
+/** Hands Settings → Capture's ignored senders to the native receiver. */
 export function setCaptureFilters(filters: { ignoredSenders: readonly string[]; approvedApps: readonly string[]; deniedApps: readonly string[] }): void {
   native?.setCaptureFilters?.([...filters.ignoredSenders], [...filters.approvedApps], [...filters.deniedApps]);
 }
