@@ -79,7 +79,7 @@ money-plant/
 
 The core of the app is a double-entry ledger. Each transaction has two or more postings that sum to zero, so every rupee leaves one account and lands in another. Budgets, net worth and IOUs are all queries over postings; none of them are stored as separate totals.
 
-**Account types.** Asset accounts (bank, cash, wallet, FD, RD, mutual fund, stock). Liability accounts (credit card, loan). People accounts (one per friend, for IOUs). Category accounts (Food, Rent, Salary and so on, for income and spending).
+**Account types.** Asset accounts (bank, cash, wallet, FD, RD, mutual fund, stock). Liability accounts (credit card, loan). People accounts (one per friend, for IOUs; no two share an email or UPI ID, and two entries for one person are merged by moving their postings, decision 0020). Category accounts (Food, Rent, Salary and so on, for income and spending).
 
 **Custom account types.** Users can add their own types (Chit fund, PF, Gold). Each one sits on a fixed class, asset or liability, which decides the sign of its balance and how net worth adds up. Built-in behaviour (FD interest, fund prices, card bill detection) stays attached to the built-in types; a custom type is a plain manual account.
 

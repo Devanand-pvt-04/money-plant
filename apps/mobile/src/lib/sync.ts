@@ -1,5 +1,5 @@
 import { syncFriendLinks } from './friends';
-import { and, eq, inArray, isNotNull, notInArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, ne, notInArray } from 'drizzle-orm';
 import { isRejection, pushWithFallback } from '@money-plant/core';
 import {
   accountTypes,
@@ -481,6 +481,38 @@ async function pullIous(me: string): Promise<number> {
   return total;
 }
 
+/**
+ * Decision 0020: an IOU a friend took back (changed or removed the email) is
+ * hidden from this user by the server, so its change never comes down in the
+ * pull. Any shared IOU on the phone the server no longer shows is marked gone
+ * here; refreshIous then undoes what this user's ledger added for it.
+ */
+async function dropHiddenShares(me: string): Promise<number> {
+  const db = await getDb();
+  const local = db
+    .select({ id: ious.id })
+    .from(ious)
+    .where(and(ne(ious.userId, me), isNull(ious.deletedAt), isNull(ious.response)))
+    .all();
+  if (local.length === 0) return 0;
+  const visible = new Set<string>();
+  for (let offset = 0; ; offset += PULL_PAGE) {
+    const { data, error } = await supabase
+      .from('ious')
+      .select('id')
+      .neq('user_id', me)
+      .is('deleted_at', null)
+      .order('id')
+      .range(offset, offset + PULL_PAGE - 1);
+    if (error) throw error;
+    for (const row of (data ?? []) as { id: string }[]) visible.add(row.id);
+    if ((data ?? []).length < PULL_PAGE) break;
+  }
+  const hidden = local.filter((r) => !visible.has(r.id)).map((r) => r.id);
+  if (hidden.length > 0) db.update(ious).set({ deletedAt: new Date().toISOString() }).where(inArray(ious.id, hidden)).run();
+  return hidden.length;
+}
+
 function applyPayments(db: Awaited<ReturnType<typeof getDb>>, rows: readonly RemoteIouPayment[]): void {
   for (const row of rows) {
     const local = db.select({ dirty: iouPayments.dirty }).from(iouPayments).where(eq(iouPayments.id, row.id)).get();
@@ -586,6 +618,7 @@ export function syncNow(): Promise<SyncResult> {
         (await pullHoldings()) +
         (await pullSplitGroups()) +
         (await pullIous(me)) +
+        (await dropHiddenShares(me)) +
         (await pullIouPayments());
       // ACC-9: friends' links become person accounts. Best effort: a failure here never stops the ledger sync.
       await syncFriendLinks().catch(reportBackground('friend-links'));

@@ -10,7 +10,7 @@ import { PersonPicker } from '@/components/person-picker';
 import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
 import { createIou, loanCandidates, type EntryLink } from '@/lib/ious';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
-import { createPerson, findPersonForPayee, listPeople, type Person } from '@/lib/people';
+import { createPerson, findPersonForPayee, listPeople, SamePersonError, type Person } from '@/lib/people';
 import { homeCurrency } from '@/lib/home-currency';
 import { isVpa } from '@/lib/me';
 
@@ -96,7 +96,13 @@ export default function NewIou() {
     try {
       let who = personId;
       if (!who) {
-        who = await createPerson({ name: draft!.name, vpa: draft!.vpa });
+        try {
+          who = await createPerson({ name: draft!.name, vpa: draft!.vpa });
+        } catch (e) {
+          // That UPI ID is already someone's: it's them, not a new person (decision 0020).
+          if (!(e instanceof SamePersonError)) throw e;
+          who = e.other.id;
+        }
         // Kept, so trying again after an error doesn't add them twice.
         setDraft(null);
         setPersonId(who);
