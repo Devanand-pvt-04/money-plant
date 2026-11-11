@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import { addDays, buildUpiUri, dateKey, daysBetween, dateOf, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { accounts, iouPayments, ious, postings, sources, transactions } from '@money-plant/db-schema';
 import {
@@ -560,10 +560,45 @@ export async function repaymentGuesses(txs: readonly LedgerTransaction[]): Promi
 
 let refreshing: Promise<number> | null = null;
 
+/**
+ * Decision 0020: an IOU a friend shared with this user is gone (they deleted
+ * it, or took it back by changing the email). What this user's ledger added
+ * for it is undone the same way the owner's delete undoes theirs: a loan or
+ * repayment entry typed by hand goes, one from a bank SMS goes back to review.
+ * Otherwise the entry would stay behind and the person would look owed.
+ */
+async function releaseRemovedShares(meId: string): Promise<number> {
+  const db = await getDb();
+  const gone = db
+    .select()
+    .from(ious)
+    .where(and(ne(ious.userId, meId), isNotNull(ious.deletedAt), isNotNull(ious.counterpartyTransactionId), isNotNull(ious.counterpartyPersonAccountId)))
+    .all();
+  for (const row of gone) {
+    const personId = row.counterpartyPersonAccountId!;
+    await releaseEntry(row.counterpartyTransactionId!, personId);
+    const mine = db
+      .select()
+      .from(iouPayments)
+      .where(and(eq(iouPayments.iouId, row.id), eq(iouPayments.userId, meId), isNull(iouPayments.deletedAt)))
+      .all();
+    for (const payment of mine) {
+      if (payment.transactionId) await releaseEntry(payment.transactionId, personId);
+      // Local only: the server no longer lets this user change repayments of an IOU that isn't theirs.
+      db.update(iouPayments).set({ deletedAt: now(), dirty: 0 }).where(eq(iouPayments.id, payment.id)).run();
+    }
+    // Marks it done; the server row is gone or hidden, so a pull won't bring the link back.
+    db.update(ious).set({ counterpartyTransactionId: null }).where(eq(ious.id, row.id)).run();
+  }
+  if (gone.length > 0) notifyLedgerChange();
+  return gone.length;
+}
+
 /** Settles IOUs from new payments, then reschedules due-date reminders. Concurrent calls share one run. */
 export function refreshIous(): Promise<number> {
   refreshing ??= (async () => {
     try {
+      await releaseRemovedShares((await getMe()).id);
       const settled = await settleFromLedger(await listIous());
       await scheduleIouReminders(await listIous());
       return settled;
@@ -625,8 +660,8 @@ export function reminderMessage(view: IouView, me: Me): string {
 
 /** IOU-3: the link that opens a UPI app to pay what this user owes. */
 export function payLink(view: IouView, amount: Paise = view.outstanding): string | null {
-  // UPI is rupees only (decision 0017).
-  if (view.direction !== 'borrowed' || !view.otherVpa || view.currency !== 'INR') return null;
+  // UPI is rupees only (decision 0017). Nothing left to pay: no link (a zero amount isn't a UPI payment).
+  if (amount <= 0 || view.direction !== 'borrowed' || !view.otherVpa || view.currency !== 'INR') return null;
   return buildUpiUri(
     { payeeVpa: view.otherVpa, payeeName: view.otherName, params: {} },
     { amount, note: view.reason ? `Repay: ${view.reason}`.slice(0, 50) : 'IOU repayment' },

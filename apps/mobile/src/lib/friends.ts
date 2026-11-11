@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { notifyLedgerChange } from './events';
-import { createPerson, listPeople, updatePerson } from './people';
+import { createPerson, listPeople, SamePersonError, updatePerson } from './people';
 import { getMe, isVpa, type Me } from './me';
 import { supabase } from './supabase';
 
@@ -165,7 +165,7 @@ async function ensurePerson(link: FriendLink): Promise<boolean> {
   const people = await listPeople();
   const byEmail = people.find((p) => p.account.email === link.email);
   if (byEmail) {
-    if (!vpa || byEmail.account.vpa) return false;
+    if (!vpa || byEmail.account.vpa || people.some((p) => p.account.vpa === vpa)) return false;
     await updatePerson(byEmail.account.id, { name: byEmail.account.name, vpa, email: link.email });
     return true;
   }
@@ -175,7 +175,14 @@ async function ensurePerson(link: FriendLink): Promise<boolean> {
     await updatePerson(byVpa.account.id, { name: byVpa.account.name, vpa, email: link.email });
     return true;
   }
-  await createPerson({ name: link.name ?? link.email.split('@')[0] ?? link.email, vpa, email: link.email });
+  const name = link.name ?? link.email.split('@')[0] ?? link.email;
+  try {
+    await createPerson({ name, vpa, email: link.email });
+  } catch (e) {
+    // Their UPI ID is already on another member: add them without it (decision 0020).
+    if (!(e instanceof SamePersonError)) throw e;
+    await createPerson({ name, vpa: null, email: link.email });
+  }
   return true;
 }
 

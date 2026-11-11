@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatWholeRupees } from '@/components/format';
@@ -7,7 +7,8 @@ import { Net, NetByCurrency, dueText } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
 import { ErrorText, Card, Initial, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { isOpen, listIous, type IouView } from '@/lib/ious';
-import { listPeople, type Person } from '@/lib/people';
+import { mergePeople } from '@/lib/merge-people';
+import { dismissDuplicate, duplicateSuggestions, listPeople, type DuplicateSuggestion, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
 import { groupOverview, listGroups, type GroupOverview } from '@/lib/splits';
 import { usePullToRefresh } from '@/lib/refresh';
@@ -17,7 +18,8 @@ async function load() {
   const [people, ious, groups] = await Promise.all([listPeople(), listIous(), listGroups()]);
   const context = { groups, people, ious };
   const overviews = (await Promise.all(groups.map((g) => groupOverview(g.id, context)))).filter((g): g is GroupOverview => g !== null);
-  return { people, ious, toConfirm: ious.filter((v) => v.state === 'awaiting_me'), groups: overviews };
+  const duplicates = await duplicateSuggestions(people);
+  return { people, ious, toConfirm: ious.filter((v) => v.state === 'awaiting_me'), groups: overviews, duplicates };
 }
 
 /** What a person's open IOUs are about, in a few words: "Owes you for Goa stay", "Lunch split, 2 entries". */
@@ -31,14 +33,34 @@ function personNote(person: Person, ious: readonly IouView[], day: string): stri
   return due ? `${lead} · ${due}` : lead;
 }
 
+const REASONS: Record<DuplicateSuggestion['reason'], string> = { email: 'same email', vpa: 'same UPI ID', name: 'same name' };
+
 /** IOU-1 to IOU-5, SPL-1, SPL-3: who owes whom, groups, and one way to add an expense with people. */
 export default function People() {
   const colors = useColors();
   const styles = useStyles();
   const navigation = useNavigation();
   const [adding, setAdding] = useState(false);
-  const { data, reload } = useLedger(load, { people: [] as Person[], ious: [] as IouView[], toConfirm: [] as IouView[], groups: [] as GroupOverview[] }, 'people');
+  const { data, reload } = useLedger(
+    load,
+    { people: [] as Person[], ious: [] as IouView[], toConfirm: [] as IouView[], groups: [] as GroupOverview[], duplicates: [] as DuplicateSuggestion[] },
+    'people',
+  );
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+
+  // Decision 0020: the same person twice, usually a phone contact and the friend who joined later.
+  function confirmMerge(d: DuplicateSuggestion) {
+    Alert.alert(
+      `Merge ${d.removeName} into ${d.keepName}?`,
+      `Everything with ${d.removeName} (entries, IOUs, groups, UPI ID) moves to ${d.keepName}, and ${d.removeName} is removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Merge', onPress: () => mergePeople(d.remove, d.keep).catch((e) => setMergeError(e instanceof Error ? e.message : String(e))) },
+      ],
+    );
+  }
+
 
   useEffect(() => {
     navigation.setOptions({
@@ -75,6 +97,34 @@ export default function People() {
             <Text style={styles.meta}>{owed.length === 0 ? 'to no one' : `to ${owed.length} ${owed.length === 1 ? 'person' : 'people'}`}</Text>
           </View>
         </View>
+
+        {mergeError && <ErrorText>{mergeError}</ErrorText>}
+        {data.duplicates.length > 0 && (
+          <>
+            <SectionTitle>Same person?</SectionTitle>
+            <Card>
+              {data.duplicates.map((d, i) => (
+                <View key={`${d.keep}|${d.remove}`} style={[styles.row, i > 0 && styles.divided]}>
+                  <Initial name={d.keepName} />
+                  <View style={styles.grow}>
+                    <Text style={styles.name}>
+                      {d.removeName} and {d.keepName}
+                    </Text>
+                    <Text style={styles.meta}>{REASONS[d.reason]}</Text>
+                    <View style={styles.duplicateActions}>
+                      <Pressable accessibilityRole="button" hitSlop={8} onPress={() => confirmMerge(d)}>
+                        <Text style={styles.link}>Merge</Text>
+                      </Pressable>
+                      <Pressable accessibilityRole="button" hitSlop={8} onPress={() => void dismissDuplicate(d.keep, d.remove)}>
+                        <Text style={styles.linkMuted}>Not the same</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </Card>
+          </>
+        )}
 
         {data.toConfirm.length > 0 && (
           <>
@@ -185,6 +235,9 @@ export default function People() {
 
 const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 96, gap: 8 },
+  duplicateActions: { flexDirection: 'row', gap: 20, marginTop: 6 },
+  link: { fontSize: 14, fontWeight: '600', color: colors.primary },
+  linkMuted: { fontSize: 14, color: colors.muted },
   headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
   totals: { flexDirection: 'row', gap: 12, paddingVertical: 8 },
   total: { flex: 1, padding: 16, borderRadius: 18, backgroundColor: colors.subtle, gap: 4 },

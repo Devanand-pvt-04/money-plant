@@ -1,13 +1,13 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
-import { accounts, ious, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
-import { findPerson, payeeKey } from '@money-plant/matcher';
+import { accounts, iouPayments, ious, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
+import { clashingPerson, findDuplicatePeople, findPerson, outstanding, pairKey, payeeKey, type DuplicatePair } from '@money-plant/matcher';
 import { getDb } from './db';
 import { homeConverter } from './home-money';
 import { kvGet, kvSet } from './kv';
 import { notifyLedgerChange } from './events';
-import { isVpa } from './me';
+import { getMe, isVpa } from './me';
 
 export interface Person {
   account: LocalAccount;
@@ -82,6 +82,27 @@ function clean(input: PersonInput) {
   return { name: name.slice(0, 80), vpa, email };
 }
 
+/**
+ * Decision 0020: two people can't share an email or UPI ID. Carries the
+ * other person, so the screen can offer to merge them instead.
+ */
+export class SamePersonError extends Error {
+  constructor(
+    readonly other: { id: string; name: string },
+    readonly field: 'email' | 'vpa',
+  ) {
+    super(`${other.name} already has this ${field === 'email' ? 'email' : 'UPI ID'}. If they're the same person, merge them instead.`);
+    this.name = 'SamePersonError';
+  }
+}
+
+async function checkClash(self: string | null, fields: { email: string | null; vpa: string | null }): Promise<void> {
+  if (!fields.email && !fields.vpa) return;
+  const people = (await listPeople()).map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa, email: p.account.email }));
+  const clash = clashingPerson(people, self, fields);
+  if (clash) throw new SamePersonError({ id: clash.person.id, name: clash.person.name }, clash.field);
+}
+
 async function linkContact(personId: string, contactId: string | null | undefined): Promise<void> {
   if (contactId === undefined) return;
   const db = await getDb();
@@ -91,6 +112,7 @@ async function linkContact(personId: string, contactId: string | null | undefine
 
 export async function createPerson(input: PersonInput): Promise<string> {
   const fields = clean(input);
+  await checkClash(null, fields);
   const db = await getDb();
   const id = Crypto.randomUUID();
   db.insert(accounts)
@@ -103,24 +125,55 @@ export async function createPerson(input: PersonInput): Promise<string> {
 
 /**
  * Edits a person. A new email shares their open IOUs with that address
- * (IOU-2); the server asks them to confirm again.
+ * (IOU-2); the server asks them to confirm again. An email or UPI ID that
+ * another person already has is refused (decision 0020).
  */
 export async function updatePerson(id: string, input: PersonInput): Promise<void> {
   const fields = clean(input);
   const db = await getDb();
   const before = db.select().from(accounts).where(eq(accounts.id, id)).get();
+  // Only what changed is checked, so an older pair that already clashes can still be renamed.
+  await checkClash(id, { email: fields.email !== before?.email ? fields.email : null, vpa: fields.vpa !== before?.vpa ? fields.vpa : null });
   db.update(accounts)
     .set({ ...fields, dirty: 1, rev: sql`${accounts.rev} + 1` })
     .where(eq(accounts.id, id))
     .run();
-  if (before && before.email !== fields.email) {
-    db.update(ious)
-      .set({ counterpartyEmail: fields.email, dirty: 1, rev: sql`${ious.rev} + 1` })
-      .where(and(eq(ious.personAccountId, id), isNull(ious.deletedAt)))
-      .run();
-  }
+  if (before && before.email !== fields.email) await shareIousOf(id, fields.email);
   await linkContact(id, input.contactId);
   notifyLedgerChange();
+}
+
+/**
+ * Points this user's IOUs with a person at `email`. Settled ones stay as they
+ * are: shared, they would reach the other person without their repayments and
+ * look owed (decision 0020). A settled IOU shared with an email that is
+ * changing is taken back instead.
+ */
+export async function shareIousOf(personId: string, email: string | null): Promise<void> {
+  const db = await getDb();
+  const me = await getMe();
+  const rows = db
+    .select()
+    .from(ious)
+    .where(and(eq(ious.personAccountId, personId), eq(ious.userId, me.id), isNull(ious.deletedAt)))
+    .all();
+  if (rows.length === 0) return;
+  const payments = db
+    .select()
+    .from(iouPayments)
+    .where(and(inArray(iouPayments.iouId, rows.map((r) => r.id)), isNull(iouPayments.deletedAt)))
+    .all()
+    .map((p) => ({ id: p.id, iouId: p.iouId, byMe: p.userId === me.id, amount: paise(p.amountPaise), paidAt: p.paidAt }));
+  for (const row of rows) {
+    if (row.counterpartyEmail === email) continue;
+    const open = outstanding({ id: row.id, amount: paise(row.amountPaise) }, payments) > 0;
+    const next = open ? email : null;
+    if (row.counterpartyEmail === next) continue;
+    db.update(ious)
+      .set({ counterpartyEmail: next, dirty: 1, rev: sql`${ious.rev} + 1` })
+      .where(eq(ious.id, row.id))
+      .run();
+  }
 }
 
 const ALIASES_KEY = 'people.aliases';
@@ -141,7 +194,7 @@ export async function payeeAliases(): Promise<Map<string, string>> {
   }
 }
 
-async function saveAliases(aliases: ReadonlyMap<string, string>): Promise<void> {
+export async function saveAliases(aliases: ReadonlyMap<string, string>): Promise<void> {
   await kvSet(ALIASES_KEY, JSON.stringify(Object.fromEntries(aliases)));
 }
 
@@ -179,6 +232,21 @@ export async function rememberPayee(personId: string, payee: { name: string | nu
   }
 }
 
+function groupsWith(db: Awaited<ReturnType<typeof getDb>>, id: string) {
+  return db
+    .select({ id: splitGroups.id, name: splitGroups.name, members: splitGroups.memberAccountIds })
+    .from(splitGroups)
+    .where(isNull(splitGroups.deletedAt))
+    .all()
+    .filter((g) => {
+      try {
+        return (JSON.parse(g.members) as unknown[]).includes(id);
+      } catch {
+        return false;
+      }
+    });
+}
+
 /** Whether anything refers to this person: an entry, an IOU, a split group or a friend link. */
 export async function personInUse(id: string): Promise<boolean> {
   const db = await getDb();
@@ -197,23 +265,50 @@ export async function personInUse(id: string): Promise<boolean> {
     .where(and(isNull(ious.deletedAt), or(eq(ious.personAccountId, id), eq(ious.counterpartyPersonAccountId, id))))
     .get();
   if (iou) return true;
-  return db
-    .select({ members: splitGroups.memberAccountIds })
-    .from(splitGroups)
-    .where(isNull(splitGroups.deletedAt))
-    .all()
-    .some((g) => {
-      try {
-        return (JSON.parse(g.members) as unknown[]).includes(id);
-      } catch {
-        return false;
-      }
-    });
+  return groupsWith(db, id).length > 0;
 }
 
-/** Removes a person nothing refers to, such as one added by mistake. */
+/**
+ * Why this person can't be removed, or null when they can (decision 0020).
+ * Someone nothing refers to is simply removed. Someone with history is
+ * removed only when settled: their past entries keep their name, but they
+ * leave People and pickers. Someone linked on Money Plant comes back with
+ * the friend link, so they stay.
+ */
+export async function removalBlocker(id: string): Promise<string | null> {
+  if (!(await personInUse(id))) return null;
+  const person = await getPerson(id);
+  if (!person) return 'Person not found';
+  const name = person.account.name;
+  if (person.account.email) return `${name} is linked on Money Plant by email, so they stay. Merge a duplicate into them instead.`;
+  if (person.balances.length > 0) return `${name} isn't settled up. Settle up, or merge them into the right person.`;
+  const db = await getDb();
+  const me = await getMe();
+  const rows = db
+    .select()
+    .from(ious)
+    .where(and(isNull(ious.deletedAt), isNull(ious.declinedAt), or(eq(ious.personAccountId, id), eq(ious.counterpartyPersonAccountId, id))))
+    .all();
+  if (rows.length > 0) {
+    const payments = db
+      .select()
+      .from(iouPayments)
+      .where(and(inArray(iouPayments.iouId, rows.map((r) => r.id)), isNull(iouPayments.deletedAt)))
+      .all()
+      .map((p) => ({ id: p.id, iouId: p.iouId, byMe: p.userId === me.id, amount: paise(p.amountPaise), paidAt: p.paidAt }));
+    if (rows.some((r) => outstanding({ id: r.id, amount: paise(r.amountPaise) }, payments) > 0)) {
+      return `${name} still has an open IOU. Settle it, or merge them into the right person.`;
+    }
+  }
+  const groups = groupsWith(db, id);
+  if (groups.length > 0) return `${name} is in ${groups.map((g) => g.name).join(', ')}. Take them out of the group first.`;
+  return null;
+}
+
+/** Removes a person added by mistake, or a settled one no longer needed (decision 0020). */
 export async function removePerson(id: string): Promise<void> {
-  if (await personInUse(id)) throw new Error('They still have entries, IOUs, groups or a friend link, so they stay');
+  const blocker = await removalBlocker(id);
+  if (blocker) throw new Error(blocker);
   const db = await getDb();
   db.update(accounts)
     .set({ deletedAt: new Date().toISOString(), dirty: 1, rev: sql`${accounts.rev} + 1` })
@@ -224,5 +319,43 @@ export async function removePerson(id: string): Promise<void> {
   let changed = false;
   for (const [key, personId] of aliases) if (personId === id && aliases.delete(key)) changed = true;
   if (changed) await saveAliases(aliases);
+  notifyLedgerChange();
+}
+
+// ---- Same person twice (decision 0020) ----
+
+const DISMISSED_KEY = 'people.not_duplicates';
+
+async function dismissedPairs(): Promise<Set<string>> {
+  try {
+    const raw = await kvGet(DISMISSED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export interface DuplicateSuggestion extends DuplicatePair {
+  keepName: string;
+  removeName: string;
+}
+
+/** People who are probably one person, for People to ask about. Pairs the user said are different stay hidden. */
+export async function duplicateSuggestions(people?: readonly Person[]): Promise<DuplicateSuggestion[]> {
+  const list = people ?? (await listPeople());
+  const names = new Map(list.map((p) => [p.account.id, p.account.name]));
+  const pairs = findDuplicatePeople(
+    list.map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa, email: p.account.email })),
+    await dismissedPairs(),
+  );
+  return pairs.map((pair) => ({ ...pair, keepName: names.get(pair.keep) ?? '', removeName: names.get(pair.remove) ?? '' }));
+}
+
+/** "Not the same person": stop asking about this pair. Kept on this phone. */
+export async function dismissDuplicate(a: string, b: string): Promise<void> {
+  const pairs = await dismissedPairs();
+  pairs.add(pairKey(a, b));
+  await kvSet(DISMISSED_KEY, JSON.stringify([...pairs]));
   notifyLedgerChange();
 }

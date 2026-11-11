@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, Share, Switch, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Share, Switch, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
 import { formatAmount } from '@/components/format';
 import { IouRow } from '@/components/people-rows';
+import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, useColors, makeStyles } from '@/components/ui';
 import { contactById, pickContact } from '@/lib/contacts';
 import { setDoubtful, useDoubtfulPeople } from '@/lib/doubtful';
@@ -11,7 +12,8 @@ import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/li
 import { getMe } from '@/lib/me';
 import { markInvited } from '@/lib/setup';
 import { listIous, type IouView } from '@/lib/ious';
-import { createPerson, getPerson, personInUse, removePerson, updatePerson, type Person } from '@/lib/people';
+import { mergePeople } from '@/lib/merge-people';
+import { createPerson, getPerson, listPeople, personInUse, removalBlocker, removePerson, SamePersonError, updatePerson, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -23,11 +25,12 @@ export default function PersonDetail() {
   const navigation = useNavigation();
   const isNew = id === 'new';
   const load = useCallback(async () => {
-    if (isNew) return { person: null, ious: [] as IouView[], inUse: true };
-    const [person, all, inUse] = await Promise.all([getPerson(id), listIous(), personInUse(id)]);
-    return { person, ious: all.filter((v) => v.personId === id), inUse };
+    if (isNew) return { person: null, ious: [] as IouView[], inUse: true, blocker: null as string | null, others: [] as Person[] };
+    const [person, all, inUse, blocker, people] = await Promise.all([getPerson(id), listIous(), personInUse(id), removalBlocker(id), listPeople()]);
+    return { person, ious: all.filter((v) => v.personId === id), inUse, blocker, others: people.filter((p) => p.account.id !== id) };
   }, [id, isNew]);
-  const { data } = useLedger(load, { person: null as Person | null, ious: [] as IouView[], inUse: true });
+  const { data } = useLedger(load, { person: null as Person | null, ious: [] as IouView[], inUse: true, blocker: null as string | null, others: [] as Person[] });
+  const [merging, setMerging] = useState(false);
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
   const [email, setEmail] = useState('');
@@ -49,7 +52,10 @@ export default function PersonDetail() {
 
   function confirmRemove() {
     if (!data.person) return;
-    Alert.alert(`Remove ${data.person.account.name}?`, 'Use this for someone added by mistake.', [
+    const message = data.inUse
+      ? 'They leave People and the pickers. Past entries with them stay, under their name.'
+      : 'Use this for someone added by mistake.';
+    Alert.alert(`Remove ${data.person.account.name}?`, message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
@@ -61,6 +67,31 @@ export default function PersonDetail() {
           ),
       },
     ]);
+  }
+
+  // Decision 0020: this person and `other` are one person. The one linked on Money Plant (with an email) is kept.
+  function confirmMerge(other: { id: string; name: string }) {
+    if (!data.person) return;
+    const here = data.person.account;
+    const target = data.others.find((p) => p.account.id === other.id)?.account;
+    const keepOther = !here.email || Boolean(target?.email);
+    const [removeId, keepId] = keepOther ? [id, other.id] : [other.id, id];
+    const [removeName, keepName] = keepOther ? [here.name, other.name] : [other.name, here.name];
+    Alert.alert(
+      `Merge ${removeName} into ${keepName}?`,
+      `Everything with ${removeName} (entries, IOUs, groups, UPI ID) moves to ${keepName}, and ${removeName} is removed. Open IOUs are shared with ${keepName} if they're on Money Plant.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Merge',
+          onPress: () =>
+            mergePeople(removeId, keepId).then(
+              () => (keepId === id ? setMerging(false) : router.replace(`/person/${keepId}`)),
+              (e) => setError(e instanceof Error ? e.message : String(e)),
+            ),
+        },
+      ],
+    );
   }
 
   async function invite() {
@@ -103,8 +134,15 @@ export default function PersonDetail() {
         router.back();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
       setSaving(false);
+      if (e instanceof SamePersonError && !isNew) {
+        Alert.alert('Same person?', e.message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: `Merge with ${e.other.name}`, onPress: () => confirmMerge(e.other) },
+        ]);
+        return;
+      }
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -231,12 +269,46 @@ export default function PersonDetail() {
         </>
       )}
 
-      {person && !data.inUse && (
+      {person && (
         <View style={styles.actions}>
-          <Button title="Remove person" variant="secondary" onPress={confirmRemove} />
-          <Text style={styles.hint}>They have no entries, IOUs or groups, so removing them changes nothing else.</Text>
+          {data.others.length > 0 && <Button title="Same person as someone else?" variant="secondary" onPress={() => setMerging(true)} />}
+          {data.blocker === null ? (
+            <>
+              <Button title="Remove person" variant="secondary" onPress={confirmRemove} />
+              <Text style={styles.hint}>
+                {data.inUse
+                  ? "They're settled up. Removing them keeps past entries under their name."
+                  : 'They have no entries, IOUs or groups, so removing them changes nothing else.'}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.hint}>{data.blocker}</Text>
+          )}
         </View>
       )}
+
+      <Sheet visible={merging} onClose={() => setMerging(false)} title={`Who else is ${person?.account.name ?? 'this'}?`} tall>
+        <Text style={styles.hint}>Pick the other entry for the same person. Their entries and IOUs come together into one.</Text>
+        <ScrollView>
+          {data.others.map((p) => (
+            <Pressable
+              key={p.account.id}
+              accessibilityRole="button"
+              onPress={() => {
+                setMerging(false);
+                confirmMerge({ id: p.account.id, name: p.account.name });
+              }}
+              style={({ pressed }) => [styles.pickRow, pressed && styles.pressed]}
+            >
+              <Initial name={p.account.name} />
+              <View style={styles.grow}>
+                <Text style={styles.pickName}>{p.account.name}</Text>
+                <Text style={styles.meta}>{[p.account.email, p.account.vpa].filter(Boolean).join(' · ') || 'No email or UPI ID'}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Sheet>
     </FormScroll>
   );
 }
@@ -253,4 +325,7 @@ const useStyles = makeStyles((colors) => ({
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 8 },
   switchLabel: { fontSize: 15, color: colors.text },
   grow: { flex: 1 },
+  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  pickName: { fontSize: 15, color: colors.text },
+  pressed: { opacity: 0.6 },
 }));
