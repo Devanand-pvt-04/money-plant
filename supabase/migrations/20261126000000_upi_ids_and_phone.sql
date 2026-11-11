@@ -15,7 +15,8 @@ set search_path = ''
 as $$
   select p_vpas is not null
      and cardinality(p_vpas) <= 10
-     and coalesce(bool_and(v = lower(v) and v ~ '^[a-z0-9._-]{2,256}@[a-z][a-z0-9.-]{1,64}$'), true)
+     -- Postgres caps a regex repetition at 255, so the length is checked on its own.
+     and coalesce(bool_and(v = lower(v) and length(v) <= 323 and v ~ '^[a-z0-9._-]{2,}@[a-z][a-z0-9.-]{1,64}$'), true)
   from unnest(p_vpas) v;
 $$;
 
