@@ -140,3 +140,13 @@ describe('matchContact (SPL-4)', () => {
     expect(matchContact({ vpa: null, name: 'RAVI K' }, contacts)?.id).toBe('1');
   });
 });
+
+describe('findPerson with several UPI IDs (decision 0021)', () => {
+  it('recognises a payment from one of their other UPI IDs', () => {
+    const people = [
+      { id: 'ravi', name: 'Ravi', vpa: 'ravi@okicici', extraVpas: ['ravi.k@oksbi'] },
+      { id: 'asha', name: 'Asha', vpa: 'asha@ybl' },
+    ];
+    expect(findPerson(people, { vpa: 'RAVI.K@oksbi', name: 'R KUMAR' })?.id).toBe('ravi');
+  });
+});

@@ -9,11 +9,11 @@ import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, use
 import { contactById, pickContact } from '@/lib/contacts';
 import { setDoubtful, useDoubtfulPeople } from '@/lib/doubtful';
 import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/lib/friends';
-import { getMe } from '@/lib/me';
+import { getMe, splitVpas } from '@/lib/me';
 import { markInvited } from '@/lib/setup';
 import { listIous, type IouView } from '@/lib/ious';
 import { mergePeople } from '@/lib/merge-people';
-import { createPerson, getPerson, listPeople, personInUse, removalBlocker, removePerson, SamePersonError, updatePerson, type Person } from '@/lib/people';
+import { createPerson, extraVpasOf, getPerson, listPeople, personInUse, removalBlocker, removePerson, SamePersonError, updatePerson, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -33,6 +33,7 @@ export default function PersonDetail() {
   const [merging, setMerging] = useState(false);
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
+  const [extras, setExtras] = useState('');
   const [email, setEmail] = useState('');
   const [contact, setContact] = useState<{ id: string; name: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -116,6 +117,7 @@ export default function PersonDetail() {
     const { account, contactId } = data.person;
     setName(account.name);
     setVpa(account.vpa ?? '');
+    setExtras(extraVpasOf(account).join(', '));
     setEmail(account.email ?? '');
     if (contactId) contactById(contactId).then((c) => setContact(c ?? { id: contactId, name: 'A contact' }));
     setLoaded(true);
@@ -125,7 +127,7 @@ export default function PersonDetail() {
     setSaving(true);
     setError(null);
     try {
-      const input = { name, vpa, email, contactId: contact?.id ?? null };
+      const input = { name, vpa, email, extraVpas: splitVpas(extras), contactId: contact?.id ?? null };
       if (isNew) {
         const created = await createPerson(input);
         router.replace(`/person/${created}`);
@@ -232,6 +234,8 @@ export default function PersonDetail() {
       <Field label="Name" value={name} onChangeText={setName} maxLength={80} placeholder="Ravi" />
       <Field label="UPI ID" value={vpa} onChangeText={setVpa} autoCapitalize="none" placeholder="ravi@okicici" />
       <Text style={styles.hint}>Used to pay them back from a UPI app, and to spot their payments in your bank SMS.</Text>
+      <Field label="Other UPI IDs" value={extras} onChangeText={setExtras} autoCapitalize="none" placeholder="ravi.k@oksbi, 98xxxxxx10@ybl" />
+      <Text style={styles.hint}>Only for recognising their payments. Separate them with commas. Added on their own when you tag a payment from a new UPI ID.</Text>
       <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="ravi@gmail.com" />
       <Text style={styles.hint}>If they use Money Plant with this email, they see your IOUs with them and can confirm them.</Text>
       {savedEmail && link !== undefined && (

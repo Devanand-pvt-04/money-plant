@@ -59,3 +59,16 @@ describe('findDuplicatePeople', () => {
     expect(findDuplicatePeople([person('a', 'Ravi'), person('b', 'Ravi')], new Set([pairKey('b', 'a')]))).toEqual([]);
   });
 });
+
+describe('several UPI IDs (decision 0021)', () => {
+  it('finds a clash with someone else\'s other UPI ID', () => {
+    const people = [{ ...person('t', 'Tushar'), extraVpas: ['tushar.m@oksbi'] }];
+    expect(clashingPerson(people, null, { email: null, vpa: 'TUSHAR.M@oksbi' })).toMatchObject({ person: { id: 't' }, field: 'vpa', value: 'tushar.m@oksbi' });
+  });
+
+  it('pairs people when a main UPI ID is the other one\'s extra', () => {
+    expect(findDuplicatePeople([person('a', 'A', { vpa: 'x@ybl' }), { ...person('b', 'B'), extraVpas: ['x@ybl'] }])).toEqual([
+      { keep: 'a', remove: 'b', reason: 'vpa' },
+    ]);
+  });
+});

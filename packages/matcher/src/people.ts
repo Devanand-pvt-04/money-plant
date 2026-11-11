@@ -1,4 +1,4 @@
-import { payeeKey } from './ious';
+import { allVpas, payeeKey } from './ious';
 
 /**
  * Decision 0020: telling when two of the user's people are the same person,
@@ -10,6 +10,7 @@ export interface PersonFacts {
   name: string;
   vpa: string | null;
   email: string | null;
+  extraVpas?: readonly string[];
 }
 
 export type DuplicateReason = 'email' | 'vpa' | 'name';
@@ -24,21 +25,23 @@ export interface DuplicatePair {
 
 const lower = (s: string | null) => s?.trim().toLowerCase() || null;
 
-/** The other person who already has this email or UPI ID, if any. */
+/** The other person who already has this email or one of these UPI IDs, if any. */
 export function clashingPerson<T extends PersonFacts>(
   people: readonly T[],
   self: string | null,
-  fields: { email: string | null; vpa: string | null },
-): { person: T; field: 'email' | 'vpa' } | null {
+  fields: { email: string | null; vpa: string | null; extraVpas?: readonly string[] },
+): { person: T; field: 'email' | 'vpa'; value: string } | null {
   const email = lower(fields.email);
-  const vpa = lower(fields.vpa);
+  const vpas = allVpas(fields);
   for (const p of people) {
     if (p.id === self) continue;
-    if (email && lower(p.email) === email) return { person: p, field: 'email' };
+    if (email && lower(p.email) === email) return { person: p, field: 'email', value: email };
   }
   for (const p of people) {
     if (p.id === self) continue;
-    if (vpa && lower(p.vpa) === vpa) return { person: p, field: 'vpa' };
+    const theirs = allVpas(p);
+    const shared = vpas.find((v) => theirs.includes(v));
+    if (shared) return { person: p, field: 'vpa', value: shared };
   }
   return null;
 }
@@ -74,7 +77,7 @@ export function findDuplicatePeople(people: readonly PersonFacts[], dismissed: R
       const reason: DuplicateReason | null =
         lower(a.email) && lower(a.email) === lower(b.email)
           ? 'email'
-          : lower(a.vpa) && lower(a.vpa) === lower(b.vpa)
+          : allVpas(a).some((v) => allVpas(b).includes(v))
             ? 'vpa'
             : (!lower(a.email) || !lower(b.email)) && payeeKey(a.name) !== '' && payeeKey(a.name) === payeeKey(b.name)
               ? 'name'

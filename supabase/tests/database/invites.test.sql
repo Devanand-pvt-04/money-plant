@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(24);
+select plan(28);
 
 -- Two members already exist (created before the door, so its triggers are skipped).
 set local session_replication_role = replica;
@@ -71,10 +71,19 @@ select is((select count(*)::int from friend_links), 1, 'Bala sees the link to As
 select lives_ok(
   $$select respond_friend_link((select id from friend_links limit 1), true, 'Bala K', 'bala@okhdfc')$$,
   'Bala adds his name and UPI ID to the link');
+select lives_ok(
+  $$select respond_friend_link((select id from friend_links limit 1), true, 'Bala K', 'bala@okhdfc', array['bala.k@oksbi', '9876543210@ybl'])$$,
+  'Bala adds his other UPI IDs (decision 0021)');
+select is((select friend_extra_vpas from friend_links limit 1), array['bala.k@oksbi', '9876543210@ybl'], 'the link carries Bala''s other UPI IDs');
+select throws_ok(
+  $$select respond_friend_link((select id from friend_links limit 1), true, 'Bala K', 'bala@okhdfc', array['Not A UPI'])$$,
+  '22023', null, 'something that is not a UPI ID is refused');
 select is(invite_friend(gen_random_uuid(), 'asha@example.com'), 'already_linked', 'Bala inviting Asha finds the existing link');
 select is(invite_friend('b8000000-0000-4000-8000-000000000001', 'deva@example.com'), 'requested', 'inviting a member sends a friend request');
 update friend_links set accepted_at = now(), friend_name = 'fake' where friend_email = 'deva@example.com';
 select is((select accepted_at from friend_links where friend_email = 'deva@example.com'), null, 'a requester cannot accept their own request');
+update friend_links set friend_extra_vpas = array['fake@okaxis'] where friend_email = 'deva@example.com';
+select is((select cardinality(friend_extra_vpas) from friend_links where friend_email = 'deva@example.com'), 0, 'a requester cannot write the friend''s other UPI IDs');
 
 -- Deva sees the request; Asha does not.
 select pg_temp.act_as('aaaaaaaa-0000-4000-8000-000000000001', 'asha@example.com');

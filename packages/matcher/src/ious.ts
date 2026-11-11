@@ -79,15 +79,22 @@ export function allocateRepayment(
 export interface PersonRef {
   id: string;
   name: string;
+  /** The UPI ID to pay them. */
   vpa: string | null;
+  /** Their other UPI IDs, only for recognising payments (decision 0021). */
+  extraVpas?: readonly string[];
 }
+
+/** Every UPI ID a person is known by, lower case: the main one first. */
+export const allVpas = (p: Pick<PersonRef, 'vpa' | 'extraVpas'>): string[] =>
+  [...new Set([p.vpa, ...(p.extraVpas ?? [])].filter((v): v is string => Boolean(v)).map((v) => v.trim().toLowerCase()))];
 
 /** A payee or person name in one form: lower case letters and single spaces. */
 export const payeeKey = (name: string) => name.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
 const normaliseName = payeeKey;
 
 /**
- * The user's person account a payment was to or from: same UPI ID, a name
+ * The user's person account a payment was to or from: one of their UPI IDs, a name
  * the user linked to them before (`aliases`, payeeKey to person id), or the
  * same name.
  */
@@ -98,7 +105,7 @@ export function findPerson<T extends PersonRef>(
 ): T | null {
   if (payee.vpa) {
     const vpa = payee.vpa.toLowerCase();
-    const byVpa = people.find((p) => p.vpa?.toLowerCase() === vpa);
+    const byVpa = people.find((p) => allVpas(p).includes(vpa));
     if (byVpa) return byVpa;
   }
   if (!payee.name) return null;

@@ -1,8 +1,8 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
-import { accounts, iouPayments, ious, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
-import { clashingPerson, findDuplicatePeople, findPerson, outstanding, pairKey, payeeKey, type DuplicatePair } from '@money-plant/matcher';
+import { accounts, iouPayments, ious, parseExtraVpas, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
+import { allVpas, clashingPerson, findDuplicatePeople, findPerson, outstanding, pairKey, payeeKey, type DuplicatePair } from '@money-plant/matcher';
 import { getDb } from './db';
 import { homeConverter } from './home-money';
 import { kvGet, kvSet } from './kv';
@@ -61,6 +61,21 @@ export async function listPeople(): Promise<Person[]> {
   });
 }
 
+/** A person's other UPI IDs, only for recognising their payments (decision 0021). */
+export const extraVpasOf = (account: Pick<LocalAccount, 'extraVpas'>): string[] => parseExtraVpas(account.extraVpas);
+
+/** What matching needs to know about a person: name and every UPI ID. */
+export const personRef = (p: Person) => ({
+  id: p.account.id,
+  name: p.account.name,
+  vpa: p.account.vpa,
+  email: p.account.email,
+  extraVpas: extraVpasOf(p.account),
+});
+
+/** Most UPI IDs one person can have besides the main one (decision 0021). */
+export const MAX_EXTRA_VPAS = 10;
+
 export async function getPerson(id: string): Promise<Person | null> {
   return (await listPeople()).find((p) => p.account.id === id) ?? null;
 }
@@ -69,7 +84,21 @@ export interface PersonInput {
   name: string;
   vpa?: string | null;
   email?: string | null;
+  /** Their other UPI IDs; left out keeps what they have. */
+  extraVpas?: readonly string[];
   contactId?: string | null;
+}
+
+function cleanExtras(vpa: string | null, extras: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const raw of extras) {
+    const v = raw.trim().toLowerCase();
+    if (!v) continue;
+    if (!isVpa(v)) throw new Error(`${raw.trim()} isn't a UPI ID like name@okaxis`);
+    if (v !== vpa && !out.includes(v)) out.push(v);
+  }
+  if (out.length > MAX_EXTRA_VPAS) throw new Error(`A person can have up to ${MAX_EXTRA_VPAS} other UPI IDs`);
+  return out;
 }
 
 function clean(input: PersonInput) {
@@ -79,7 +108,14 @@ function clean(input: PersonInput) {
   if (vpa && !isVpa(vpa)) throw new Error('Enter a UPI ID like name@okaxis');
   const email = input.email?.trim().toLowerCase() || null;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email');
-  return { name: name.slice(0, 80), vpa, email };
+  const extraVpas = input.extraVpas === undefined ? undefined : cleanExtras(vpa, input.extraVpas);
+  return { name: name.slice(0, 80), vpa, email, extraVpas };
+}
+
+/** The columns to write: extra UPI IDs as the local JSON, only when given. */
+function columns(fields: ReturnType<typeof clean>) {
+  const { extraVpas, ...rest } = fields;
+  return { ...rest, ...(extraVpas !== undefined ? { extraVpas: JSON.stringify(extraVpas) } : {}) };
 }
 
 /**
@@ -96,9 +132,9 @@ export class SamePersonError extends Error {
   }
 }
 
-async function checkClash(self: string | null, fields: { email: string | null; vpa: string | null }): Promise<void> {
-  if (!fields.email && !fields.vpa) return;
-  const people = (await listPeople()).map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa, email: p.account.email }));
+async function checkClash(self: string | null, fields: { email: string | null; vpa: string | null; extraVpas?: readonly string[] }): Promise<void> {
+  if (!fields.email && allVpas(fields).length === 0) return;
+  const people = (await listPeople()).map(personRef);
   const clash = clashingPerson(people, self, fields);
   if (clash) throw new SamePersonError({ id: clash.person.id, name: clash.person.name }, clash.field);
 }
@@ -116,7 +152,7 @@ export async function createPerson(input: PersonInput): Promise<string> {
   const db = await getDb();
   const id = Crypto.randomUUID();
   db.insert(accounts)
-    .values({ id, type: 'person', ...fields, institution: null, last4: null, openingBalancePaise: 0, createdAt: new Date().toISOString(), dirty: 1 })
+    .values({ id, type: 'person', ...columns(fields), institution: null, last4: null, openingBalancePaise: 0, createdAt: new Date().toISOString(), dirty: 1 })
     .run();
   await linkContact(id, input.contactId);
   notifyLedgerChange();
@@ -133,9 +169,14 @@ export async function updatePerson(id: string, input: PersonInput): Promise<void
   const db = await getDb();
   const before = db.select().from(accounts).where(eq(accounts.id, id)).get();
   // Only what changed is checked, so an older pair that already clashes can still be renamed.
-  await checkClash(id, { email: fields.email !== before?.email ? fields.email : null, vpa: fields.vpa !== before?.vpa ? fields.vpa : null });
+  const hadVpas = before ? allVpas({ vpa: before.vpa, extraVpas: extraVpasOf(before) }) : [];
+  await checkClash(id, {
+    email: fields.email !== before?.email ? fields.email : null,
+    vpa: fields.vpa && !hadVpas.includes(fields.vpa) ? fields.vpa : null,
+    extraVpas: (fields.extraVpas ?? []).filter((v) => !hadVpas.includes(v)),
+  });
   db.update(accounts)
-    .set({ ...fields, dirty: 1, rev: sql`${accounts.rev} + 1` })
+    .set({ ...columns(fields), dirty: 1, rev: sql`${accounts.rev} + 1` })
     .where(eq(accounts.id, id))
     .run();
   if (before && before.email !== fields.email) await shareIousOf(id, fields.email);
@@ -201,18 +242,15 @@ export async function saveAliases(aliases: ReadonlyMap<string, string>): Promise
 /** The person a payee is, by UPI ID, a name linked before, or the exact name. Null when no one matches; nothing is created. */
 export async function findPersonForPayee(payee: { name: string | null; vpa: string | null }): Promise<string | null> {
   const [people, aliases] = await Promise.all([listPeople(), payeeAliases()]);
-  const found = findPerson(
-    people.map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa })),
-    payee,
-    aliases,
-  );
+  const found = findPerson(people.map(personRef), payee, aliases);
   return found?.id ?? null;
 }
 
 /**
  * The user said a payment was to or from this person: remember the payee's
- * name and UPI ID for them, so the next payment is recognised (IOU-4). A UPI
- * ID already on someone else is left alone.
+ * name and UPI ID for them, so the next payment is recognised (IOU-4). A new
+ * UPI ID becomes their main one if they have none, else one of their other
+ * UPI IDs (decision 0021). A UPI ID already on someone else is left alone.
  */
 export async function rememberPayee(personId: string, payee: { name: string | null; vpa: string | null }): Promise<void> {
   const people = await listPeople();
@@ -227,8 +265,12 @@ export async function rememberPayee(personId: string, payee: { name: string | nu
     }
   }
   const vpa = payee.vpa?.trim().toLowerCase();
-  if (vpa && isVpa(vpa) && !person.account.vpa && !people.some((p) => p.account.vpa?.toLowerCase() === vpa)) {
+  if (!vpa || !isVpa(vpa) || people.some((p) => allVpas(personRef(p)).includes(vpa))) return;
+  const extras = extraVpasOf(person.account);
+  if (!person.account.vpa) {
     await updatePerson(personId, { name: person.account.name, vpa, email: person.account.email });
+  } else if (extras.length < MAX_EXTRA_VPAS) {
+    await updatePerson(personId, { name: person.account.name, vpa: person.account.vpa, email: person.account.email, extraVpas: [...extras, vpa] });
   }
 }
 
@@ -346,7 +388,7 @@ export async function duplicateSuggestions(people?: readonly Person[]): Promise<
   const list = people ?? (await listPeople());
   const names = new Map(list.map((p) => [p.account.id, p.account.name]));
   const pairs = findDuplicatePeople(
-    list.map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa, email: p.account.email })),
+    list.map(personRef),
     await dismissedPairs(),
   );
   return pairs.map((pair) => ({ ...pair, keepName: names.get(pair.keep) ?? '', removeName: names.get(pair.remove) ?? '' }));

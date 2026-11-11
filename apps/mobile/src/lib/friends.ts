@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { notifyLedgerChange } from './events';
-import { createPerson, listPeople, SamePersonError, updatePerson } from './people';
+import { allVpas } from '@money-plant/matcher';
+import { createPerson, extraVpasOf, listPeople, MAX_EXTRA_VPAS, personRef, updatePerson, type Person } from './people';
 import { getMe, isVpa, type Me } from './me';
 import { supabase } from './supabase';
 
@@ -26,6 +27,8 @@ export interface FriendLink {
   email: string;
   name: string | null;
   vpa: string | null;
+  /** Their other UPI IDs (decision 0021). */
+  extraVpas: string[];
   state: LinkState;
   /** True when this user sent the request or the invite. */
   mine: boolean;
@@ -37,10 +40,13 @@ interface RemoteLink {
   requester_email: string | null;
   requester_name: string | null;
   requester_vpa: string | null;
+  /** Missing before the decision 0021 migration. */
+  requester_extra_vpas?: string[] | null;
   friend_email: string;
   friend_user_id: string | null;
   friend_name: string | null;
   friend_vpa: string | null;
+  friend_extra_vpas?: string[] | null;
   accepted_at: string | null;
   declined_at: string | null;
 }
@@ -100,6 +106,7 @@ function toLink(row: RemoteLink, myId: string): FriendLink {
     email: (mine ? row.friend_email : row.requester_email) ?? '',
     name: mine ? row.friend_name : row.requester_name,
     vpa: mine ? row.friend_vpa : row.requester_vpa,
+    extraVpas: (mine ? row.friend_extra_vpas : row.requester_extra_vpas) ?? [],
     state: row.accepted_at ? 'friends' : mine ? 'waiting_for_them' : 'waiting_for_you',
     mine,
   };
@@ -109,7 +116,7 @@ async function fetchLinks(): Promise<{ rows: RemoteLink[]; me: Me }> {
   const me = await getMe();
   const { data, error } = await supabase
     .from('friend_links')
-    .select('id, user_id, requester_email, requester_name, requester_vpa, friend_email, friend_user_id, friend_name, friend_vpa, accepted_at, declined_at')
+    .select('id, user_id, requester_email, requester_name, requester_vpa, friend_email, friend_user_id, friend_name, friend_vpa, accepted_at, declined_at, requester_extra_vpas, friend_extra_vpas')
     .is('deleted_at', null)
     .is('declined_at', null);
   if (error) throw error;
@@ -123,7 +130,7 @@ export async function listFriendLinks(): Promise<FriendLink[]> {
 
 export async function respondToLink(id: string, accept: boolean): Promise<void> {
   const me = await getMe();
-  const { error } = await supabase.rpc('respond_friend_link', { p_id: id, p_accept: accept, p_name: me.name, p_vpa: me.vpa });
+  const { error } = await supabase.rpc('respond_friend_link', { p_id: id, p_accept: accept, p_name: me.name, p_vpa: me.vpa, p_extra_vpas: me.extraVpas });
   if (error) throw error;
   if (accept) await syncFriendLinks();
 }
@@ -145,10 +152,15 @@ export async function syncFriendLinks(): Promise<void> {
     const mine = row.user_id === me.id;
     const myName = mine ? row.requester_name : row.friend_name;
     const myVpa = mine ? row.requester_vpa : row.friend_vpa;
-    if (row.accepted_at && (myName !== me.name || myVpa !== me.vpa)) {
+    const myExtras = (mine ? row.requester_extra_vpas : row.friend_extra_vpas) ?? [];
+    const extrasChanged = myExtras.join(',') !== me.extraVpas.join(',');
+    if (row.accepted_at && (myName !== me.name || myVpa !== me.vpa || extrasChanged)) {
       const { error } = mine
-        ? await supabase.from('friend_links').update({ requester_name: me.name, requester_vpa: me.vpa }).eq('id', row.id)
-        : await supabase.rpc('respond_friend_link', { p_id: row.id, p_accept: true, p_name: me.name, p_vpa: me.vpa });
+        ? await supabase
+            .from('friend_links')
+            .update({ requester_name: me.name, requester_vpa: me.vpa, requester_extra_vpas: me.extraVpas })
+            .eq('id', row.id)
+        : await supabase.rpc('respond_friend_link', { p_id: row.id, p_accept: true, p_name: me.name, p_vpa: me.vpa, p_extra_vpas: me.extraVpas });
       if (error) throw error;
     }
   }
@@ -160,29 +172,38 @@ export async function syncFriendLinks(): Promise<void> {
   if (changed) notifyLedgerChange();
 }
 
+/**
+ * Makes sure an accepted friend is a person with their email and UPI IDs.
+ * Their main UPI ID becomes the person's main one when the person has none;
+ * the rest become other UPI IDs (decision 0021). A UPI ID already on someone
+ * else is left out, so a clash never stops sync.
+ */
 async function ensurePerson(link: FriendLink): Promise<boolean> {
-  const vpa = link.vpa && isVpa(link.vpa) ? link.vpa.toLowerCase() : null;
+  const linkVpas = allVpas({ vpa: link.vpa && isVpa(link.vpa) ? link.vpa : null, extraVpas: link.extraVpas.filter(isVpa) });
   const people = await listPeople();
+  const takenBy = (except: string | null) => new Set(people.filter((p) => p.account.id !== except).flatMap((p) => allVpas(personRef(p))));
   const byEmail = people.find((p) => p.account.email === link.email);
-  if (byEmail) {
-    if (!vpa || byEmail.account.vpa || people.some((p) => p.account.vpa === vpa)) return false;
-    await updatePerson(byEmail.account.id, { name: byEmail.account.name, vpa, email: link.email });
-    return true;
-  }
+  if (byEmail) return addVpas(byEmail, link.email, linkVpas, takenBy(byEmail.account.id));
   // The same person added earlier by UPI ID only: give them the email.
-  const byVpa = vpa ? people.find((p) => p.account.vpa === vpa && !p.account.email) : undefined;
-  if (byVpa) {
-    await updatePerson(byVpa.account.id, { name: byVpa.account.name, vpa, email: link.email });
-    return true;
-  }
-  const name = link.name ?? link.email.split('@')[0] ?? link.email;
-  try {
-    await createPerson({ name, vpa, email: link.email });
-  } catch (e) {
-    // Their UPI ID is already on another member: add them without it (decision 0020).
-    if (!(e instanceof SamePersonError)) throw e;
-    await createPerson({ name, vpa: null, email: link.email });
-  }
+  const byVpa = people.find((p) => !p.account.email && allVpas(personRef(p)).some((v) => linkVpas.includes(v)));
+  if (byVpa) return addVpas(byVpa, link.email, linkVpas, takenBy(byVpa.account.id));
+  const free = linkVpas.filter((v) => !takenBy(null).has(v));
+  await createPerson({
+    name: link.name ?? link.email.split('@')[0] ?? link.email,
+    vpa: free[0] ?? null,
+    email: link.email,
+    extraVpas: free.slice(1, 1 + MAX_EXTRA_VPAS),
+  });
+  return true;
+}
+
+async function addVpas(person: Person, email: string, linkVpas: readonly string[], taken: ReadonlySet<string>): Promise<boolean> {
+  const have = allVpas(personRef(person));
+  const fresh = linkVpas.filter((v) => !have.includes(v) && !taken.has(v));
+  if (fresh.length === 0 && person.account.email === email) return false;
+  const vpa = person.account.vpa ?? fresh.shift() ?? null;
+  const extras = [...extraVpasOf(person.account), ...fresh].slice(0, MAX_EXTRA_VPAS);
+  await updatePerson(person.account.id, { name: person.account.name, vpa, email, extraVpas: extras });
   return true;
 }
 

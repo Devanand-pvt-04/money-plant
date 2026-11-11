@@ -1,12 +1,12 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { accounts, ious, personContacts, postings, splitGroups, transactions } from '@money-plant/db-schema';
-import { mergeDirection, payeeKey } from '@money-plant/matcher';
+import { allVpas, mergeDirection, payeeKey } from '@money-plant/matcher';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
 import { pushSoon, refreshIous } from './ious';
 import { loadTransactions, writeTransaction } from './ledger-store';
 import { getMe } from './me';
-import { payeeAliases, saveAliases, shareIousOf } from './people';
+import { extraVpasOf, MAX_EXTRA_VPAS, payeeAliases, saveAliases, shareIousOf } from './people';
 
 const now = () => new Date().toISOString();
 
@@ -20,7 +20,7 @@ const now = () => new Date().toISOString();
  * - IOUs shared with this user that were linked to them (the answer is sent
  *   again with the new link);
  * - split groups, the phone contact, payee names, and a UPI ID the kept
- *   person lacks.
+ *   person lacks (the removed person's UPI IDs become their other UPI IDs).
  * Two people with different emails are two members, so they can't merge.
  */
 export async function mergePeople(removeId: string, keepId: string): Promise<void> {
@@ -32,7 +32,8 @@ export async function mergePeople(removeId: string, keepId: string): Promise<voi
   if (!remove || !keep || remove.type !== 'person' || keep.type !== 'person' || remove.deletedAt || keep.deletedAt) {
     throw new Error('Person not found');
   }
-  if (!mergeDirection(remove, keep)) {
+  const facts = (a: typeof keep) => ({ id: a.id, name: a.name, vpa: a.vpa, email: a.email });
+  if (!mergeDirection(facts(remove), facts(keep))) {
     throw new Error(`${remove.name} and ${keep.name} have different emails, so they are two people on Money Plant`);
   }
   if (remove.openingBalancePaise !== 0 && remove.currency !== keep.currency) {
@@ -107,14 +108,19 @@ export async function mergePeople(removeId: string, keepId: string): Promise<voi
   if (removedKey && removedKey !== payeeKey(keep.name)) aliases.set(removedKey, keepId);
   await saveAliases(aliases);
 
-  // The kept person takes the UPI ID and starting balance; the removed one goes.
+  // The kept person takes every UPI ID (decision 0021) and the starting balance; the removed one goes.
+  const vpa = keep.vpa ?? remove.vpa;
+  const extras = allVpas({ vpa: null, extraVpas: [...extraVpasOf(keep), keep.vpa ?? '', remove.vpa ?? '', ...extraVpasOf(remove)] })
+    .filter((v) => v !== vpa)
+    .slice(0, MAX_EXTRA_VPAS);
   db.update(accounts)
     .set({ deletedAt: now(), dirty: 1, rev: sql`${accounts.rev} + 1` })
     .where(eq(accounts.id, removeId))
     .run();
   db.update(accounts)
     .set({
-      vpa: keep.vpa ?? remove.vpa,
+      vpa,
+      extraVpas: JSON.stringify(extras),
       openingBalancePaise: keep.openingBalancePaise + remove.openingBalancePaise,
       dirty: 1,
       rev: sql`${accounts.rev} + 1`,
