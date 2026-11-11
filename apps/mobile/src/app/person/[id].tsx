@@ -6,6 +6,7 @@ import { formatAmount } from '@/components/format';
 import { IouRow } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, useColors, makeStyles } from '@/components/ui';
+import { mobileDigits } from '@money-plant/matcher';
 import { contactById, pickContact } from '@/lib/contacts';
 import { setDoubtful, useDoubtfulPeople } from '@/lib/doubtful';
 import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/lib/friends';
@@ -34,6 +35,7 @@ export default function PersonDetail() {
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
   const [extras, setExtras] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [contact, setContact] = useState<{ id: string; name: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -118,6 +120,7 @@ export default function PersonDetail() {
     setName(account.name);
     setVpa(account.vpa ?? '');
     setExtras(extraVpasOf(account).join(', '));
+    setPhone(account.phone ?? '');
     setEmail(account.email ?? '');
     if (contactId) contactById(contactId).then((c) => setContact(c ?? { id: contactId, name: 'A contact' }));
     setLoaded(true);
@@ -127,7 +130,7 @@ export default function PersonDetail() {
     setSaving(true);
     setError(null);
     try {
-      const input = { name, vpa, email, extraVpas: splitVpas(extras), contactId: contact?.id ?? null };
+      const input = { name, vpa, email, extraVpas: splitVpas(extras), phone, contactId: contact?.id ?? null };
       if (isNew) {
         const created = await createPerson(input);
         router.replace(`/person/${created}`);
@@ -167,6 +170,9 @@ export default function PersonDetail() {
       if (!picked) return;
       setContact(picked);
       if (!name.trim()) setName(picked.name);
+      // Decision 0021: the contact's mobile number recognises their number-based UPI IDs.
+      const mobile = picked.phones.map(mobileDigits).find((m): m is string => m !== null);
+      if (mobile && !phone.trim()) setPhone(mobile);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -236,6 +242,8 @@ export default function PersonDetail() {
       <Text style={styles.hint}>Used to pay them back from a UPI app, and to spot their payments in your bank SMS.</Text>
       <Field label="Other UPI IDs" value={extras} onChangeText={setExtras} autoCapitalize="none" placeholder="ravi.k@oksbi, 98xxxxxx10@ybl" />
       <Text style={styles.hint}>Only for recognising their payments. Separate them with commas. Added on their own when you tag a payment from a new UPI ID.</Text>
+      <Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="98765 43210" />
+      <Text style={styles.hint}>Recognises their payments from UPI IDs made from this number, like 98765…@ybl, in any app.</Text>
       <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="ravi@gmail.com" />
       <Text style={styles.hint}>If they use Money Plant with this email, they see your IOUs with them and can confirm them.</Text>
       {savedEmail && link !== undefined && (
@@ -254,7 +262,7 @@ export default function PersonDetail() {
             <Chip label={contact ? contact.name : 'Link a contact'} selected={contact !== null} onPress={linkContact} />
             {contact && <Chip label="Unlink" selected={false} onPress={() => setContact(null)} />}
           </Chips>
-          <Text style={styles.hint}>Helps match their UPI payments. Stays on this phone.</Text>
+          <Text style={styles.hint}>Fills in their name and phone number. Which contact they are stays on this phone.</Text>
         </>
       )}
       {error && <ErrorText>{error}</ErrorText>}

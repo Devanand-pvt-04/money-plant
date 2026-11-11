@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
 import { accounts, iouPayments, ious, parseExtraVpas, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
-import { allVpas, clashingPerson, findDuplicatePeople, findPerson, outstanding, pairKey, payeeKey, type DuplicatePair } from '@money-plant/matcher';
+import { allVpas, clashingPerson, mobileDigits, mobileFromVpa, findDuplicatePeople, findPerson, outstanding, pairKey, payeeKey, type DuplicatePair } from '@money-plant/matcher';
 import { getDb } from './db';
 import { homeConverter } from './home-money';
 import { kvGet, kvSet } from './kv';
@@ -71,6 +71,7 @@ export const personRef = (p: Person) => ({
   vpa: p.account.vpa,
   email: p.account.email,
   extraVpas: extraVpasOf(p.account),
+  phone: p.account.phone,
 });
 
 /** Most UPI IDs one person can have besides the main one (decision 0021). */
@@ -86,6 +87,8 @@ export interface PersonInput {
   email?: string | null;
   /** Their other UPI IDs; left out keeps what they have. */
   extraVpas?: readonly string[];
+  /** Their mobile number in any form ("+91 98765 43210"); left out keeps what they have. */
+  phone?: string | null;
   contactId?: string | null;
 }
 
@@ -109,7 +112,16 @@ function clean(input: PersonInput) {
   const email = input.email?.trim().toLowerCase() || null;
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email');
   const extraVpas = input.extraVpas === undefined ? undefined : cleanExtras(vpa, input.extraVpas);
-  return { name: name.slice(0, 80), vpa, email, extraVpas };
+  const phone = input.phone === undefined ? undefined : cleanPhone(input.phone);
+  return { name: name.slice(0, 80), vpa, email, extraVpas, ...(phone !== undefined ? { phone } : {}) };
+}
+
+/** A 10-digit Indian mobile number, or null for none (decision 0021). */
+export function cleanPhone(raw: string | null): string | null {
+  if (!raw?.trim()) return null;
+  const phone = mobileDigits(raw);
+  if (!phone) throw new Error('Enter a 10-digit mobile number');
+  return phone;
 }
 
 /** The columns to write: extra UPI IDs as the local JSON, only when given. */
@@ -125,15 +137,18 @@ function columns(fields: ReturnType<typeof clean>) {
 export class SamePersonError extends Error {
   constructor(
     readonly other: { id: string; name: string },
-    readonly field: 'email' | 'vpa',
+    readonly field: 'email' | 'vpa' | 'phone',
   ) {
-    super(`${other.name} already has this ${field === 'email' ? 'email' : 'UPI ID'}. If they're the same person, merge them instead.`);
+    super(`${other.name} already has this ${field === 'email' ? 'email' : field === 'phone' ? 'phone number' : 'UPI ID'}. If they're the same person, merge them instead.`);
     this.name = 'SamePersonError';
   }
 }
 
-async function checkClash(self: string | null, fields: { email: string | null; vpa: string | null; extraVpas?: readonly string[] }): Promise<void> {
-  if (!fields.email && allVpas(fields).length === 0) return;
+async function checkClash(
+  self: string | null,
+  fields: { email: string | null; vpa: string | null; extraVpas?: readonly string[]; phone?: string | null },
+): Promise<void> {
+  if (!fields.email && !fields.phone && allVpas(fields).length === 0) return;
   const people = (await listPeople()).map(personRef);
   const clash = clashingPerson(people, self, fields);
   if (clash) throw new SamePersonError({ id: clash.person.id, name: clash.person.name }, clash.field);
@@ -174,6 +189,7 @@ export async function updatePerson(id: string, input: PersonInput): Promise<void
     email: fields.email !== before?.email ? fields.email : null,
     vpa: fields.vpa && !hadVpas.includes(fields.vpa) ? fields.vpa : null,
     extraVpas: (fields.extraVpas ?? []).filter((v) => !hadVpas.includes(v)),
+    phone: fields.phone && fields.phone !== before?.phone ? fields.phone : null,
   });
   db.update(accounts)
     .set({ ...columns(fields), dirty: 1, rev: sql`${accounts.rev} + 1` })
@@ -267,6 +283,12 @@ export async function rememberPayee(personId: string, payee: { name: string | nu
   const vpa = payee.vpa?.trim().toLowerCase();
   if (!vpa || !isVpa(vpa) || people.some((p) => allVpas(personRef(p)).includes(vpa))) return;
   const extras = extraVpasOf(person.account);
+  const mobile = mobileFromVpa(vpa);
+  // A UPI ID made from a mobile number: learn the number too, which covers their other apps' IDs.
+  if (mobile && !person.account.phone && !people.some((p) => p.account.phone === mobile)) {
+    await updatePerson(personId, { name: person.account.name, vpa: person.account.vpa ?? vpa, email: person.account.email, phone: mobile });
+    if (!person.account.vpa) return;
+  }
   if (!person.account.vpa) {
     await updatePerson(personId, { name: person.account.name, vpa, email: person.account.email });
   } else if (extras.length < MAX_EXTRA_VPAS) {

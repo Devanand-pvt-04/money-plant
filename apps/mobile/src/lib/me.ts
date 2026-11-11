@@ -1,3 +1,4 @@
+import { mobileDigits } from '@money-plant/matcher';
 import { supabase } from './supabase';
 
 /**
@@ -12,19 +13,22 @@ export interface Me {
   vpa: string | null;
   /** The user's other UPI IDs, so friends recognise payments from them too (decision 0021). */
   extraVpas: string[];
+  /** The user's 10-digit mobile number, shared with friends for the same reason. */
+  phone: string | null;
 }
 
 export async function getMe(): Promise<Me> {
   const { data } = await supabase.auth.getSession();
   const user = data.session?.user;
   if (!user) throw new Error('Not signed in');
-  const meta = (user.user_metadata ?? {}) as { name?: unknown; vpa?: unknown; extra_vpas?: unknown };
+  const meta = (user.user_metadata ?? {}) as { name?: unknown; vpa?: unknown; extra_vpas?: unknown; phone?: unknown };
   return {
     id: user.id,
     email: user.email?.toLowerCase() ?? null,
     name: typeof meta.name === 'string' && meta.name ? meta.name : null,
     vpa: typeof meta.vpa === 'string' && meta.vpa ? meta.vpa : null,
     extraVpas: Array.isArray(meta.extra_vpas) ? meta.extra_vpas.filter((v): v is string => typeof v === 'string') : [],
+    phone: typeof meta.phone === 'string' && /^[6-9]\d{9}$/.test(meta.phone) ? meta.phone : null,
   };
 }
 
@@ -45,7 +49,7 @@ export function splitVpas(text: string): string[] {
 }
 
 /** Needs the network: the metadata lives on the server. */
-export async function updateMe(changes: { name: string | null; vpa: string | null; extraVpas?: readonly string[] }): Promise<void> {
+export async function updateMe(changes: { name: string | null; vpa: string | null; extraVpas?: readonly string[]; phone?: string | null }): Promise<void> {
   const vpa = changes.vpa?.trim().toLowerCase() || null;
   if (vpa && !isVpa(vpa)) throw new Error('Enter a UPI ID like name@okaxis');
   const extras: string[] = [];
@@ -56,7 +60,17 @@ export async function updateMe(changes: { name: string | null; vpa: string | nul
     if (v !== vpa && !extras.includes(v)) extras.push(v);
   }
   if (extras.length > 10) throw new Error('You can add up to 10 other UPI IDs');
-  const data = { name: changes.name?.trim() || null, vpa, ...(changes.extraVpas !== undefined ? { extra_vpas: extras } : {}) };
+  let phone: string | null | undefined;
+  if (changes.phone !== undefined) {
+    phone = changes.phone?.trim() ? mobileDigits(changes.phone) : null;
+    if (changes.phone?.trim() && !phone) throw new Error('Enter a 10-digit mobile number');
+  }
+  const data = {
+    name: changes.name?.trim() || null,
+    vpa,
+    ...(changes.extraVpas !== undefined ? { extra_vpas: extras } : {}),
+    ...(phone !== undefined ? { phone } : {}),
+  };
   const { error } = await supabase.auth.updateUser({ data });
   if (error) throw error;
 }

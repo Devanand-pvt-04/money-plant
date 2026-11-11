@@ -35,6 +35,7 @@ export interface RemoteAccount {
   email: string | null;
   /** Decision 0021. Missing from rows of a server without the migration. */
   extra_vpas?: string[];
+  phone?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -69,6 +70,7 @@ export function toRemoteAccount(row: LocalAccount): RemoteAccountWrite {
     vpa: row.vpa,
     email: row.email,
     extra_vpas: parseExtraVpas(row.extraVpas),
+    phone: row.phone,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -90,6 +92,7 @@ export function fromRemoteAccount(row: RemoteAccount): LocalAccount {
     vpa: row.vpa ?? null,
     email: row.email ?? null,
     extraVpas: JSON.stringify(row.extra_vpas ?? []),
+    phone: row.phone ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

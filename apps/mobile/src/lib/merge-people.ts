@@ -121,6 +121,7 @@ export async function mergePeople(removeId: string, keepId: string): Promise<voi
     .set({
       vpa,
       extraVpas: JSON.stringify(extras),
+      phone: keep.phone ?? remove.phone,
       openingBalancePaise: keep.openingBalancePaise + remove.openingBalancePaise,
       dirty: 1,
       rev: sql`${accounts.rev} + 1`,

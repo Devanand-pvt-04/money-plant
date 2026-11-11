@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { Chip, Chips, radius, useColors, makeStyles } from '@/components/ui';
+import { mobileDigits } from '@money-plant/matcher';
 import { pickContact } from '@/lib/contacts';
 import { createPerson, type Person } from '@/lib/people';
 
@@ -26,7 +27,7 @@ export function PersonPicker(props: {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
 
-  async function add(input: { name: string; contactId?: string | null }) {
+  async function add(input: { name: string; contactId?: string | null; phone?: string | null }) {
     try {
       const id = await createPerson(input);
       setAdding(false);
@@ -47,7 +48,14 @@ export function PersonPicker(props: {
         setAdding(false);
         return;
       }
-      await add({ name: contact.name, contactId: contact.id });
+      const phone = contact.phones.map(mobileDigits).find((m): m is string => m !== null) ?? null;
+      const samePhone = phone ? props.people.find((p) => p.account.phone === phone) : undefined;
+      if (samePhone) {
+        if (!props.selected.includes(samePhone.account.id)) props.onToggle(samePhone.account.id);
+        setAdding(false);
+        return;
+      }
+      await add({ name: contact.name, contactId: contact.id, phone });
     } catch (e) {
       Alert.alert("Couldn't open contacts", e instanceof Error ? e.message : String(e));
     }

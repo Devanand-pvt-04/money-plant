@@ -29,6 +29,7 @@ export interface FriendLink {
   vpa: string | null;
   /** Their other UPI IDs (decision 0021). */
   extraVpas: string[];
+  phone: string | null;
   state: LinkState;
   /** True when this user sent the request or the invite. */
   mine: boolean;
@@ -42,11 +43,13 @@ interface RemoteLink {
   requester_vpa: string | null;
   /** Missing before the decision 0021 migration. */
   requester_extra_vpas?: string[] | null;
+  requester_phone?: string | null;
   friend_email: string;
   friend_user_id: string | null;
   friend_name: string | null;
   friend_vpa: string | null;
   friend_extra_vpas?: string[] | null;
+  friend_phone?: string | null;
   accepted_at: string | null;
   declined_at: string | null;
 }
@@ -107,6 +110,7 @@ function toLink(row: RemoteLink, myId: string): FriendLink {
     name: mine ? row.friend_name : row.requester_name,
     vpa: mine ? row.friend_vpa : row.requester_vpa,
     extraVpas: (mine ? row.friend_extra_vpas : row.requester_extra_vpas) ?? [],
+    phone: (mine ? row.friend_phone : row.requester_phone) ?? null,
     state: row.accepted_at ? 'friends' : mine ? 'waiting_for_them' : 'waiting_for_you',
     mine,
   };
@@ -116,7 +120,7 @@ async function fetchLinks(): Promise<{ rows: RemoteLink[]; me: Me }> {
   const me = await getMe();
   const { data, error } = await supabase
     .from('friend_links')
-    .select('id, user_id, requester_email, requester_name, requester_vpa, friend_email, friend_user_id, friend_name, friend_vpa, accepted_at, declined_at, requester_extra_vpas, friend_extra_vpas')
+    .select('id, user_id, requester_email, requester_name, requester_vpa, friend_email, friend_user_id, friend_name, friend_vpa, accepted_at, declined_at, requester_extra_vpas, friend_extra_vpas, requester_phone, friend_phone')
     .is('deleted_at', null)
     .is('declined_at', null);
   if (error) throw error;
@@ -130,7 +134,7 @@ export async function listFriendLinks(): Promise<FriendLink[]> {
 
 export async function respondToLink(id: string, accept: boolean): Promise<void> {
   const me = await getMe();
-  const { error } = await supabase.rpc('respond_friend_link', { p_id: id, p_accept: accept, p_name: me.name, p_vpa: me.vpa, p_extra_vpas: me.extraVpas });
+  const { error } = await supabase.rpc('respond_friend_link', { p_id: id, p_accept: accept, p_name: me.name, p_vpa: me.vpa, p_extra_vpas: me.extraVpas, p_phone: me.phone });
   if (error) throw error;
   if (accept) await syncFriendLinks();
 }
@@ -153,14 +157,15 @@ export async function syncFriendLinks(): Promise<void> {
     const myName = mine ? row.requester_name : row.friend_name;
     const myVpa = mine ? row.requester_vpa : row.friend_vpa;
     const myExtras = (mine ? row.requester_extra_vpas : row.friend_extra_vpas) ?? [];
-    const extrasChanged = myExtras.join(',') !== me.extraVpas.join(',');
+    const myPhone = (mine ? row.requester_phone : row.friend_phone) ?? null;
+    const extrasChanged = myExtras.join(',') !== me.extraVpas.join(',') || myPhone !== me.phone;
     if (row.accepted_at && (myName !== me.name || myVpa !== me.vpa || extrasChanged)) {
       const { error } = mine
         ? await supabase
             .from('friend_links')
-            .update({ requester_name: me.name, requester_vpa: me.vpa, requester_extra_vpas: me.extraVpas })
+            .update({ requester_name: me.name, requester_vpa: me.vpa, requester_extra_vpas: me.extraVpas, requester_phone: me.phone })
             .eq('id', row.id)
-        : await supabase.rpc('respond_friend_link', { p_id: row.id, p_accept: true, p_name: me.name, p_vpa: me.vpa, p_extra_vpas: me.extraVpas });
+        : await supabase.rpc('respond_friend_link', { p_id: row.id, p_accept: true, p_name: me.name, p_vpa: me.vpa, p_extra_vpas: me.extraVpas, p_phone: me.phone });
       if (error) throw error;
     }
   }
@@ -183,27 +188,30 @@ async function ensurePerson(link: FriendLink): Promise<boolean> {
   const people = await listPeople();
   const takenBy = (except: string | null) => new Set(people.filter((p) => p.account.id !== except).flatMap((p) => allVpas(personRef(p))));
   const byEmail = people.find((p) => p.account.email === link.email);
-  if (byEmail) return addVpas(byEmail, link.email, linkVpas, takenBy(byEmail.account.id));
+  if (byEmail) return addVpas(byEmail, link, linkVpas, takenBy(byEmail.account.id), people);
   // The same person added earlier by UPI ID only: give them the email.
   const byVpa = people.find((p) => !p.account.email && allVpas(personRef(p)).some((v) => linkVpas.includes(v)));
-  if (byVpa) return addVpas(byVpa, link.email, linkVpas, takenBy(byVpa.account.id));
+  if (byVpa) return addVpas(byVpa, link, linkVpas, takenBy(byVpa.account.id), people);
   const free = linkVpas.filter((v) => !takenBy(null).has(v));
   await createPerson({
     name: link.name ?? link.email.split('@')[0] ?? link.email,
     vpa: free[0] ?? null,
     email: link.email,
     extraVpas: free.slice(1, 1 + MAX_EXTRA_VPAS),
+    phone: link.phone && !people.some((p) => p.account.phone === link.phone) ? link.phone : null,
   });
   return true;
 }
 
-async function addVpas(person: Person, email: string, linkVpas: readonly string[], taken: ReadonlySet<string>): Promise<boolean> {
+async function addVpas(person: Person, link: FriendLink, linkVpas: readonly string[], taken: ReadonlySet<string>, people: readonly Person[]): Promise<boolean> {
   const have = allVpas(personRef(person));
   const fresh = linkVpas.filter((v) => !have.includes(v) && !taken.has(v));
-  if (fresh.length === 0 && person.account.email === email) return false;
+  const phone =
+    !person.account.phone && link.phone && !people.some((p) => p.account.phone === link.phone) ? link.phone : person.account.phone;
+  if (fresh.length === 0 && person.account.email === link.email && phone === person.account.phone) return false;
   const vpa = person.account.vpa ?? fresh.shift() ?? null;
   const extras = [...extraVpasOf(person.account), ...fresh].slice(0, MAX_EXTRA_VPAS);
-  await updatePerson(person.account.id, { name: person.account.name, vpa, email, extraVpas: extras });
+  await updatePerson(person.account.id, { name: person.account.name, vpa, email: link.email, extraVpas: extras, phone });
   return true;
 }
 

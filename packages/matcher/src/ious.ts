@@ -1,5 +1,6 @@
 import { paise, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import type { LedgerPosting } from './types';
+import { mobileFromVpa } from './contacts';
 
 /**
  * IOUs (IOU-1 to IOU-5) seen from this user's side. A shared IOU is the same
@@ -83,6 +84,8 @@ export interface PersonRef {
   vpa: string | null;
   /** Their other UPI IDs, only for recognising payments (decision 0021). */
   extraVpas?: readonly string[];
+  /** Their 10-digit mobile number: a UPI ID made from it (98xxxxxx10@ybl) is theirs (decision 0021). */
+  phone?: string | null;
 }
 
 /** Every UPI ID a person is known by, lower case: the main one first. */
@@ -94,7 +97,7 @@ export const payeeKey = (name: string) => name.toLowerCase().replace(/[^a-z ]+/g
 const normaliseName = payeeKey;
 
 /**
- * The user's person account a payment was to or from: one of their UPI IDs, a name
+ * The user's person account a payment was to or from: one of their UPI IDs, the mobile number in the UPI ID, a name
  * the user linked to them before (`aliases`, payeeKey to person id), or the
  * same name.
  */
@@ -107,6 +110,9 @@ export function findPerson<T extends PersonRef>(
     const vpa = payee.vpa.toLowerCase();
     const byVpa = people.find((p) => allVpas(p).includes(vpa));
     if (byVpa) return byVpa;
+    const mobile = mobileFromVpa(vpa);
+    const byPhone = mobile ? people.filter((p) => p.phone === mobile) : [];
+    if (byPhone.length === 1) return byPhone[0]!;
   }
   if (!payee.name) return null;
   const name = normaliseName(payee.name);

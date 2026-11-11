@@ -30,6 +30,8 @@ export const accounts = sqliteTable(
     email: text('email'),
     /** For people: their other UPI IDs, a JSON array, used only to recognise their payments (decision 0021). */
     extraVpas: text('extra_vpas').notNull().default('[]'),
+    /** For people: their 10-digit mobile number, to recognise UPI IDs made from it (decision 0021). */
+    phone: text('phone'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -864,5 +866,6 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     PRIMARY KEY (date, currency)
   );`,
   // Several UPI IDs for a person (decision 0021).
-  `ALTER TABLE accounts ADD COLUMN extra_vpas TEXT NOT NULL DEFAULT '[]';`,
+  `ALTER TABLE accounts ADD COLUMN extra_vpas TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE accounts ADD COLUMN phone TEXT;`,
 ];

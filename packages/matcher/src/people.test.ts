@@ -72,3 +72,20 @@ describe('several UPI IDs (decision 0021)', () => {
     ]);
   });
 });
+
+describe('phone numbers (decision 0021)', () => {
+  it('pairs a contact with a phone and a friend whose UPI ID carries it', () => {
+    expect(
+      findDuplicatePeople([
+        { ...person('p', 'Peakesh'), phone: '9876543210' },
+        person('t', 'Tushar', { email: 't@x.com', vpa: '9876543210@ybl' }),
+      ]),
+    ).toEqual([{ keep: 't', remove: 'p', reason: 'phone' }]);
+  });
+
+  it('finds someone else with the same phone', () => {
+    expect(clashingPerson([{ ...person('a', 'A'), phone: '9876543210' }], null, { email: null, vpa: null, phone: '9876543210' })).toMatchObject({
+      field: 'phone',
+    });
+  });
+});
