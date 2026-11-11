@@ -4,6 +4,7 @@ import { addDays, buildUpiUri, dateKey, daysBetween, dateOf, DEFAULT_CURRENCY, p
 import { accounts, iouPayments, ious, postings, sources, transactions } from '@money-plant/db-schema';
 import {
   allocateRepayment,
+  allVpas,
   canRepay,
   findPerson,
   guessRepayment,
@@ -29,7 +30,7 @@ import { notifyLedgerChange } from './events';
 import { loadTransactions, SqliteLedgerStore, systemAccountId, writeTransaction } from './ledger-store';
 import { displayName, getMe, type Me } from './me';
 import { cancelScheduled, notifyAt } from './notifications';
-import { createPerson, listPeople, payeeAliases, rememberPayee } from './people';
+import { createPerson, listPeople, payeeAliases, personRef, rememberPayee } from './people';
 import { syncNow } from './sync';
 
 const now = () => new Date().toISOString();
@@ -391,7 +392,7 @@ export async function respondToIou(id: string, accept: boolean, link: EntryLink 
   const existing =
     (row.counterpartyPersonAccountId ? people.find((p) => p.account.id === row.counterpartyPersonAccountId) : undefined) ??
     people.find((p) => row.ownerEmail !== null && p.account.email === row.ownerEmail) ??
-    people.find((p) => row.ownerVpa !== null && p.account.vpa === row.ownerVpa);
+    people.find((p) => row.ownerVpa !== null && allVpas(personRef(p)).includes(row.ownerVpa.toLowerCase()));
   const ownerName = row.ownerName ?? row.ownerEmail?.split('@')[0] ?? 'Friend';
   const personId =
     existing?.account.id ?? (await createPerson({ name: ownerName, vpa: row.ownerVpa, email: row.ownerEmail }));
@@ -449,7 +450,7 @@ async function settleFromLedger(views: readonly IouView[]): Promise<number> {
   const open = views.filter(isOpen);
   if (open.length === 0) return 0;
   const db = await getDb();
-  const people = (await listPeople()).map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa }));
+  const people = (await listPeople()).map(personRef);
   const aliases = await payeeAliases();
   const owned = ownedAccountIds(db);
   let settled = 0;
@@ -498,7 +499,7 @@ export async function repaymentOptions(transactionId: string): Promise<{ amount:
   if (!own || tx.postings.length !== 2) return { amount: paise(0), direction: 'lent', options: [] };
   const direction = repaymentDirection(own.amount);
   const amount = paise(Math.abs(own.amount));
-  const people = (await listPeople()).map((p) => ({ id: p.account.id, name: p.account.name, vpa: p.account.vpa }));
+  const people = (await listPeople()).map(personRef);
   const match = findPerson(people, payeeOf(tx), await payeeAliases())?.id ?? null;
   // Only IOUs in the entry's currency can be paid by it (decision 0017).
   const currency = own.currency ?? DEFAULT_CURRENCY;

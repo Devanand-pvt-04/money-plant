@@ -6,7 +6,7 @@ import { CurrencyPicker, currencyLabel } from '@/components/currency-picker';
 import { FormScroll } from '@/components/keyboard';
 import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { setHomeCurrency, useHomeCurrency } from '@/lib/home-currency';
-import { getMe, updateMe, type Me } from '@/lib/me';
+import { getMe, splitVpas, updateMe, type Me } from '@/lib/me';
 
 /** How friends see the user on shared IOUs (IOU-2), and the UPI ID in "pay me" links (IOU-5). */
 export default function Profile() {
@@ -15,6 +15,8 @@ export default function Profile() {
   const [me, setMe] = useState<Me | null>(null);
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
+  const [extras, setExtras] = useState('');
+  const [phone, setPhone] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const home = useHomeCurrency();
@@ -25,13 +27,15 @@ export default function Profile() {
       setMe(loaded);
       setName(loaded.name ?? '');
       setVpa(loaded.vpa ?? '');
+      setExtras(loaded.extraVpas.join(', '));
+      setPhone(loaded.phone ?? '');
     }, (e) => setError(String(e?.message ?? e)));
   }, []);
 
   async function save() {
     setSaving(true);
     try {
-      await updateMe({ name, vpa });
+      await updateMe({ name, vpa, extraVpas: splitVpas(extras), phone });
       router.back();
     } catch (e) {
       setError(e instanceof Error ? `${e.message}. Saving needs the internet.` : String(e));
@@ -46,6 +50,10 @@ export default function Profile() {
       <Text style={styles.hint}>Friends see this on IOUs you share with them.</Text>
       <Field label="Your UPI ID" value={vpa} onChangeText={setVpa} placeholder="deva@okhdfcbank" autoCapitalize="none" />
       <Text style={styles.hint}>Goes into the reminders you send, so people can pay you back in one tap.</Text>
+      <Field label="Your other UPI IDs" value={extras} onChangeText={setExtras} placeholder="deva@ybl, 98xxxxxx10@paytm" autoCapitalize="none" />
+      <Text style={styles.hint}>Separate them with commas. Friends' phones use these to recognise money you send them from any of your UPI apps.</Text>
+      <Field label="Your mobile number" value={phone} onChangeText={setPhone} placeholder="98765 43210" keyboardType="phone-pad" />
+      <Text style={styles.hint}>Optional. Friends' phones use it to recognise UPI IDs made from your number, like 98765…@ybl. Only friends you're linked with see it.</Text>
       <Text style={styles.label}>Home currency</Text>
       <Pressable
         accessibilityRole="button"

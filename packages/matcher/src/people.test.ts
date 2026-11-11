@@ -59,3 +59,33 @@ describe('findDuplicatePeople', () => {
     expect(findDuplicatePeople([person('a', 'Ravi'), person('b', 'Ravi')], new Set([pairKey('b', 'a')]))).toEqual([]);
   });
 });
+
+describe('several UPI IDs (decision 0021)', () => {
+  it('finds a clash with someone else\'s other UPI ID', () => {
+    const people = [{ ...person('t', 'Tushar'), extraVpas: ['tushar.m@oksbi'] }];
+    expect(clashingPerson(people, null, { email: null, vpa: 'TUSHAR.M@oksbi' })).toMatchObject({ person: { id: 't' }, field: 'vpa', value: 'tushar.m@oksbi' });
+  });
+
+  it('pairs people when a main UPI ID is the other one\'s extra', () => {
+    expect(findDuplicatePeople([person('a', 'A', { vpa: 'x@ybl' }), { ...person('b', 'B'), extraVpas: ['x@ybl'] }])).toEqual([
+      { keep: 'a', remove: 'b', reason: 'vpa' },
+    ]);
+  });
+});
+
+describe('phone numbers (decision 0021)', () => {
+  it('pairs a contact with a phone and a friend whose UPI ID carries it', () => {
+    expect(
+      findDuplicatePeople([
+        { ...person('p', 'Peakesh'), phone: '9876543210' },
+        person('t', 'Tushar', { email: 't@x.com', vpa: '9876543210@ybl' }),
+      ]),
+    ).toEqual([{ keep: 't', remove: 'p', reason: 'phone' }]);
+  });
+
+  it('finds someone else with the same phone', () => {
+    expect(clashingPerson([{ ...person('a', 'A'), phone: '9876543210' }], null, { email: null, vpa: null, phone: '9876543210' })).toMatchObject({
+      field: 'phone',
+    });
+  });
+});

@@ -33,6 +33,9 @@ export interface RemoteAccount {
   icon: string | null;
   vpa: string | null;
   email: string | null;
+  /** Decision 0021. Missing from rows of a server without the migration. */
+  extra_vpas?: string[];
+  phone?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -40,6 +43,16 @@ export interface RemoteAccount {
 
 /** What the phone sends on push. user_id and updated_at are set by the server. */
 export type RemoteAccountWrite = Omit<RemoteAccount, 'user_id' | 'updated_at'>;
+
+/** A person's other UPI IDs from the local JSON column; anything unreadable is none (decision 0021). */
+export function parseExtraVpas(json: string | null | undefined): string[] {
+  try {
+    const parsed: unknown = JSON.parse(json ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 export function toRemoteAccount(row: LocalAccount): RemoteAccountWrite {
   return {
@@ -56,6 +69,8 @@ export function toRemoteAccount(row: LocalAccount): RemoteAccountWrite {
     icon: row.icon,
     vpa: row.vpa,
     email: row.email,
+    extra_vpas: parseExtraVpas(row.extraVpas),
+    phone: row.phone,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -76,6 +91,8 @@ export function fromRemoteAccount(row: RemoteAccount): LocalAccount {
     icon: row.icon ?? null,
     vpa: row.vpa ?? null,
     email: row.email ?? null,
+    extraVpas: JSON.stringify(row.extra_vpas ?? []),
+    phone: row.phone ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

@@ -33,7 +33,7 @@ function personNote(person: Person, ious: readonly IouView[], day: string): stri
   return due ? `${lead} · ${due}` : lead;
 }
 
-const REASONS: Record<DuplicateSuggestion['reason'], string> = { email: 'same email', vpa: 'same UPI ID', name: 'same name' };
+const REASONS: Record<DuplicateSuggestion['reason'], string> = { email: 'same email', vpa: 'same UPI ID', phone: 'same phone number', name: 'same name' };
 
 /** IOU-1 to IOU-5, SPL-1, SPL-3: who owes whom, groups, and one way to add an expense with people. */
 export default function People() {

@@ -1,4 +1,5 @@
-import { payeeKey } from './ious';
+import { mobileFromVpa } from './contacts';
+import { allVpas, payeeKey } from './ious';
 
 /**
  * Decision 0020: telling when two of the user's people are the same person,
@@ -10,9 +11,11 @@ export interface PersonFacts {
   name: string;
   vpa: string | null;
   email: string | null;
+  extraVpas?: readonly string[];
+  phone?: string | null;
 }
 
-export type DuplicateReason = 'email' | 'vpa' | 'name';
+export type DuplicateReason = 'email' | 'vpa' | 'phone' | 'name';
 
 export interface DuplicatePair {
   /** The person a merge keeps: the one linked on Money Plant (has an email), else the first. */
@@ -24,21 +27,27 @@ export interface DuplicatePair {
 
 const lower = (s: string | null) => s?.trim().toLowerCase() || null;
 
-/** The other person who already has this email or UPI ID, if any. */
+/** The other person who already has this email or one of these UPI IDs, if any. */
 export function clashingPerson<T extends PersonFacts>(
   people: readonly T[],
   self: string | null,
-  fields: { email: string | null; vpa: string | null },
-): { person: T; field: 'email' | 'vpa' } | null {
+  fields: { email: string | null; vpa: string | null; extraVpas?: readonly string[]; phone?: string | null },
+): { person: T; field: 'email' | 'vpa' | 'phone'; value: string } | null {
   const email = lower(fields.email);
-  const vpa = lower(fields.vpa);
+  const vpas = allVpas(fields);
   for (const p of people) {
     if (p.id === self) continue;
-    if (email && lower(p.email) === email) return { person: p, field: 'email' };
+    if (email && lower(p.email) === email) return { person: p, field: 'email', value: email };
   }
   for (const p of people) {
     if (p.id === self) continue;
-    if (vpa && lower(p.vpa) === vpa) return { person: p, field: 'vpa' };
+    const theirs = allVpas(p);
+    const shared = vpas.find((v) => theirs.includes(v));
+    if (shared) return { person: p, field: 'vpa', value: shared };
+  }
+  for (const p of people) {
+    if (p.id === self) continue;
+    if (fields.phone && p.phone === fields.phone) return { person: p, field: 'phone', value: fields.phone };
   }
   return null;
 }
@@ -74,9 +83,11 @@ export function findDuplicatePeople(people: readonly PersonFacts[], dismissed: R
       const reason: DuplicateReason | null =
         lower(a.email) && lower(a.email) === lower(b.email)
           ? 'email'
-          : lower(a.vpa) && lower(a.vpa) === lower(b.vpa)
+          : allVpas(a).some((v) => allVpas(b).includes(v))
             ? 'vpa'
-            : (!lower(a.email) || !lower(b.email)) && payeeKey(a.name) !== '' && payeeKey(a.name) === payeeKey(b.name)
+            : samePhone(a, b)
+              ? 'phone'
+              : (!lower(a.email) || !lower(b.email)) && payeeKey(a.name) !== '' && payeeKey(a.name) === payeeKey(b.name)
               ? 'name'
               : null;
       if (!reason) continue;
@@ -85,6 +96,13 @@ export function findDuplicatePeople(people: readonly PersonFacts[], dismissed: R
     }
   }
   return pairs;
+}
+
+/** The same mobile number, or one's number inside the other's UPI ID (98xxxxxx10@ybl). */
+function samePhone(a: PersonFacts, b: PersonFacts): boolean {
+  const phones = (p: PersonFacts) => new Set([p.phone, ...allVpas(p).map(mobileFromVpa)].filter((v): v is string => Boolean(v)));
+  const pa = phones(a);
+  return [...phones(b)].some((v) => pa.has(v)) && Boolean(a.phone || b.phone);
 }
 
 export const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
