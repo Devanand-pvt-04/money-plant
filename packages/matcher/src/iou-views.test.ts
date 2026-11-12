@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise, type DateKey } from '@money-plant/core';
-import { canRepay, guessRepayment, iouState, iouView, isOpenIou, isVisibleIou, repaymentDirection, repaymentOptionsFor, type IouRow, type IouView } from './iou-views';
+import { canRepay, forMatching, guessRepayment, iouState, iouView, isOpenIou, isVisibleIou, repaymentDirection, repaymentOptionsFor, type IouRow, type IouView } from './iou-views';
 
 const ASHA = 'user-asha';
 const BALA = 'user-bala';
@@ -115,6 +115,7 @@ function view(overrides: Partial<IouView>): IouView {
     otherVpa: null,
     sharedWith: null,
     outstanding: paise(50_000),
+    unrecorded: paise(50_000),
     payments: [],
     ...overrides,
   };
@@ -175,5 +176,17 @@ describe('repayments', () => {
     expect(guessRepayment(two, { transactionId: 't', on, ownAmount: 50_000 })).toBeNull();
     const samePerson = [view({}), view({ id: 'z' })];
     expect(guessRepayment(samePerson, { transactionId: 't', on, ownAmount: 50_000 })).toEqual({ personId: 'p-bala', name: 'Bala' });
+  });
+});
+
+describe('a repayment the other side recorded first (decision 0022)', () => {
+  const theirs = [{ id: 'p1', iouId: 'iou-1', byMe: false, amount: paise(50_000), paidAt: '2026-11-03T10:00:00Z' }];
+
+  it('shows settled, but leaves the amount open for matching this user\'s own payment', () => {
+    const v = iouView(row({ counterpartyEmail: 'bala@example.com', amountPaise: 50_000 }), ASHA, personOf, theirs);
+    expect(v.outstanding).toBe(0);
+    expect(v.unrecorded).toBe(50_000);
+    expect(isOpenIou(v)).toBe(false);
+    expect(isOpenIou(forMatching([v])[0]!)).toBe(true);
   });
 });

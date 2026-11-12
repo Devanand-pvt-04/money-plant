@@ -49,6 +49,9 @@ export default function IouDetail() {
   if (!view) return null;
   const day = today();
   const open = view.outstanding > 0 && view.state !== 'declined' && view.state !== 'awaiting_me';
+  // Decision 0022: settled because the other side recorded the repayment, but this user's ledger has the
+  // loan and not the repayment, so the person's balance is still off by it.
+  const unlinked = !open && view.state === 'confirmed' && view.transactionId !== null && view.unrecorded > 0;
   const link = payLink(view);
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
@@ -105,6 +108,19 @@ export default function IouDetail() {
               ? `When ${view.otherName}'s payment shows up in your bank SMS, it is counted here.`
               : 'When your payment shows up in your bank SMS, it is counted here.'}
           </Text>
+        </View>
+      )}
+      {unlinked && (
+        <View style={styles.actions}>
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>
+              {view.otherName} recorded {formatAmount(view.unrecorded, view.currency)} paid back, but it isn't linked to a payment in your
+              ledger yet, so {view.otherName}'s balance still shows it. Open that payment in Activity and tap "
+              {view.direction === 'lent' ? 'Paid me back' : 'I paid back'}". If it was cash, record it here.
+            </Text>
+          </View>
+          <Button title={repaying ? 'Cancel' : 'Record a repayment'} variant="secondary" onPress={() => setRepaying(!repaying)} />
+          {repaying && <Repayment view={view} accounts={accounts} onDone={() => setRepaying(false)} onError={fail} />}
         </View>
       )}
       {error && <ErrorText>{error}</ErrorText>}
@@ -204,7 +220,7 @@ function Respond({ view, accounts, onError }: { view: IouView; accounts: Account
 /** IOU-4 by hand: cash, or an account the app doesn't read. */
 function Repayment({ view, accounts, onDone, onError }: { view: IouView; accounts: AccountBalance[]; onDone: () => void; onError: (e: unknown) => void }) {
   const styles = useStyles();
-  const [amount, setAmount] = useState(formatMoney(view.outstanding, view.currency, { symbol: false }).replace(/,/g, ''));
+  const [amount, setAmount] = useState(formatMoney(view.outstanding || view.unrecorded, view.currency, { symbol: false }).replace(/,/g, ''));
   const [accountId, setAccountId] = useState<string | null>(null);
   const [paidAt, setPaidAt] = useState(() => new Date().toISOString());
   const [busy, setBusy] = useState(false);
