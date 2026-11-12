@@ -50,6 +50,12 @@ export interface IouView extends Iou {
   /** The address the IOU is shared with, for the owner. */
   sharedWith: string | null;
   outstanding: Paise;
+  /**
+   * What this user's own ledger hasn't recorded as paid back: the amount
+   * minus this user's repayment records. Can be above `outstanding` when the
+   * other side recorded the repayment first (decision 0022).
+   */
+  unrecorded: Paise;
   /** The IOU's currency (decision 0017). */
   currency: string;
   payments: IouPayment[];
@@ -103,6 +109,7 @@ export function iouView(
     otherVpa: role === 'owner' ? (person?.vpa ?? row.counterpartyVpa) : (row.ownerVpa ?? person?.vpa ?? null),
     sharedWith: role === 'owner' ? row.counterpartyEmail : null,
     outstanding: outstanding(base, payments),
+    unrecorded: outstanding(base, payments.filter((p) => p.byMe)),
     currency: row.currency ?? 'INR',
     payments,
   };
@@ -114,6 +121,16 @@ export const isVisibleIou = (view: Pick<IouView, 'role' | 'state'>) => !(view.ro
 /** Open IOUs that count toward balances: not declined, not waiting for this user's answer. */
 export const isOpenIou = (v: Pick<IouView, 'outstanding' | 'personId' | 'state'>) =>
   v.outstanding > 0 && v.personId !== null && v.state !== 'declined' && v.state !== 'awaiting_me';
+
+/**
+ * Decision 0022: views for matching this user's payments to IOUs. A
+ * repayment the other side already recorded still has to reach this user's
+ * ledger, so what is open is what this user hasn't recorded, not what both
+ * sides agree is left. Otherwise the payment is never tagged to the person and
+ * their balance stays off by it.
+ */
+export const forMatching = <T extends Pick<IouView, 'outstanding' | 'unrecorded'>>(views: readonly T[]): T[] =>
+  views.map((v) => ({ ...v, outstanding: v.unrecorded }));
 
 /** Money in repays what the user lent; money out repays what they borrowed. */
 export const repaymentDirection = (ownAmount: number): IouDirection => (ownAmount > 0 ? 'lent' : 'borrowed');

@@ -7,6 +7,7 @@ import {
   allVpas,
   canRepay,
   findPerson,
+  forMatching,
   guessRepayment,
   iouView,
   isOpenIou,
@@ -337,7 +338,8 @@ export async function recordRepayment(id: string, input: { amount: Paise; accoun
   const view = await getIou(id);
   if (!view || !view.personId) throw new Error('IOU not found');
   if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Enter an amount above zero');
-  if (input.amount > view.outstanding) throw new Error(`Only ${formatAmount(view.outstanding, view.currency)} is still owed`);
+  // Up to what this user's ledger hasn't recorded: the other side may have recorded it first (decision 0022).
+  if (input.amount > view.unrecorded) throw new Error(`Only ${formatAmount(view.unrecorded, view.currency)} is left to record`);
   const db = await getDb();
   const accountCurrency = db.select({ currency: accounts.currency }).from(accounts).where(eq(accounts.id, input.accountId)).get()?.currency;
   // A repayment moves the IOU's own currency; one account can't pay back another currency (decision 0017).
@@ -447,7 +449,7 @@ async function repaymentCandidates(): Promise<LedgerTransaction[]> {
  * many entries it settled.
  */
 async function settleFromLedger(views: readonly IouView[]): Promise<number> {
-  const open = views.filter(isOpen);
+  const open = forMatching(views).filter(isOpen);
   if (open.length === 0) return 0;
   const db = await getDb();
   const people = (await listPeople()).map(personRef);
@@ -503,7 +505,7 @@ export async function repaymentOptions(transactionId: string): Promise<{ amount:
   const match = findPerson(people, payeeOf(tx), await payeeAliases())?.id ?? null;
   // Only IOUs in the entry's currency can be paid by it (decision 0017).
   const currency = own.currency ?? DEFAULT_CURRENCY;
-  const views = (await listIous()).filter((v) => v.currency === currency);
+  const views = forMatching(await listIous()).filter((v) => v.currency === currency);
   const options = repaymentOptionsFor(views, { transactionId: tx.id, on: dateOf(tx.occurredAt), amount, direction }, match);
   return { amount, direction, options };
 }
@@ -522,7 +524,7 @@ export async function settleWithEntry(transactionId: string, personId: string): 
   const on = dateOf(tx.occurredAt);
   const owned = ownedAccountIds(await getDb());
   const currency = tx.postings.find((p) => owned.has(p.accountId))?.currency ?? DEFAULT_CURRENCY;
-  const open = (await listIous()).filter(
+  const open = forMatching(await listIous()).filter(
     (v) => isOpen(v) && v.currency === currency && v.personId === personId && v.direction === direction && canRepay(v, on, tx.id),
   );
   const { parts } = allocateRepayment(open, amount);
@@ -545,7 +547,7 @@ export interface RepaymentGuess {
  */
 export async function repaymentGuesses(txs: readonly LedgerTransaction[]): Promise<Map<string, RepaymentGuess>> {
   const guesses = new Map<string, RepaymentGuess>();
-  const open = (await listIous()).filter(isOpen);
+  const open = forMatching(await listIous()).filter(isOpen);
   if (open.length === 0) return guesses;
   const db = await getDb();
   const owned = ownedAccountIds(db);
