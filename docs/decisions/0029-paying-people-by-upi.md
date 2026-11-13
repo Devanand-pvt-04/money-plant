@@ -1,4 +1,4 @@
-# 0028: Paying people when UPI apps block payment links
+# 0029: Paying people when UPI apps block payment links
 
 Decided by Deva on 2026-11-13, in the thread "Make paying friends work with UPI apps". Pay by UPI on a person (IOU-3) opened a `upi://pay` link with the friend's UPI ID and amount. Paytm now stops these with a "Payment Alert" ("may fail as per UPI Risk Policy … pay via mobile number or scanning their QR"), and Google Pay and PhonePe block or warn too. The check runs inside the UPI apps: person-to-person payments started from another app's link are treated as risky, while merchant links still work. No code in Money Plant can get a friend's link past it. Deva asked to keep the existing link and build the fallback beside it.
 
