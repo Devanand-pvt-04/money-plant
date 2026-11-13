@@ -3,10 +3,10 @@ name: OTA update
 # Publishes a JavaScript-only update to the phones (decision 0011). Same as
 # `npx eas-cli@latest update` from apps/mobile, without a Windows machine.
 # - After every merge to main that changes the app or a shared package, it
-#   publishes to preview by itself, with the commit's title as the message.
-#   It skips a merge that moved app.json's version: that needs a new build.
-# - Production stays a choice: Actions → OTA update → Run workflow, pick
-#   production once the change works on preview.
+#   publishes to production by itself (Deva's daily app; preview is no longer
+#   in use, 2026-11-13), titled after the merged PR. It skips a merge that
+#   moved app.json's version: that needs a new build.
+# - By hand: Actions → OTA update → Run workflow, for either channel.
 # Needs the EXPO_TOKEN repository secret (docs/setup.md, section 11).
 # Database migrations are applied first (migrate.yml), so an update never
 # reaches the phones before the server changes it needs.
@@ -22,10 +22,10 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Which app gets the update. Try preview first.
+        description: Which app gets the update
         type: choice
-        options: [preview, production]
-        default: preview
+        options: [production, preview]
+        default: production
       message:
         description: What changed, shown in the Expo dashboard
         type: string
@@ -33,7 +33,7 @@ on:
 
 # One publish at a time per channel, so two runs never race.
 concurrency:
-  group: ota-${{ inputs.channel || 'preview' }}
+  group: ota-${{ inputs.channel || 'production' }}
   cancel-in-progress: false
 
 permissions:
@@ -94,7 +94,7 @@ jobs:
         if: steps.native.outputs.skip != 'true'
         working-directory: apps/mobile
         env:
-          CHANNEL: ${{ inputs.channel || 'preview' }}
+          CHANNEL: ${{ inputs.channel || 'production' }}
           MESSAGE: ${{ inputs.message || github.event.head_commit.message }}
         # A merge commit becomes "Merge pull request #95: <the PR's title>"; anything else keeps its first line.
         run: |
