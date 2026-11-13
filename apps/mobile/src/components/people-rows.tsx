@@ -2,23 +2,23 @@ import { Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { paise, type CurrencyCode } from '@money-plant/core';
 import { itemTitle, statusText, type ItemView } from '@/lib/shared';
-import { formatAmount, formatDate } from './format';
+import { formatAmount, formatDate, formatSummary } from './format';
 import { useColors, makeStyles } from './ui';
 
 /** A person's balance: above zero they owe the user (green); below, the user owes them. */
 export function Balance({ amount, currency }: { amount: number; currency?: CurrencyCode }) {
   const colors = useColors();
   const styles = useStyles();
-  if (amount === 0) return <Text style={styles.amountMuted}>{formatAmount(0, currency)}</Text>;
-  return <Text style={[styles.amount, amount > 0 && { color: colors.primary }]}>{formatAmount(paise(Math.abs(amount)), currency)}</Text>;
+  if (amount === 0) return <Text style={styles.amountMuted}>{formatSummary(0, currency)}</Text>;
+  return <Text style={[styles.amount, amount > 0 && { color: colors.primary }]}>{formatSummary(paise(Math.abs(amount)), currency)}</Text>;
 }
 
 /** A balance with its sign, for lists: +₹1,800 they owe the user, −₹620 the user owes. */
 export function Net({ amount, currency }: { amount: number; currency?: CurrencyCode }) {
   const colors = useColors();
   const styles = useStyles();
-  if (amount === 0) return <Text style={styles.amountMuted}>{formatAmount(0, currency)}</Text>;
-  const text = formatAmount(paise(Math.abs(amount)), currency);
+  if (amount === 0) return <Text style={styles.amountMuted}>{formatSummary(0, currency)}</Text>;
+  const text = formatSummary(paise(Math.abs(amount)), currency);
   return <Text style={[styles.amount, { color: amount > 0 ? colors.primary : colors.danger }]}>{amount > 0 ? `+${text}` : `−${text}`}</Text>;
 }
 

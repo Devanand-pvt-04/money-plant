@@ -11,6 +11,7 @@ import { hideInRecents, setHideInRecents } from '@/lib/privacy';
 import { signOut } from '@/lib/session';
 import { fetchLatestUpdate, restartToUpdate, runningVersion, updatesOn, type UpdateCheck } from '@/lib/updates';
 import { setThemePreference, useThemePreference, type ThemePreference } from '@/lib/theme';
+import { setRoundSummaries, useRoundSummaries } from '@/lib/rounding';
 
 const THEMES: { key: ThemePreference; label: string }[] = [
   { key: 'system', label: 'Phone' },
@@ -24,6 +25,7 @@ export default function Settings() {
   const styles = useStyles();
   const me = useMe();
   const theme = useThemePreference();
+  const rounded = useRoundSummaries();
   const lock = useLockSetting();
   const [hidden, setHidden] = useState<boolean | null>(null);
   const [ai, setAi] = useState<boolean | null>(null);
@@ -65,6 +67,14 @@ export default function Settings() {
               </Pressable>
             ))}
           </View>
+        </View>
+        <View style={[styles.row, styles.divided]}>
+          <Feather name="hash" size={18} color={colors.muted} />
+          <View style={styles.grow}>
+            <Text style={styles.name}>Round off totals</Text>
+            <Text style={styles.meta}>Totals, balances and charts in whole rupees. Entries and splits keep their paise.</Text>
+          </View>
+          <Switch value={rounded} onValueChange={setRoundSummaries} />
         </View>
         <View style={[styles.row, styles.divided]}>
           <Feather name="lock" size={18} color={colors.muted} />

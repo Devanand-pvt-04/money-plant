@@ -3,7 +3,7 @@ import { AppState, Platform, Pressable, RefreshControl, ScrollView, Text, View }
 import { router, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { formatMonth, formatAmount, reviewTime } from '@/components/format';
+import { formatMonth, formatAmount, reviewTime, formatSummary } from '@/components/format';
 import { SetupCard } from '@/components/setup-card';
 import { TransactionItem } from '@/components/transaction-item';
 import { Avatar, useMe } from '@/components/avatar';
@@ -160,8 +160,8 @@ export default function Home() {
             <Feather name="users" size={18} color={colors.muted} />
             <Text style={[styles.owedText, styles.grow]} numberOfLines={2}>
               {[
-                data.owed.owedToMe > 0 ? `Owed to you ${formatAmount(data.owed.owedToMe)}` : null,
-                data.owed.iOwe > 0 ? `You owe ${formatAmount(data.owed.iOwe)}` : null,
+                data.owed.owedToMe > 0 ? `Owed to you ${formatSummary(data.owed.owedToMe)}` : null,
+                data.owed.iOwe > 0 ? `You owe ${formatSummary(data.owed.iOwe)}` : null,
                 data.owed.toAnswer > 0 ? `${data.owed.toAnswer} to answer` : null,
               ]
                 .filter(Boolean)
@@ -205,11 +205,11 @@ function MonthCard({ line, outside, income, elapsed }: { line: BudgetLine; outsi
   const note = !budgeted
     ? 'Tap to set budgets on the categories you want to track.'
     : status === 'over'
-      ? `Over by ${formatAmount(line.spent - line.limit!)}`
+      ? `Over by ${formatSummary(line.spent - line.limit!)}`
       : status === 'pace'
-        ? `On pace for ${formatAmount(line.pace!.projected)}`
+        ? `On pace for ${formatSummary(line.pace!.projected)}`
         : null;
-  const outsideNote = budgeted && outside > 0 ? `${formatAmount(outside)} spent outside your budgets` : null;
+  const outsideNote = budgeted && outside > 0 ? `${formatSummary(outside)} spent outside your budgets` : null;
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push('/budgets')} style={({ pressed }) => pressed && styles.pressed}>
       <MoneyCard>
@@ -219,14 +219,14 @@ function MonthCard({ line, outside, income, elapsed }: { line: BudgetLine; outsi
         </View>
         <View style={styles.heroLine}>
           <Text style={[styles.heroValue, left < 0 && { color: colors.heroDanger }]} numberOfLines={1} adjustsFontSizeToFit>
-            {formatAmount(budgeted ? left : line.spent)}
+            {formatSummary(budgeted ? left : line.spent)}
           </Text>
-          {budgeted && <Text style={styles.heroOf}>of {formatAmount(line.limit!)}</Text>}
+          {budgeted && <Text style={styles.heroOf}>of {formatSummary(line.limit!)}</Text>}
         </View>
         {budgeted && <ProgressBar value={line.spent / line.limit!} status={status} marker={elapsed} onHero />}
         <View style={styles.stats}>
-          {budgeted && <Stat label="Spent" value={formatAmount(line.spent)} />}
-          <Stat label="Money in" value={formatAmount(income)} color={income > 0 ? colors.heroAccent : undefined} />
+          {budgeted && <Stat label="Spent" value={formatSummary(line.spent)} />}
+          <Stat label="Money in" value={formatSummary(income)} color={income > 0 ? colors.heroAccent : undefined} />
           <Stat label="Days left" value={String(daysLeft)} />
         </View>
         {(note || outsideNote) && <Text style={styles.heroNote}>{[note, outsideNote].filter(Boolean).join(' · ')}</Text>}
