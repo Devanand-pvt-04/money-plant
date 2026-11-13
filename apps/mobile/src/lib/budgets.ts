@@ -21,7 +21,7 @@ import {
   type SpendBreakdown,
 } from '@money-plant/core';
 import { budgets, postings, transactions } from '@money-plant/db-schema';
-import { formatWholeRupees as rupees } from '@/components/format';
+import { formatAmount as rupees } from '@/components/format';
 import { flatten, listCategories, type CategoryNode } from './categories';
 import { getDb } from './db';
 import { homeCurrency } from './home-currency';

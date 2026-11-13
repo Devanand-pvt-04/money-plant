@@ -5,7 +5,7 @@ import Feather from '@expo/vector-icons/Feather';
 import { File } from 'expo-file-system';
 import { dematGroups, paise, type CasStatement, type DematGroup, type DematStatement } from '@money-plant/core';
 import { FormScroll } from '@/components/keyboard';
-import { formatDay, formatWholeRupees as rupees } from '@/components/format';
+import { formatDay, formatAmount as rupees } from '@/components/format';
 import { Button, Card, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
 import { heldFundIsins, importDemat } from '@/lib/demat';

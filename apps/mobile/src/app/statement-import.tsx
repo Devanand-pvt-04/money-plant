@@ -5,7 +5,7 @@ import Feather from '@expo/vector-icons/Feather';
 import { File } from 'expo-file-system';
 import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
-import { formatDay, formatWholeRupees as rupees } from '@/components/format';
+import { formatDay, formatAmount as rupees } from '@/components/format';
 import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { listAccountBalances } from '@/lib/ledger';
 import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';

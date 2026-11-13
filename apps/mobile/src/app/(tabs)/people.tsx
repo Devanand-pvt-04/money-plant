@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { formatAmount, formatWholeRupees } from '@/components/format';
+import { formatAmount } from '@/components/format';
 import { Net, NetByCurrency, dueText } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
 import { ErrorText, Card, Initial, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
@@ -88,12 +88,12 @@ export default function People() {
         <View style={styles.totals}>
           <View style={styles.total}>
             <Text style={styles.meta}>You'll get back</Text>
-            <Text style={[styles.totalAmount, owedToMe > 0 && { color: colors.primary }]}>{formatWholeRupees(owedToMe)}</Text>
+            <Text style={[styles.totalAmount, owedToMe > 0 && { color: colors.primary }]}>{formatAmount(owedToMe)}</Text>
             <Text style={styles.meta}>{owing.length === 0 ? 'from no one' : `from ${owing.length} ${owing.length === 1 ? 'person' : 'people'}`}</Text>
           </View>
           <View style={styles.total}>
             <Text style={styles.meta}>You owe</Text>
-            <Text style={[styles.totalAmount, iOwe > 0 && { color: colors.danger }]}>{formatWholeRupees(iOwe)}</Text>
+            <Text style={[styles.totalAmount, iOwe > 0 && { color: colors.danger }]}>{formatAmount(iOwe)}</Text>
             <Text style={styles.meta}>{owed.length === 0 ? 'to no one' : `to ${owed.length} ${owed.length === 1 ? 'person' : 'people'}`}</Text>
           </View>
         </View>
@@ -166,7 +166,7 @@ export default function People() {
                   <View style={styles.grow}>
                     <Text style={styles.name}>{g.group.name}</Text>
                     <Text style={styles.meta}>
-                      {g.group.memberIds.length + 1} people · {g.expenses.length === 0 ? 'no expenses yet' : g.net === 0 && g.members.every((m) => m.balance === 0) ? 'settled up' : `${formatWholeRupees(g.spent, g.currency)} spent`}
+                      {g.group.memberIds.length + 1} people · {g.expenses.length === 0 ? 'no expenses yet' : g.net === 0 && g.members.every((m) => m.balance === 0) ? 'settled up' : `${formatAmount(g.spent, g.currency)} spent`}
                     </Text>
                   </View>
                   <Net amount={g.net} currency={g.currency} />

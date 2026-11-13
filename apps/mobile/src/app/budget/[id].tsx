@@ -6,7 +6,7 @@ import type { MonthKey, Paise } from '@money-plant/core';
 import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
-import { formatDate, formatMonth, formatWholeRupees as rupees } from '@/components/format';
+import { formatDate, formatMonth, formatAmount as rupees } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
 import { ProgressBar, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { categoryBreakdown, currentMonth, daysLeft, monthOverview, setBudget, type BudgetLine, type CategoryBreakdown } from '@/lib/budgets';

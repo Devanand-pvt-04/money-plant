@@ -21,7 +21,7 @@ import {
 } from '@money-plant/core';
 import { accounts, balanceRefs, deposits, postings, transactions, type LocalDeposit } from '@money-plant/db-schema';
 import type { LedgerTransaction } from '@money-plant/matcher';
-import { formatWholeRupees } from '@/components/format';
+import { formatAmount } from '@/components/format';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
 import { derivedId } from './ids';
@@ -305,7 +305,7 @@ async function scheduleMaturityReminders(): Promise<void> {
       title: `${name} matures in ${MATURITY_REMINDER_DAYS} days`,
       body: isBalanceScheme(row.kind)
         ? 'Check with the bank or post office whether to extend it or take the money out.'
-        : `It should pay about ${formatWholeRupees(maturityValue(termsOf(row)), 'INR')}${payer ? ` into ${payer}` : ''}.`,
+        : `It should pay about ${formatAmount(maturityValue(termsOf(row)), 'INR')}${payer ? ` into ${payer}` : ''}.`,
       data: { url: `/account/${row.accountId}` },
     });
   }

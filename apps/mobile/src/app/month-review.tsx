@@ -4,7 +4,7 @@ import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router
 import Feather from '@expo/vector-icons/Feather';
 import { addMonths, type MonthKey, type Paise } from '@money-plant/core';
 import { BudgetSheet } from '@/components/budget-sheet';
-import { formatDate, formatMonth, formatWholeRupees as rupees } from '@/components/format';
+import { formatDate, formatMonth, formatAmount as rupees } from '@/components/format';
 import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon } from '@/components/sheet';
 import { ProgressBar, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';

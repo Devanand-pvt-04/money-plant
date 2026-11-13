@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { lentBorrowed } from '@money-plant/core';
 import Feather from '@expo/vector-icons/Feather';
-import { formatAmount, formatWholeRupees } from '@/components/format';
+import { formatAmount } from '@/components/format';
 import { ErrorText, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { GROUPS, SLICE_COLOURS, SLICE_LABELS, type AccountGroup } from '@/lib/account-groups';
 import { marketValues } from '@/lib/demat';
@@ -91,7 +91,7 @@ export default function Accounts() {
     const flagged = rows.find((b) => b.reconciliation?.flagged);
     if (flagged) {
       return {
-        text: `${flagged.account.institution ?? flagged.account.name} off by ${formatWholeRupees(Math.abs(flagged.reconciliation!.latest.gap), flagged.account.currency)}`,
+        text: `${flagged.account.institution ?? flagged.account.name} off by ${formatAmount(Math.abs(flagged.reconciliation!.latest.gap), flagged.account.currency)}`,
         tone: 'warn',
       };
     }
@@ -124,12 +124,12 @@ export default function Accounts() {
           {change !== null && change !== 0 && (
             <Text style={[styles.heroChange, change < 0 && { color: colors.heroDanger }]}>
               {change > 0 ? '+' : '−'}
-              {formatWholeRupees(Math.abs(change))} this month
+              {formatAmount(Math.abs(change))} this month
             </Text>
           )}
         </View>
         <Text style={styles.heroAmount} numberOfLines={1} adjustsFontSizeToFit>
-          {formatWholeRupees(worth)}
+          {formatAmount(worth)}
         </Text>
         {unrated.length > 0 && (
           <Text style={styles.heroMuted}>
@@ -160,11 +160,11 @@ export default function Accounts() {
       <View style={styles.pair}>
         <View style={styles.tile}>
           <Text style={styles.meta}>You own</Text>
-          <Text style={styles.tileValue}>{formatWholeRupees(own + owed.lent)}</Text>
+          <Text style={styles.tileValue}>{formatAmount(own + owed.lent)}</Text>
         </View>
         <View style={styles.tile}>
           <Text style={styles.meta}>You owe</Text>
-          <Text style={styles.tileValue}>{formatWholeRupees(owe + owed.borrowed)}</Text>
+          <Text style={styles.tileValue}>{formatAmount(owe + owed.borrowed)}</Text>
         </View>
       </View>
 
@@ -195,7 +195,7 @@ export default function Accounts() {
                     {line.text}
                   </Text>
                 </View>
-                <Text style={styles.amount}>{total < 0 ? `−${formatWholeRupees(-total)}` : formatWholeRupees(total)}</Text>
+                <Text style={styles.amount}>{total < 0 ? `−${formatAmount(-total)}` : formatAmount(total)}</Text>
               </Pressable>
             );
           })}
@@ -214,7 +214,7 @@ export default function Accounts() {
                   {owedLine(owed)}
                 </Text>
               </View>
-              <Text style={styles.amount}>{owed.net < 0 ? `−${formatWholeRupees(-owed.net)}` : formatWholeRupees(owed.net)}</Text>
+              <Text style={styles.amount}>{owed.net < 0 ? `−${formatAmount(-owed.net)}` : formatAmount(owed.net)}</Text>
             </Pressable>
           )}
         </View>
@@ -254,8 +254,8 @@ const NO_OWED: Owed = { ...lentBorrowed([]), counted: [] };
 
 /** "Lent ₹5,000 · Borrowed ₹2,000 · ₹1,000 left out". */
 function owedLine(owed: Owed): string {
-  const parts = [`Lent ${formatWholeRupees(owed.lent)}`, `Borrowed ${formatWholeRupees(owed.borrowed)}`];
-  if (owed.leftOut > 0) parts.push(`${formatWholeRupees(owed.leftOut)} left out`);
+  const parts = [`Lent ${formatAmount(owed.lent)}`, `Borrowed ${formatAmount(owed.borrowed)}`];
+  if (owed.leftOut > 0) parts.push(`${formatAmount(owed.leftOut)} left out`);
   return parts.join(' · ');
 }
 
@@ -278,7 +278,7 @@ function History({ points }: { points: NetWorthPoint[] }) {
   const high = Math.max(...values);
   const span = high - low || 1;
   return (
-    <View style={styles.history} accessible accessibilityLabel={`Net worth by month: ${points.map((p) => `${MONTH_NAMES[Number(p.month.slice(5)) - 1]} ${formatWholeRupees(p.value)}`).join(', ')}`}>
+    <View style={styles.history} accessible accessibilityLabel={`Net worth by month: ${points.map((p) => `${MONTH_NAMES[Number(p.month.slice(5)) - 1]} ${formatAmount(p.value)}`).join(', ')}`}>
       {points.map((p, i) => {
         const last = i === points.length - 1;
         return (
