@@ -13,7 +13,7 @@ import { Button, useColors } from '@/components/ui';
 import { useConsent } from '@/lib/consent';
 import { flushErrors, reportError, watchErrors } from '@/lib/errors';
 import { applyHideInRecents } from '@/lib/privacy';
-import { watchSharedIous } from '@/lib/realtime';
+import { watchSharedItems } from '@/lib/realtime';
 import { startedAt, startedFromRestart } from '@/lib/restart-log';
 import { useSession } from '@/lib/session';
 import { followSystemScheme, useScheme } from '@/lib/theme';
@@ -90,7 +90,7 @@ export default function RootLayout() {
   const slow = useSlowStart(waitingFor);
   const signedIn = session !== null;
   const ready = signedIn && consented === true;
-  useEffect(() => (userId ? watchSharedIous(userId) : undefined), [userId]);
+  useEffect(() => (userId ? watchSharedItems(userId) : undefined), [userId]);
   // Balances stay out of the recent apps view once there is a ledger to hide.
   useEffect(() => {
     void (userId ? applyHideInRecents() : applyHideInRecents(false));
@@ -183,12 +183,8 @@ export default function RootLayout() {
             <Stack.Screen name="recurring/index" options={{ title: 'Recurring payments' }} />
             <Stack.Screen name="recurring/[id]" options={{ title: 'Recurring payment' }} />
             <Stack.Screen name="person/[id]" options={{ title: 'Person' }} />
-            <Stack.Screen name="iou/new" options={{ title: 'Record a loan', presentation: 'modal' }} />
-            <Stack.Screen name="iou/[id]" options={{ title: 'IOU' }} />
-            <Stack.Screen name="iou/repay" options={{ title: 'Repayment', presentation: 'modal' }} />
-            <Stack.Screen name="expense" options={{ title: 'Add expense', presentation: 'modal' }} />
-            <Stack.Screen name="group/[id]" options={{ title: 'Group' }} />
-            <Stack.Screen name="group/edit" options={{ title: 'Group', presentation: 'modal' }} />
+            <Stack.Screen name="item/new" options={{ title: 'With someone', presentation: 'modal' }} />
+            <Stack.Screen name="item/[id]" options={{ title: '' }} />
             <Stack.Screen name="friends" options={{ title: 'Friends' }} />
             <Stack.Screen name="profile" options={{ title: 'Your name and UPI ID', presentation: 'modal' }} />
             <Stack.Screen name="settings" options={{ title: 'Profile and settings' }} />

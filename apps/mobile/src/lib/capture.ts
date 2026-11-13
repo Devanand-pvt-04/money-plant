@@ -21,7 +21,7 @@ import { readInbox, type CaptureTaskData } from '../../modules/sms-reader';
 import { categoriseWithAi } from './ai-categorise';
 import { checkPaceAlerts } from './budgets';
 import { pipelineCategoriser } from './categories';
-import { refreshIous } from './ious';
+import { reconcileItems } from './shared';
 import { applyPreDebitNotice, refreshRecurring } from './recurring';
 import { applyCardStatement } from './cards';
 import { getDb } from './db';
@@ -369,7 +369,7 @@ function runImport(
     if (stored === null) await kvSet(INBOX_CURSOR_KEY, String(Math.max(newest, Math.min(until ?? Date.now(), Date.now()))));
     if (progress.read > 0) {
       await refreshRecurring().catch(reportBackground('recurring'));
-      await refreshIous().catch(reportBackground('ious'));
+      await reconcileItems().catch(reportBackground('shared-items'));
       notifyLedgerChange();
     }
     return progress;
@@ -508,7 +508,7 @@ export async function runCaptureTask(data: CaptureTaskData): Promise<void> {
     notifyLedgerChange();
     await checkPaceAlerts().catch(reportBackground('pace-alerts'));
     await refreshRecurring().catch(reportBackground('recurring'));
-    await refreshIous().catch(reportBackground('ious'));
+    await reconcileItems().catch(reportBackground('shared-items'));
     await syncNow();
     await categoriseWithAi();
   } catch (e) {

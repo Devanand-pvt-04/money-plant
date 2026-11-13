@@ -1,13 +1,12 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { accounts, ious, personContacts, postings, splitGroups, transactions } from '@money-plant/db-schema';
+import { accounts, itemLinks, personContacts, postings, transactions } from '@money-plant/db-schema';
 import { mergeDirection, payeeKey } from '@money-plant/matcher';
 import { getDb } from './db';
 import { notifyLedgerChange } from './events';
-import { pushSoon, refreshIous } from './ious';
 import { loadTransactions, writeTransaction } from './ledger-store';
-import { getMe } from './me';
 import { moveIdentifiers } from './identity';
-import { payeeAliases, saveAliases, shareIousOf } from './people';
+import { payeeAliases, saveAliases, shareItemsOf } from './people';
+import { pushSoon } from './shared';
 
 const now = () => new Date().toISOString();
 
@@ -16,18 +15,16 @@ const now = () => new Date().toISOString();
  * contact, then the friend who joined). Everything moves to `keepId` and
  * `removeId` is removed:
  * - every entry's leg on them, so balances stay sums of postings;
- * - IOUs this user added with them; open ones are shared with the kept
- *   person's email, settled ones stay as they are;
- * - IOUs shared with this user that were linked to them (the answer is sent
- *   again with the new link);
- * - split groups, the phone contact, payee names, and every identifier
+ * - this user's links from shared items to them, and the items this user
+ *   made with them, which are shared with the kept person's email
+ *   (decision 0026);
+ * - the phone contact, payee names, and every identifier
  *   (UPI IDs, phone, bank accounts, payee names: decision 0025).
  * Two people with different emails are two members, so they can't merge.
  */
 export async function mergePeople(removeId: string, keepId: string): Promise<void> {
   if (removeId === keepId) throw new Error('Pick two different people');
   const db = await getDb();
-  const me = await getMe();
   const remove = db.select().from(accounts).where(eq(accounts.id, removeId)).get();
   const keep = db.select().from(accounts).where(eq(accounts.id, keepId)).get();
   if (!remove || !keep || remove.type !== 'person' || keep.type !== 'person' || remove.deletedAt || keep.deletedAt) {
@@ -60,41 +57,12 @@ export async function mergePeople(removeId: string, keepId: string): Promise<voi
     }
   }
 
-  // IOUs this user added.
-  db.update(ious)
-    .set({ personAccountId: keepId, dirty: 1, rev: sql`${ious.rev} + 1` })
-    .where(and(eq(ious.personAccountId, removeId), eq(ious.userId, me.id)))
+  // Shared items (decision 0026): this user's links to them, then their items go to the kept person's email.
+  db.update(itemLinks)
+    .set({ personAccountId: keepId, dirty: 1, rev: sql`${itemLinks.rev} + 1` })
+    .where(eq(itemLinks.personAccountId, removeId))
     .run();
-  if (keep.email) await shareIousOf(keepId, keep.email);
-
-  // IOUs friends shared with this user, answered with the removed person.
-  const answered = db
-    .select()
-    .from(ious)
-    .where(and(eq(ious.counterpartyPersonAccountId, removeId), isNull(ious.deletedAt)))
-    .all();
-  for (const row of answered) {
-    db.update(ious)
-      .set({ counterpartyPersonAccountId: keepId, ...(row.confirmedAt && !row.declinedAt ? { response: 'accept' as const } : {}) })
-      .where(eq(ious.id, row.id))
-      .run();
-  }
-
-  // Groups.
-  for (const group of db.select().from(splitGroups).where(isNull(splitGroups.deletedAt)).all()) {
-    let members: string[];
-    try {
-      members = JSON.parse(group.memberAccountIds) as string[];
-    } catch {
-      continue;
-    }
-    if (!members.includes(removeId)) continue;
-    const next = [...new Set(members.map((m) => (m === removeId ? keepId : m)))];
-    db.update(splitGroups)
-      .set({ memberAccountIds: JSON.stringify(next), dirty: 1, rev: sql`${splitGroups.rev} + 1` })
-      .where(eq(splitGroups.id, group.id))
-      .run();
-  }
+  await shareItemsOf(keepId, keep.email);
 
   // Phone contact (local only): the kept person keeps theirs, else takes this one.
   const removedContact = db.select().from(personContacts).where(eq(personContacts.personAccountId, removeId)).get();
@@ -127,6 +95,5 @@ export async function mergePeople(removeId: string, keepId: string): Promise<voi
     .run();
 
   notifyLedgerChange();
-  await refreshIous();
   pushSoon();
 }

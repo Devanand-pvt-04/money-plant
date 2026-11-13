@@ -6,7 +6,6 @@ import { refreshDeposits } from './deposits';
 import { reportBackground } from './errors';
 import { refreshFunds } from './funds';
 import { refreshDemat } from './demat';
-import { refreshIous } from './ious';
 import { refreshRecurring } from './recurring';
 import { scheduleMonthReview } from './review';
 import { syncNow } from './sync';
@@ -45,8 +44,6 @@ export function refreshAll(): Promise<void> {
       refreshDemat().catch(reportBackground('demat'));
       // BUD-4: the review notification for the 1st of next month.
       scheduleMonthReview().catch(reportBackground('month-review'));
-      // IOU-4: payments from people who owe the user settle their IOUs.
-      refreshIous().catch(reportBackground('ious'));
       // CAT-2: only merchants that rules, patterns and the dictionary couldn't place; capped on the server.
       categoriseWithAi().catch(reportBackground('ai-categorise'));
       // BUD-4, decision 0012: last month's AI write-up, queued once the month ends.

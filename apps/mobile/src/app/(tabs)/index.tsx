@@ -14,11 +14,10 @@ import { currentMonth, incomeThisMonth, monthOverview, type BudgetLine } from '@
 import { hasImportedInbox } from '@/lib/capture';
 import { countPending, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { displayName } from '@/lib/me';
-import { owedSummary, type OwedSummary } from '@/lib/ious';
+import { owedSummary, type OwedSummary } from '@/lib/shared';
 import { catchUpDue, usePullToRefresh } from '@/lib/refresh';
 import { setupState, type SetupState } from '@/lib/setup';
 import { useLedger } from '@/lib/use-ledger';
-import { PEOPLE_PAUSED } from '@/lib/maintenance';
 import { weekAhead, type DueItem } from '@/lib/week';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-reader';
 
@@ -156,14 +155,14 @@ export default function Home() {
           </View>
         )}
 
-        {data.owed && (data.owed.owedToMe > 0 || data.owed.iOwe > 0 || data.owed.toConfirm > 0) && (
+        {data.owed && (data.owed.owedToMe > 0 || data.owed.iOwe > 0 || data.owed.toAnswer > 0) && (
           <Pressable accessibilityRole="button" onPress={() => router.push('/people')} style={({ pressed }) => [styles.notice, pressed && styles.pressed]}>
             <Feather name="users" size={18} color={colors.muted} />
             <Text style={[styles.owedText, styles.grow]} numberOfLines={2}>
               {[
                 data.owed.owedToMe > 0 ? `Owed to you ${formatAmount(data.owed.owedToMe)}` : null,
                 data.owed.iOwe > 0 ? `You owe ${formatAmount(data.owed.iOwe)}` : null,
-                data.owed.toConfirm > 0 ? `${data.owed.toConfirm} to confirm` : null,
+                data.owed.toAnswer > 0 ? `${data.owed.toAnswer} to answer` : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}
@@ -255,10 +254,10 @@ function Shortcuts({ pending }: { pending: number }) {
   const colors = useColors();
   const styles = useStyles();
   // Adding an entry is the floating + on every tab, so it isn't repeated here.
-  const items: { icon: FeatherName; label: string; href: '/pay' | '/review' | '/expense'; count?: number }[] = [
+  const items: { icon: FeatherName; label: string; href: '/pay' | '/review' | '/item/new?kind=share'; count?: number }[] = [
     ...(Platform.OS === 'android' ? [{ icon: 'maximize' as const, label: 'Scan & pay', href: '/pay' as const }] : []),
     { icon: 'check-square', label: 'Review', href: '/review', count: pending },
-    ...(PEOPLE_PAUSED ? [] : [{ icon: 'users' as const, label: 'Split', href: '/expense' as const }]),
+    { icon: 'users' as const, label: 'Split', href: '/item/new?kind=share' as const },
   ];
   return (
     <View style={styles.shortcuts}>

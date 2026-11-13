@@ -135,10 +135,10 @@ The MVP has 73 requirements across 11 areas. "Must" items block the first releas
 | ID | Requirement | Priority |
 | --- | --- | --- |
 | IOU-1 | Record money lent or borrowed: person, amount, reason, date and time (now by default), optional due date. A repayment recorded by hand also takes a time. From a bank entry, the payee is offered as the person but is only added as one if the user keeps them, since a loan is often paid to a shop on a friend's behalf. A person nothing refers to can be removed | Must |
-| IOU-2 | If the other person uses the app, they see the same IOU and can confirm it | Must |
+| IOU-2 | If the other person uses the app, they see the same item (one shared row, decision 0026): they accept or decline a share, and link their own bank entry for a loan or repayment. Only the creator changes it | Must |
 | IOU-3 | Settle with a UPI pay link that opens the user's chosen UPI app | Must |
-| IOU-4 | Mark an IOU settled automatically when the matching payment SMS arrives; partial payments reduce the balance. A payment is matched by UPI ID, the exact name, or a bank name the user linked to the person before ("GOBAL NAIR" is Gobal). When it isn't matched, the user can say "Paid me back" (or "I paid back") on the entry: it settles their open IOUs with that bank entry, adds no new entry, and remembers the payee's name and UPI ID for next time. Review asks "Is this Gobal paying you back?" when exactly one person has an open IOU of exactly that amount | Must |
-| IOU-5 | Reminders before the due date, and a shareable reminder message for people not on the app | Should |
+| IOU-4 | A repayment is its own item, linked to the bank entry it came in or went out by (decision 0026); it links itself when exactly one entry of the amount fits and its payee is the person. Before decision 0026: mark an IOU settled automatically when the matching payment SMS arrives; partial payments reduce the balance. A payment is matched by UPI ID, the exact name, or a bank name the user linked to the person before ("GOBAL NAIR" is Gobal). When it isn't matched, the user can say "Paid me back" (or "I paid back") on the entry: it settles their open IOUs with that bank entry, adds no new entry, and remembers the payee's name and UPI ID for next time. Review asks "Is this Gobal paying you back?" when exactly one person has an open IOU of exactly that amount | Must |
+| IOU-5 | A shareable reminder message for people not on the app, with a UPI "pay me" link. Due-date reminders are not part of shared items (decision 0026) | Should |
 
 ### Splits
 
@@ -146,9 +146,9 @@ Splits are personal in the MVP: they live in the payer's ledger, so friends don'
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| SPL-1 | One "add an expense with people" flow covers loans, splits and someone else paying: amount, paid by, a searchable checklist of people, and how to split (equally, amounts, percent or units). Any existing entry can be converted into a split; it keeps its sources | Must |
+| SPL-1 | One "with someone" flow covers splits, loans, repayments and someone else paying (decision 0026). Any existing entry can be split or linked; it keeps its sources and its bank leg, and only its category part moves to the person | Must |
 | SPL-2 | Record a split that someone else paid, as money the user owes | Must |
-| SPL-3 | Groups (a trip, flatmates) with their own expenses, added from inside the group, and each member's balance within the group; settle through IOU-3 and IOU-4 | Should |
+| SPL-3 | Groups (a trip, flatmates): one share per member for a group bill, settled person by person through IOU-3 and IOU-4 (decision 0026, step 4) | Should |
 | SPL-4 | Match payees to the phone's contacts by the phone number in a UPI ID or by payee name. Contacts are matched on the phone and never uploaded | Should |
 
 ### Scan and pay

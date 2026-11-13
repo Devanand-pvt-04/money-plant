@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { daysBetween, paise, type CurrencyCode } from '@money-plant/core';
-import type { IouView } from '@/lib/ious';
+import { paise, type CurrencyCode } from '@money-plant/core';
+import { itemTitle, statusText, type ItemView } from '@/lib/shared';
 import { formatAmount, formatDate } from './format';
 import { useColors, makeStyles } from './ui';
 
@@ -36,53 +36,29 @@ export function NetByCurrency({ balances }: { balances: readonly { currency: Cur
   );
 }
 
-const STATE_LABELS: Record<IouView['state'], string | null> = {
-  personal: null,
-  awaiting_them: 'waiting for them to confirm',
-  awaiting_me: 'waiting for you to confirm',
-  confirmed: 'confirmed by both',
-  declined: 'they said this is wrong',
-};
-
-export function dueText(view: IouView, today: string): string | null {
-  if (!view.dueDate || view.outstanding === 0) return null;
-  const days = daysBetween(today, view.dueDate);
-  if (days < 0) return `overdue since ${formatDate(`${view.dueDate}T12:00:00`)}`;
-  if (days === 0) return 'due today';
-  if (days === 1) return 'due tomorrow';
-  return `due ${formatDate(`${view.dueDate}T12:00:00`)}`;
-}
-
-/** One IOU in a list: what for, its state, and what is still owed. */
-export function IouRow({ view, today, first, showName }: { view: IouView; today: string; first: boolean; showName?: boolean }) {
+/** One shared item in a list: what it is, where it stands on this side, and its amount (decision 0026). */
+export function ItemRow({ view, first }: { view: ItemView; first: boolean }) {
   const colors = useColors();
   const styles = useStyles();
-  const settled = view.outstanding === 0;
-  const parts = [
-    view.direction === 'lent' ? (showName ? `${view.otherName} owes you` : 'You lent') : showName ? `You owe ${view.otherName}` : 'You borrowed',
-    dueText(view, today),
-    STATE_LABELS[view.state],
-  ].filter(Boolean);
+  const done = view.status === 'linked' || view.status === 'declined';
+  const attention = view.status === 'needs_answer' || view.status === 'needs_link';
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={() => router.push(`/iou/${view.id}`)}
+      onPress={() => router.push(`/item/${view.id}`)}
       style={({ pressed }) => [styles.row, !first && styles.divided, pressed && styles.pressed]}
     >
       <View style={styles.grow}>
-        <Text style={[styles.name, settled && styles.settled]} numberOfLines={1}>
-          {view.reason ?? (view.direction === 'lent' ? 'Loan' : 'Borrowed')}
+        <Text style={[styles.name, view.status === 'declined' && styles.settled]} numberOfLines={1}>
+          {view.reason ?? itemTitle(view)}
         </Text>
-        <Text style={[styles.meta, view.state === 'declined' && { color: colors.danger }]} numberOfLines={2}>
-          {parts.join(' · ')}
+        <Text style={[styles.meta, attention && { color: colors.warning }, view.status === 'declined' && { color: colors.danger }]} numberOfLines={2}>
+          {[view.reason ? itemTitle(view) : null, formatDate(`${view.occurredOn}T12:00:00`), done ? null : statusText(view)].filter(Boolean).join(' · ')}
         </Text>
       </View>
-      <View style={styles.right}>
-        <Text style={[styles.amount, settled && styles.settled, !settled && view.direction === 'lent' && { color: colors.primary }]}>
-          {formatAmount(settled ? view.amount : view.outstanding, view.currency)}
-        </Text>
-        {settled ? <Text style={styles.meta}>settled</Text> : view.outstanding !== view.amount && <Text style={styles.meta}>of {formatAmount(view.amount, view.currency)}</Text>}
-      </View>
+      <Text style={[styles.amount, view.status === 'declined' && styles.settled, view.status !== 'declined' && { color: view.flow === 'to_them' ? colors.primary : colors.danger }]}>
+        {`${view.flow === 'to_them' ? '+' : '−'}${formatAmount(view.amount, view.currency)}`}
+      </Text>
     </Pressable>
   );
 }

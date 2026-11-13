@@ -14,9 +14,9 @@ import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { useCategoryChange } from '@/components/use-category-change';
 import { whyLabel } from '@/components/why';
 import { confirmEntry, editEntry } from '@/lib/entries';
-import { repaymentOptions } from '@/lib/ious';
 import { deleteTransaction, getTransaction, splitTransfer, type TransactionRow } from '@/lib/ledger';
-import { PEOPLE_PAUSED } from '@/lib/maintenance';
+import { itemsOnEntry, setEntryCategory, type ItemView } from '@/lib/shared';
+import { CategoryPicker } from '@/components/category-picker';
 import { getRule } from '@/lib/rules-store';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -66,20 +66,20 @@ export default function TransactionDetail() {
     else setRule(null);
   }, [ruleId]);
 
-  // IOU-4: offer "Paid me back" when someone has an open loan this entry could settle.
-  const [repayable, setRepayable] = useState(false);
-  const plain = row !== null && (row.tx.kind === 'expense' || row.tx.kind === 'income') && row.tx.postings.length === 2;
+  // Decision 0026: the shared items this entry is the user's side of.
+  const [items, setItems] = useState<ItemView[]>([]);
+  const [pickingSplitCategory, setPickingSplitCategory] = useState(false);
+  const rev = row?.tx.postings.map((p) => `${p.accountId}:${p.amount}`).join('|');
   useEffect(() => {
-    if (!plain || PEOPLE_PAUSED) return setRepayable(false);
     let live = true;
-    repaymentOptions(id).then(
-      (r) => live && setRepayable(r.options.length > 0),
-      () => live && setRepayable(false),
+    itemsOnEntry(id).then(
+      (found) => live && setItems(found),
+      () => live && setItems([]),
     );
     return () => {
       live = false;
     };
-  }, [id, plain]);
+  }, [id, rev]);
 
   if (!row) return null;
   const { tx } = row;
@@ -97,19 +97,20 @@ export default function TransactionDetail() {
   const isTransfer = tx.kind === 'transfer';
   const why = whyLabel(tx, row.aiConfidence);
   const accounts = [...row.legs].sort((a, b) => a.amount - b.amount).map((leg) => leg.accountName).join(' → ') || 'Paid by someone else';
-  // SPL-1: a split has legs for people besides the category; its category is changed in the split editor.
-  const split = tx.postings.length > 2 && tx.kind === 'expense';
+  // Decision 0026: an entry carrying shared items has legs for people besides its category.
+  const split = items.length > 0 || (tx.postings.length > 2 && tx.kind === 'expense');
   const twoLegs = tx.postings.length === 2;
   const own = ownLeg(row);
   const foreign = foreignAmount(tx);
   const firstSource = [...tx.sources].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))[0];
   const badge = firstSource ? (SOURCE_BADGES[firstSource.kind] ?? 'Added') : null;
-  // Splits and loans are paused while they are redesigned.
-  const canSplit = !PEOPLE_PAUSED && tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0;
-  const canLend = !PEOPLE_PAUSED && (tx.kind === 'expense' || tx.kind === 'income') && !split && row.legs.length === 1 && twoLegs;
-  const showSplit = canSplit || (split && !PEOPLE_PAUSED);
+  // Decision 0026: money out can be split, lent or a repayment; money in a loan or a repayment.
+  const plainPayment = (tx.kind === 'expense' || tx.kind === 'income') && row.legs.length === 1;
+  const out = plainPayment && row.legs[0]!.amount < 0;
+  const canSplit = out && tx.kind === 'expense';
+  const canLend = plainPayment && !split && twoLegs;
   const canRecur = tx.kind === 'expense' && row.legs.length === 1;
-  const editCategory = () => (split ? router.push(`/expense?from=${tx.id}`) : change(tx.id, flow, tx.counterparty));
+  const editCategory = () => (split ? setPickingSplitCategory(true) : change(tx.id, flow, tx.counterparty));
 
   function remove() {
     setMore(false);
@@ -200,16 +201,43 @@ export default function TransactionDetail() {
         )}
       </Card>
 
-      {(showSplit || canRecur || canLend) && (
+      {items.length > 0 && (
+        <Card>
+          {items.map((v, i) => (
+            <Pressable
+              key={v.id}
+              accessibilityRole="button"
+              onPress={() => router.push(`/item/${v.id}`)}
+              style={({ pressed }) => [styles.itemRow, i > 0 && styles.itemDivided, pressed && { opacity: 0.6 }]}
+            >
+              <Feather name="users" size={18} color={colors.secondary} />
+              <Text style={styles.itemText} numberOfLines={2}>
+                {v.kind === 'share' ? `${v.personName}'s share` : v.kind === 'loan' ? (v.flow === 'to_them' ? `Lent to ${v.personName}` : `Borrowed from ${v.personName}`) : v.flow === 'to_them' ? `Paid ${v.personName} back` : `${v.personName} paid you back`}
+              </Text>
+              <Text style={styles.itemAmount}>{formatAmount(v.amount, v.currency)}</Text>
+            </Pressable>
+          ))}
+        </Card>
+      )}
+
+      {(canSplit || canRecur || canLend) && (
         <View style={styles.actions}>
-          {showSplit && <Action icon="users" title={split ? 'Change split' : 'Split'} onPress={() => router.push(`/expense?from=${tx.id}`)} />}
+          {canSplit && <Action icon="users" title={split ? 'Split again' : 'Split'} onPress={() => router.push(`/item/new?from=${tx.id}&kind=share`)} />}
           {canRecur && <Action icon="repeat" title="Recurring" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />}
-          {canLend && <Action icon="corner-up-right" title={row.legs[0]!.amount < 0 ? 'I lent it' : 'I borrowed it'} onPress={() => router.push(`/iou/new?from=${tx.id}`)} />}
-          {canLend && repayable && (
-            <Action icon="corner-down-left" title={row.legs[0]!.amount > 0 ? 'Paid me back' : 'I paid back'} onPress={() => router.push(`/iou/repay?from=${tx.id}`)} />
-          )}
+          {canLend && <Action icon="corner-up-right" title={out ? 'I lent it' : 'I borrowed it'} onPress={() => router.push(`/item/new?from=${tx.id}&kind=loan`)} />}
+          {canLend && <Action icon="corner-down-left" title={out ? 'I paid back' : 'Paid me back'} onPress={() => router.push(`/item/new?from=${tx.id}&kind=repayment`)} />}
         </View>
       )}
+
+      <CategoryPicker
+        visible={pickingSplitCategory}
+        flow={flow}
+        onPick={(node) => {
+          setPickingSplitCategory(false);
+          setEntryCategory(tx.id, node.id).catch((e) => Alert.alert("Couldn't change it", String(e?.message ?? e)));
+        }}
+        onClose={() => setPickingSplitCategory(false)}
+      />
 
       <Text style={styles.section}>HISTORY</Text>
       <View style={styles.timeline}>
@@ -400,6 +428,10 @@ const useStyles = makeStyles((colors) => ({
   mutedValue: { fontWeight: '400', color: colors.muted },
   warnValue: { color: colors.warning, fontWeight: '600' },
   actions: { flexDirection: 'row', gap: 8 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 16, paddingVertical: 10 },
+  itemDivided: { borderTopWidth: 1, borderTopColor: colors.divider },
+  itemText: { flex: 1, fontSize: 14, color: colors.text },
+  itemAmount: { fontSize: 14, fontWeight: '600', color: colors.text, fontVariant: ['tabular-nums'] },
   action: {
     flex: 1,
     flexDirection: 'row',

@@ -4,6 +4,7 @@ import { identifierClashes, mergeIdentifiers, normaliseIdentifier, type Identifi
 import { eq } from 'drizzle-orm';
 import { accounts } from '@money-plant/db-schema';
 import { getDb } from './db';
+import { kvSet } from './kv';
 import { addIdentifiers, friendsIdentifiers, identifiedPeople, syncFriendIdentifiers } from './identity';
 import { createPerson, updatePerson } from './people';
 import { getMe, isVpa, type Me } from './me';
@@ -59,6 +60,9 @@ interface RemoteLink {
   accepted_at: string | null;
   declined_at: string | null;
 }
+
+/** Friends' user ids to their emails, so a friend's shared item finds their person (decision 0026). */
+export const FRIEND_EMAILS_KEY = 'friends.emails';
 
 /** Members can have this many open or used invites (decision 0016); admins have no limit. */
 export const INVITE_LIMIT = 5;
@@ -177,6 +181,8 @@ export async function syncFriendLinks(): Promise<void> {
     }
   }
   const accepted = rows.filter((r) => r.accepted_at).map((r) => toLink(r, me.id)).filter((l) => l.email);
+  // Decision 0026: a friend's shared item names them by user id; this finds their person by email.
+  await kvSet(FRIEND_EMAILS_KEY, JSON.stringify(Object.fromEntries(accepted.filter((l) => l.userId).map((l) => [l.userId, l.email]))));
   // Decision 0025: each friend's own profile, the identifiers they share.
   const profiles = await friendsIdentifiers(accepted.map((l) => l.userId).filter((u): u is string => u !== null)).catch(() => null);
   let changed = false;

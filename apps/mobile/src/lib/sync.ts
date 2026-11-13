@@ -14,21 +14,19 @@ import {
   fromRemoteBudget,
   fromRemoteDeposit,
   fromRemoteHolding,
-  fromRemoteIou,
-  fromRemoteIouPayment,
   fromRemoteRecurring,
   fromRemoteRule,
-  fromRemoteSplitGroup,
+  fromRemoteItemLink,
+  fromRemoteSharedItem,
   fromRemotePersonIdentifier,
   fromRemoteTransaction,
-  iouPayments,
-  ious,
+  itemLinks,
   nextCursor,
   postings,
   recurring,
   rules,
   sources,
-  splitGroups,
+  sharedItems,
   personIdentifiers,
   toRemoteAccount,
   toRemoteAccountType,
@@ -36,11 +34,10 @@ import {
   toRemoteBudget,
   toRemoteDeposit,
   toRemoteHolding,
-  toRemoteIou,
-  toRemoteIouPayment,
   toRemoteRecurring,
   toRemoteRule,
-  toRemoteSplitGroup,
+  toRemoteItemLink,
+  toRemoteSharedItem,
   toRemotePersonIdentifier,
   toTransactionPush,
   transactions,
@@ -50,11 +47,10 @@ import {
   type RemoteBudget,
   type RemoteDeposit,
   type RemoteHolding,
-  type RemoteIou,
-  type RemoteIouPayment,
   type RemoteRecurring,
   type RemoteRule,
-  type RemoteSplitGroup,
+  type RemoteItemLink,
+  type RemoteSharedItem,
   type RemotePersonIdentifier,
   type RemoteTransaction,
 } from '@money-plant/db-schema';
@@ -67,6 +63,7 @@ import { supabase } from './supabase';
 import { wipeLocal } from './wipe';
 import { loadMyIdentifiers } from './identity';
 import { migrateAliases } from './people';
+import { reconcileItems } from './shared';
 
 const ACCOUNTS_CURSOR = 'sync.accounts.cursor';
 const TRANSACTIONS_CURSOR = 'sync.transactions.cursor';
@@ -77,10 +74,9 @@ const BUDGETS_CURSOR = 'sync.budgets.cursor';
 const RECURRING_CURSOR = 'sync.recurring.cursor';
 const DEPOSITS_CURSOR = 'sync.deposits.cursor';
 const HOLDINGS_CURSOR = 'sync.holdings.cursor';
-const SPLIT_GROUPS_CURSOR = 'sync.split_groups.cursor';
 const PERSON_IDENTIFIERS_CURSOR = 'sync.person_identifiers.cursor';
-const IOUS_CURSOR = 'sync.ious.cursor';
-const IOU_PAYMENTS_CURSOR = 'sync.iou_payments.cursor';
+const SHARED_ITEMS_CURSOR = 'sync.shared_items.cursor';
+const ITEM_LINKS_CURSOR = 'sync.item_links.cursor';
 /** When this phone last emptied itself after Clear my data (ACC-7), as the server's timestamp. */
 const CLEARED_KEY = 'account.cleared_at';
 const PUSH_BATCH = 200;
@@ -264,54 +260,38 @@ async function pushPersonIdentifiers(): Promise<number> {
   );
 }
 
-async function pushSplitGroups(): Promise<number> {
-  const db = await getDb();
-  return pushSimple('split_groups', db.select().from(splitGroups).where(eq(splitGroups.dirty, 1)).all(), toRemoteSplitGroup, (row) =>
-    db.update(splitGroups).set({ dirty: 0 }).where(and(eq(splitGroups.id, row.id), eq(splitGroups.rev, row.rev))).run(),
-  );
-}
-
 /**
- * IOUs this user added go up as rows. An answer to one shared with them goes
- * through respond_iou, which only writes the answering side's fields (IOU-2).
+ * Decision 0026: items this user created go up as rows. An answer to a
+ * friend's share goes through answer_shared_item, which writes only the answer.
  */
-async function pushIous(me: string): Promise<number> {
+async function pushSharedItems(me: string): Promise<number> {
   const db = await getDb();
-  const owned = db.select().from(ious).where(and(eq(ious.dirty, 1), eq(ious.userId, me))).all();
-  let pushed = await pushSimple('ious', owned, toRemoteIou, (row) =>
-    db.update(ious).set({ dirty: 0 }).where(and(eq(ious.id, row.id), eq(ious.rev, row.rev))).run(),
+  const owned = db.select().from(sharedItems).where(and(eq(sharedItems.dirty, 1), eq(sharedItems.userId, me))).all();
+  let pushed = await pushSimple('shared_items', owned, toRemoteSharedItem, (row) =>
+    db.update(sharedItems).set({ dirty: 0 }).where(and(eq(sharedItems.id, row.id), eq(sharedItems.rev, row.rev))).run(),
   );
-  const answers = db.select().from(ious).where(isNotNull(ious.response)).all();
+  const answers = db.select().from(sharedItems).where(and(isNotNull(sharedItems.myAnswer), ne(sharedItems.userId, me))).all();
   for (const row of answers) {
-    const { error } = await supabase.rpc('respond_iou', {
-      p_id: row.id,
-      p_accept: row.response === 'accept',
-      p_person_account_id: row.counterpartyPersonAccountId,
-      p_transaction_id: row.counterpartyTransactionId,
-      p_vpa: row.counterpartyVpa,
-    });
+    const { error } = await supabase.rpc('answer_shared_item', { p_id: row.id, p_accept: row.myAnswer === 'accepted' });
+    // The friend removed it or moved it to someone else meanwhile: reconcileItems undoes this side.
     if (error?.code === '42501') {
-      // The owner deleted it or shared it with someone else meanwhile: it is no longer this user's to answer.
-      db.delete(ious).where(eq(ious.id, row.id)).run();
+      db.update(sharedItems).set({ myAnswer: null, deletedAt: new Date().toISOString() }).where(eq(sharedItems.id, row.id)).run();
       continue;
     }
     if (error) throw error;
-    db.update(ious).set({ response: null }).where(and(eq(ious.id, row.id), eq(ious.response, row.response!))).run();
-    // Repayments the owner recorded before this user confirmed are older than the pull cursor.
-    if (row.response === 'accept') await pullPaymentsOf([row.id]);
+    db.update(sharedItems)
+      .set({ myAnswer: null, answer: row.myAnswer })
+      .where(and(eq(sharedItems.id, row.id), eq(sharedItems.myAnswer, row.myAnswer!)))
+      .run();
     pushed++;
   }
   return pushed;
 }
 
-/** Only this user's own repayment records; the other side's come down in the pull. */
-async function pushIouPayments(me: string): Promise<number> {
+async function pushItemLinks(): Promise<number> {
   const db = await getDb();
-  return pushSimple(
-    'iou_payments',
-    db.select().from(iouPayments).where(and(eq(iouPayments.dirty, 1), eq(iouPayments.userId, me))).all(),
-    toRemoteIouPayment,
-    (row) => db.update(iouPayments).set({ dirty: 0 }).where(and(eq(iouPayments.id, row.id), eq(iouPayments.rev, row.rev))).run(),
+  return pushSimple('item_links', db.select().from(itemLinks).where(eq(itemLinks.dirty, 1)).all(), toRemoteItemLink, (row) =>
+    db.update(itemLinks).set({ dirty: 0 }).where(and(eq(itemLinks.id, row.id), eq(itemLinks.rev, row.rev))).run(),
   );
 }
 
@@ -476,55 +456,50 @@ async function pullPersonIdentifiers(): Promise<number> {
   });
 }
 
-async function pullSplitGroups(): Promise<number> {
+/** Both this user's items and friends' items with them (row-level security decides which). */
+async function pullSharedItems(): Promise<number> {
   const db = await getDb();
-  return pullTable<RemoteSplitGroup>('split_groups', '*', SPLIT_GROUPS_CURSOR, async (rows) => {
+  return pullTable<RemoteSharedItem>('shared_items', '*', SHARED_ITEMS_CURSOR, async (rows) => {
     for (const row of rows) {
-      const local = db.select({ dirty: splitGroups.dirty }).from(splitGroups).where(eq(splitGroups.id, row.id)).get();
-      if (local?.dirty === 1) continue;
-      const incoming = fromRemoteSplitGroup(row);
-      db.insert(splitGroups).values(incoming).onConflictDoUpdate({ target: splitGroups.id, set: incoming }).run();
+      const local = db.select({ dirty: sharedItems.dirty, myAnswer: sharedItems.myAnswer }).from(sharedItems).where(eq(sharedItems.id, row.id)).get();
+      // An edit or an answer not yet sent wins.
+      if (local?.dirty === 1 || local?.myAnswer) continue;
+      const incoming = fromRemoteSharedItem(row);
+      db.insert(sharedItems).values(incoming).onConflictDoUpdate({ target: sharedItems.id, set: incoming }).run();
     }
   });
 }
 
-/** Both the user's own IOUs and ones shared with them (RLS decides which). */
-async function pullIous(me: string): Promise<number> {
+async function pullItemLinks(): Promise<number> {
   const db = await getDb();
-  const confirmed: string[] = [];
-  const total = await pullTable<RemoteIou>('ious', '*', IOUS_CURSOR, async (rows) => {
+  return pullTable<RemoteItemLink>('item_links', '*', ITEM_LINKS_CURSOR, async (rows) => {
     for (const row of rows) {
-      const local = db.select({ dirty: ious.dirty, response: ious.response }).from(ious).where(eq(ious.id, row.id)).get();
-      // An edit or an answer not yet sent wins.
-      if (local?.dirty === 1 || local?.response) continue;
-      const incoming = fromRemoteIou(row);
-      db.insert(ious).values(incoming).onConflictDoUpdate({ target: ious.id, set: incoming }).run();
-      if (row.user_id !== me && row.confirmed_at) confirmed.push(row.id);
+      const local = db.select({ dirty: itemLinks.dirty }).from(itemLinks).where(eq(itemLinks.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteItemLink(row);
+      db.insert(itemLinks).values(incoming).onConflictDoUpdate({ target: itemLinks.id, set: incoming }).run();
     }
   });
-  // A confirmation from another of this user's phones: the repayments on it may be older than the cursor.
-  if (confirmed.length > 0) await pullPaymentsOf(confirmed);
-  return total;
 }
 
 /**
- * Decision 0020: an IOU a friend took back (changed or removed the email) is
- * hidden from this user by the server, so its change never comes down in the
- * pull. Any shared IOU on the phone the server no longer shows is marked gone
- * here; refreshIous then undoes what this user's ledger added for it.
+ * A friend's item moved to someone else (a new email) is hidden from this
+ * user by the server, so its change never comes down in the pull. Any of
+ * their items on the phone the server no longer shows is marked gone here;
+ * reconcileItems then undoes what this user's ledger has for it.
  */
-async function dropHiddenShares(me: string): Promise<number> {
+async function dropHiddenItems(me: string): Promise<number> {
   const db = await getDb();
   const local = db
-    .select({ id: ious.id })
-    .from(ious)
-    .where(and(ne(ious.userId, me), isNull(ious.deletedAt), isNull(ious.response)))
+    .select({ id: sharedItems.id })
+    .from(sharedItems)
+    .where(and(ne(sharedItems.userId, me), isNull(sharedItems.deletedAt), isNull(sharedItems.myAnswer)))
     .all();
   if (local.length === 0) return 0;
   const visible = new Set<string>();
   for (let offset = 0; ; offset += PULL_PAGE) {
     const { data, error } = await supabase
-      .from('ious')
+      .from('shared_items')
       .select('id')
       .neq('user_id', me)
       .is('deleted_at', null)
@@ -535,31 +510,8 @@ async function dropHiddenShares(me: string): Promise<number> {
     if ((data ?? []).length < PULL_PAGE) break;
   }
   const hidden = local.filter((r) => !visible.has(r.id)).map((r) => r.id);
-  if (hidden.length > 0) db.update(ious).set({ deletedAt: new Date().toISOString() }).where(inArray(ious.id, hidden)).run();
+  if (hidden.length > 0) db.update(sharedItems).set({ deletedAt: new Date().toISOString() }).where(inArray(sharedItems.id, hidden)).run();
   return hidden.length;
-}
-
-function applyPayments(db: Awaited<ReturnType<typeof getDb>>, rows: readonly RemoteIouPayment[]): void {
-  for (const row of rows) {
-    const local = db.select({ dirty: iouPayments.dirty }).from(iouPayments).where(eq(iouPayments.id, row.id)).get();
-    if (local?.dirty === 1) continue;
-    const incoming = fromRemoteIouPayment(row);
-    db.insert(iouPayments).values(incoming).onConflictDoUpdate({ target: iouPayments.id, set: incoming }).run();
-  }
-}
-
-async function pullPaymentsOf(iouIds: readonly string[]): Promise<void> {
-  const db = await getDb();
-  for (let i = 0; i < iouIds.length; i += 100) {
-    const { data, error } = await supabase.from('iou_payments').select('*').in('iou_id', iouIds.slice(i, i + 100));
-    if (error) throw error;
-    applyPayments(db, (data ?? []) as RemoteIouPayment[]);
-  }
-}
-
-async function pullIouPayments(): Promise<number> {
-  const db = await getDb();
-  return pullTable<RemoteIouPayment>('iou_payments', '*', IOU_PAYMENTS_CURSOR, async (rows) => applyPayments(db, rows));
 }
 
 export interface SyncResult {
@@ -607,9 +559,9 @@ async function wipeIfClearedElsewhere(clearedAt: unknown): Promise<void> {
 /**
  * Push then pull, in reference order: account types, accounts (including
  * categories), rules, transactions, anchors, budgets, recurring payments,
- * deposits, holdings, split groups, IOUs, IOU repayments. Postings point at accounts, rules,
- * budgets, recurring payments, deposits, holdings, groups and IOUs at accounts and categories,
- * anchors at sources, repayments at IOUs. Concurrent calls share one run.
+ * deposits, holdings, identifiers, shared items, item links. Postings point at accounts, rules,
+ * budgets, recurring payments, deposits and holdings at accounts and categories, anchors at
+ * sources, links at items, people and entries. Concurrent calls share one run.
  */
 export function syncNow(): Promise<SyncResult> {
   running ??= (async () => {
@@ -630,9 +582,8 @@ export function syncNow(): Promise<SyncResult> {
         (await pushDeposits()) +
         (await pushHoldings()) +
         (await pushPersonIdentifiers()) +
-        (await pushSplitGroups()) +
-        (await pushIous(me)) +
-        (await pushIouPayments(me));
+        (await pushSharedItems(me)) +
+        (await pushItemLinks());
       const pulled =
         (await pullAccountTypes()) +
         (await pullAccounts()) +
@@ -644,15 +595,21 @@ export function syncNow(): Promise<SyncResult> {
         (await pullDeposits()) +
         (await pullHoldings()) +
         (await pullPersonIdentifiers()) +
-        (await pullSplitGroups()) +
-        (await pullIous(me)) +
-        (await dropHiddenShares(me)) +
-        (await pullIouPayments());
+        (await pullSharedItems()) +
+        (await dropHiddenItems(me)) +
+        (await pullItemLinks());
       // ACC-9: friends' links become person accounts. Best effort: a failure here never stops the ledger sync.
       await syncFriendLinks().catch(reportBackground('friend-links'));
       // Decision 0025: payee names kept on this phone become identifiers once, and the user's own profile is cached for capture.
       await migrateAliases().catch(reportBackground('aliases'));
       await loadMyIdentifiers(me).catch(reportBackground('my-identifiers'));
+      // Decision 0026: entries follow what changed on items (a new amount, a removal, an answer).
+      const reconciled = await reconcileItems().catch((e) => {
+        reportBackground('shared-items')(e);
+        return 0;
+      });
+      // What reconciling changed goes up in a run of its own, once this one has finished.
+      if (reconciled > 0) setTimeout(() => void syncNow().catch(() => {}), 0);
       // Screens out of view reload on their next focus only after a change, so say when one came in.
       if (pulled > 0) notifyLedgerChange();
       return { pushed, pulled };
