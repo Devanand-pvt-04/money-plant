@@ -13,7 +13,7 @@ name: Database migrations
 on:
   push:
     branches: [main]
-    paths: ['supabase/migrations/**']
+    paths: ['supabase/migrations/**', '.github/workflows/migrate.yml']
   workflow_dispatch:
   workflow_call:
     secrets:
@@ -50,7 +50,8 @@ jobs:
           version: 3.0.0
       - run: supabase link --project-ref "$PROJECT_REF"
       # What will run, in the log, before it runs.
+      # CLI 3 targets the local stack unless told otherwise; --remote is the linked project.
       - name: Pending migrations
-        run: supabase db push --dry-run
+        run: supabase db push --remote --dry-run
       - name: Apply
-        run: supabase db push
+        run: supabase db push --remote
