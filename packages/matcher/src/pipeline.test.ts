@@ -4,10 +4,10 @@ import { normaliseSender, parseAnySms, parseNotification, parseSms, parseStateme
 import { MemoryStore } from './memory-store';
 import { cardBalance, checkTransaction, ingestNotification, ingestSms, ingestStatementRow, isEstimated, noteFor, reportedBalance, type PipelineContext } from './pipeline';
 
-function setup() {
+function setup(extra: Partial<PipelineContext> = {}) {
   const store = new MemoryStore();
   let n = 0;
-  const ctx: PipelineContext = { store, newId: () => `id-${n++}` };
+  const ctx: PipelineContext = { store, newId: () => `id-${n++}`, ...extra };
   let fp = 0;
   const sms = async (sender: string, body: string, receivedAt: string) => {
     const result = parseSms({ sender, body });
@@ -113,6 +113,12 @@ describe('ingestSms', () => {
     const { store, sms } = setup();
     await sms('VM-HDFCBK', HDFC_SENT('2000.00', 'RAVI KUMAR', '629412345601'), '2026-10-01T10:00:00.000Z');
     expect(store.live()[0]).toMatchObject({ status: 'pending', reviewReason: 'person' });
+  });
+
+  it('does not ask about a payment to the user themselves as a person (decision 0025)', async () => {
+    const { store, sms } = setup({ isSelf: (payee) => payee.name === 'RAVI KUMAR' });
+    await sms('VM-HDFCBK', HDFC_SENT('2000.00', 'RAVI KUMAR', '629412345601'), '2026-10-01T10:00:00.000Z');
+    expect(store.live()[0]?.reviewReason).not.toBe('person');
   });
 
   it('derives the opening balance from the earliest balance in an SMS', async () => {

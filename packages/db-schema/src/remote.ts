@@ -13,6 +13,7 @@ import type {
   HoldingKind,
   LocalRule,
   LocalSplitGroup,
+  LocalPersonIdentifier,
   LocalSource,
   LocalTransaction,
 } from './sqlite';
@@ -840,4 +841,60 @@ export function fromRemoteHolding(row: RemoteHolding): LocalHolding {
     dirty: 0,
     rev: 0,
   };
+}
+
+/** Decision 0025: an identifier on one of the user's people. */
+export interface RemotePersonIdentifier {
+  id: string;
+  user_id: string;
+  person_account_id: string;
+  kind: LocalPersonIdentifier['kind'];
+  value: string;
+  label: string | null;
+  source: LocalPersonIdentifier['source'];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemotePersonIdentifier(row: LocalPersonIdentifier): Omit<RemotePersonIdentifier, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    person_account_id: row.personAccountId,
+    kind: row.kind,
+    value: row.value,
+    label: row.label,
+    source: row.source,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemotePersonIdentifier(row: RemotePersonIdentifier): LocalPersonIdentifier {
+  return {
+    id: row.id,
+    personAccountId: row.person_account_id,
+    kind: row.kind,
+    value: row.value,
+    label: row.label,
+    source: row.source,
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+/** Decision 0025: one of the user's own identifiers, or a friend's shared one. */
+export interface RemoteMyIdentifier {
+  id: string;
+  user_id: string;
+  kind: LocalPersonIdentifier['kind'];
+  value: string;
+  label: string | null;
+  shared: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }

@@ -1,5 +1,6 @@
 import { mobileFromVpa } from './contacts';
 import { allVpas, payeeKey } from './ious';
+import { identifierClashes, type Identifier } from './identity';
 
 /**
  * Decision 0020: telling when two of the user's people are the same person,
@@ -13,9 +14,11 @@ export interface PersonFacts {
   email: string | null;
   extraVpas?: readonly string[];
   phone?: string | null;
+  /** Everything that identifies them (decision 0025). */
+  identifiers?: readonly Identifier[];
 }
 
-export type DuplicateReason = 'email' | 'vpa' | 'phone' | 'name';
+export type DuplicateReason = 'email' | 'vpa' | 'phone' | 'account' | 'name';
 
 export interface DuplicatePair {
   /** The person a merge keeps: the one linked on Money Plant (has an email), else the first. */
@@ -87,6 +90,8 @@ export function findDuplicatePeople(people: readonly PersonFacts[], dismissed: R
             ? 'vpa'
             : samePhone(a, b)
               ? 'phone'
+              : sameAccount(a, b)
+              ? 'account'
               : (!lower(a.email) || !lower(b.email)) && payeeKey(a.name) !== '' && payeeKey(a.name) === payeeKey(b.name)
               ? 'name'
               : null;
@@ -103,6 +108,13 @@ function samePhone(a: PersonFacts, b: PersonFacts): boolean {
   const phones = (p: PersonFacts) => new Set([p.phone, ...allVpas(p).map(mobileFromVpa)].filter((v): v is string => Boolean(v)));
   const pa = phones(a);
   return [...phones(b)].some((v) => pa.has(v)) && Boolean(a.phone || b.phone);
+}
+
+/** The same bank account, with its bank, on both (decision 0025). */
+function sameAccount(a: PersonFacts, b: PersonFacts): boolean {
+  const accountsOf = (p: PersonFacts) => (p.identifiers ?? []).filter((i) => i.kind === 'bank_account');
+  const theirs = accountsOf(b);
+  return theirs.length > 0 && identifierClashes([{ id: a.id, name: a.name, identifiers: accountsOf(a) }], null, theirs).length > 0;
 }
 
 export const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);

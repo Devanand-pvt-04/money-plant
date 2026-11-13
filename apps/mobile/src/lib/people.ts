@@ -1,13 +1,23 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
-import { accounts, iouPayments, ious, parseExtraVpas, personContacts, postings, splitGroups, transactions, type LocalAccount } from '@money-plant/db-schema';
-import { allVpas, clashingPerson, mobileDigits, mobileFromVpa, findDuplicatePeople, findPerson, outstanding, pairKey, payeeKey, type DuplicatePair } from '@money-plant/matcher';
+import { accounts, iouPayments, ious, personContacts, postings, splitGroups, transactions, type LocalAccount, type LocalPersonIdentifier } from '@money-plant/db-schema';
+import { findDuplicatePeople, findPerson, identifierClashes, mobileDigits, normaliseIdentifier, outstanding, pairKey, type DuplicatePair, type Identifier } from '@money-plant/matcher';
 import { getDb } from './db';
 import { homeConverter } from './home-money';
 import { kvGet, kvSet } from './kv';
 import { notifyLedgerChange } from './events';
 import { getMe, isVpa } from './me';
+import {
+  addIdentifiers,
+  identifiedPeople,
+  identifiersByPerson,
+  learnFromPayee,
+  matchPersonForPayee,
+  removeIdentifiersOf,
+  setIdentifiersOfKind,
+  toIdentifier,
+} from './identity';
 
 export interface Person {
   account: LocalAccount;
@@ -21,6 +31,8 @@ export interface Person {
   balances: { currency: CurrencyCode; amount: Paise }[];
   /** The phone contact this person is linked to, if any (local only, SPL-4). */
   contactId: string | null;
+  /** Everything that identifies them: UPI IDs, phone, bank accounts, payee names (decision 0025). */
+  identifiers: LocalPersonIdentifier[];
 }
 
 export async function listPeople(): Promise<Person[]> {
@@ -51,27 +63,33 @@ export async function listPeople(): Promise<Person[]> {
   const at = new Date().toISOString();
   const converter = await homeConverter([...totals.values()].flatMap((own) => [...own.keys()].map((currency) => ({ currency, occurredAt: at }))));
   const contacts = new Map(db.select().from(personContacts).all().map((c) => [c.personAccountId, c.contactId]));
+  const identifiers = await identifiersByPerson();
   return rows.map((account) => {
     const balances = [...(totals.get(account.id) ?? [])]
       .filter(([, amount]) => amount !== 0)
       .map(([currency, amount]) => ({ currency, amount: paise(amount) }))
       .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
     const balance = balances.reduce((sum, b) => sum + (converter.toHome(b.amount, b.currency, at) ?? 0), 0);
-    return { account, balance: paise(balance), balances, contactId: contacts.get(account.id) ?? null };
+    return { account, balance: paise(balance), balances, contactId: contacts.get(account.id) ?? null, identifiers: identifiers.get(account.id) ?? [] };
   });
 }
 
-/** A person's other UPI IDs, only for recognising their payments (decision 0021). */
-export const extraVpasOf = (account: Pick<LocalAccount, 'extraVpas'>): string[] => parseExtraVpas(account.extraVpas);
+/** A person's UPI IDs besides the one used to pay them, only for recognising their payments (decisions 0021, 0025). */
+export const extraVpasOf = (p: Pick<Person, 'account' | 'identifiers'>): string[] =>
+  p.identifiers.filter((i) => i.kind === 'upi' && i.value !== p.account.vpa?.toLowerCase()).map((i) => i.value);
 
-/** What matching needs to know about a person: name and every UPI ID. */
+/** A person's mobile number (decision 0025: the first one they have). */
+export const phoneOf = (p: Pick<Person, 'identifiers'>): string | null => p.identifiers.find((i) => i.kind === 'phone')?.value ?? null;
+
+/** What matching needs to know about a person: name, every UPI ID, phone, and all identifiers. */
 export const personRef = (p: Person) => ({
   id: p.account.id,
   name: p.account.name,
   vpa: p.account.vpa,
   email: p.account.email,
-  extraVpas: extraVpasOf(p.account),
-  phone: p.account.phone,
+  extraVpas: extraVpasOf(p),
+  phone: phoneOf(p),
+  identifiers: p.identifiers.map(toIdentifier),
 });
 
 /** Most UPI IDs one person can have besides the main one (decision 0021). */
@@ -89,6 +107,8 @@ export interface PersonInput {
   extraVpas?: readonly string[];
   /** Their mobile number in any form ("+91 98765 43210"); left out keeps what they have. */
   phone?: string | null;
+  /** Their bank accounts as typed, "HDFC 1234, SBI 5678" (decision 0025); left out keeps what they have. */
+  bankAccounts?: string;
   contactId?: string | null;
 }
 
@@ -113,8 +133,28 @@ function clean(input: PersonInput) {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email');
   const extraVpas = input.extraVpas === undefined ? undefined : cleanExtras(vpa, input.extraVpas);
   const phone = input.phone === undefined ? undefined : cleanPhone(input.phone);
-  return { name: name.slice(0, 80), vpa, email, extraVpas, ...(phone !== undefined ? { phone } : {}) };
+  const bankAccounts = input.bankAccounts === undefined ? undefined : parseBankAccounts(input.bankAccounts);
+  return { name: name.slice(0, 80), vpa, email, extraVpas, bankAccounts, ...(phone !== undefined ? { phone } : {}) };
 }
+
+/**
+ * Bank accounts typed in one field (decision 0025): "HDFC 1234, SBI XX5678".
+ * Each is a bank name and the account number or its last digits.
+ */
+export function parseBankAccounts(text: string): Identifier[] {
+  const out: Identifier[] = [];
+  for (const part of text.split(/[,;\n]+/).map((p) => p.trim()).filter(Boolean)) {
+    const digits = /[xX*]*(\d{3,18})\s*$/.exec(part)?.[1];
+    const bank = part.replace(/[xX*]*\d{3,18}\s*$/, '').trim();
+    const id = digits ? normaliseIdentifier('bank_account', digits, bank || null) : null;
+    if (!id) throw new Error(`Write each account as its bank and number, like HDFC 1234 (not "${part}")`);
+    if (!out.some((o) => o.value === id.value && o.label === id.label)) out.push(id);
+  }
+  return out;
+}
+
+/** A bank account as the person screen shows it: "HDFC 1234". */
+export const formatBankAccount = (id: Pick<Identifier, 'value' | 'label'>) => `${id.label ? `${id.label.toUpperCase()} ` : ''}${id.value}`;
 
 /** A 10-digit Indian mobile number, or null for none (decision 0021). */
 export function cleanPhone(raw: string | null): string | null {
@@ -124,10 +164,26 @@ export function cleanPhone(raw: string | null): string | null {
   return phone;
 }
 
-/** The columns to write: extra UPI IDs as the local JSON, only when given. */
+/** The account columns: the name, the UPI ID to pay them and their email. Other identifiers live in person_identifiers (decision 0025). */
 function columns(fields: ReturnType<typeof clean>) {
-  const { extraVpas, ...rest } = fields;
-  return { ...rest, ...(extraVpas !== undefined ? { extraVpas: JSON.stringify(extraVpas) } : {}) };
+  return { name: fields.name, vpa: fields.vpa, email: fields.email };
+}
+
+/** Writes the UPI IDs and phone typed on the person screen as identifiers. */
+async function writeIdentifiers(personId: string, fields: ReturnType<typeof clean>): Promise<void> {
+  const upi = (v: string) => normaliseIdentifier('upi', v);
+  if (fields.extraVpas !== undefined) {
+    const wanted = [fields.vpa, ...fields.extraVpas].map((v) => (v ? upi(v) : null)).filter((i): i is Identifier => i !== null);
+    await setIdentifiersOfKind(personId, ['upi'], wanted);
+  } else if (fields.vpa) {
+    const pay = upi(fields.vpa);
+    if (pay) await addIdentifiers(personId, [pay], 'typed');
+  }
+  if (fields.phone !== undefined) {
+    const phone = fields.phone ? normaliseIdentifier('phone', fields.phone) : null;
+    await setIdentifiersOfKind(personId, ['phone'], phone ? [phone] : []);
+  }
+  if (fields.bankAccounts !== undefined) await setIdentifiersOfKind(personId, ['bank_account'], fields.bankAccounts);
 }
 
 /**
@@ -137,21 +193,33 @@ function columns(fields: ReturnType<typeof clean>) {
 export class SamePersonError extends Error {
   constructor(
     readonly other: { id: string; name: string },
-    readonly field: 'email' | 'vpa' | 'phone',
+    readonly field: 'email' | 'vpa' | 'phone' | 'account',
   ) {
-    super(`${other.name} already has this ${field === 'email' ? 'email' : field === 'phone' ? 'phone number' : 'UPI ID'}. If they're the same person, merge them instead.`);
+    const what = field === 'email' ? 'email' : field === 'phone' ? 'phone number' : field === 'account' ? 'bank account' : 'UPI ID';
+    super(`${other.name} already has this ${what}. If they're the same person, merge them instead.`);
     this.name = 'SamePersonError';
   }
 }
 
 async function checkClash(
   self: string | null,
-  fields: { email: string | null; vpa: string | null; extraVpas?: readonly string[]; phone?: string | null },
+  fields: { email: string | null; vpa: string | null; extraVpas?: readonly string[]; phone?: string | null; bankAccounts?: readonly Identifier[] },
 ): Promise<void> {
-  if (!fields.email && !fields.phone && allVpas(fields).length === 0) return;
-  const people = (await listPeople()).map(personRef);
-  const clash = clashingPerson(people, self, fields);
-  if (clash) throw new SamePersonError({ id: clash.person.id, name: clash.person.name }, clash.field);
+  const people = await identifiedPeople();
+  const email = fields.email?.toLowerCase();
+  const byEmail = email ? people.find((p) => p.id !== self && p.email?.toLowerCase() === email) : undefined;
+  if (byEmail) throw new SamePersonError({ id: byEmail.id, name: byEmail.name }, 'email');
+  // Decision 0025: a strong identifier is on one person only.
+  const ids = [
+    ...[fields.vpa, ...(fields.extraVpas ?? [])].map((v) => (v ? normaliseIdentifier('upi', v) : null)),
+    fields.phone ? normaliseIdentifier('phone', fields.phone) : null,
+    ...(fields.bankAccounts ?? []),
+  ].filter((i): i is Identifier => i !== null);
+  const clash = identifierClashes(people, self, ids)[0];
+  if (clash) {
+    const kind = clash.identifier.kind;
+    throw new SamePersonError({ id: clash.person.id, name: clash.person.name }, kind === 'phone' ? 'phone' : kind === 'bank_account' ? 'account' : 'vpa');
+  }
 }
 
 async function linkContact(personId: string, contactId: string | null | undefined): Promise<void> {
@@ -169,6 +237,7 @@ export async function createPerson(input: PersonInput): Promise<string> {
   db.insert(accounts)
     .values({ id, type: 'person', ...columns(fields), institution: null, last4: null, openingBalancePaise: 0, createdAt: new Date().toISOString(), dirty: 1 })
     .run();
+  await writeIdentifiers(id, fields);
   await linkContact(id, input.contactId);
   notifyLedgerChange();
   return id;
@@ -183,18 +252,23 @@ export async function updatePerson(id: string, input: PersonInput): Promise<void
   const fields = clean(input);
   const db = await getDb();
   const before = db.select().from(accounts).where(eq(accounts.id, id)).get();
+  const had = (await identifiersByPerson()).get(id) ?? [];
+  const hadVpas = [before?.vpa?.toLowerCase(), ...had.filter((i) => i.kind === 'upi').map((i) => i.value)];
+  const hadPhones = had.filter((i) => i.kind === 'phone').map((i) => i.value);
+  const hadAccounts = had.filter((i) => i.kind === 'bank_account');
   // Only what changed is checked, so an older pair that already clashes can still be renamed.
-  const hadVpas = before ? allVpas({ vpa: before.vpa, extraVpas: extraVpasOf(before) }) : [];
   await checkClash(id, {
     email: fields.email !== before?.email ? fields.email : null,
     vpa: fields.vpa && !hadVpas.includes(fields.vpa) ? fields.vpa : null,
     extraVpas: (fields.extraVpas ?? []).filter((v) => !hadVpas.includes(v)),
-    phone: fields.phone && fields.phone !== before?.phone ? fields.phone : null,
+    phone: fields.phone && !hadPhones.includes(fields.phone) ? fields.phone : null,
+    bankAccounts: (fields.bankAccounts ?? []).filter((a) => !hadAccounts.some((h) => h.value === a.value && h.label === a.label)),
   });
   db.update(accounts)
     .set({ ...columns(fields), dirty: 1, rev: sql`${accounts.rev} + 1` })
     .where(eq(accounts.id, id))
     .run();
+  await writeIdentifiers(id, fields);
   if (before && before.email !== fields.email) await shareIousOf(id, fields.email);
   await linkContact(id, input.contactId);
   notifyLedgerChange();
@@ -255,46 +329,56 @@ export async function saveAliases(aliases: ReadonlyMap<string, string>): Promise
   await kvSet(ALIASES_KEY, JSON.stringify(Object.fromEntries(aliases)));
 }
 
-/** The person a payee is, by UPI ID, a name linked before, or the exact name. Null when no one matches; nothing is created. */
+/**
+ * The person a payee is (decision 0025): a strong identifier, a payee name
+ * one person has learned, else a hint by name. Null when no one matches.
+ */
 export async function findPersonForPayee(payee: { name: string | null; vpa: string | null }): Promise<string | null> {
+  const match = await matchPersonForPayee(payee);
+  if (match) return match.person.id;
+  // Payee names linked before decision 0025 were kept on this phone only.
   const [people, aliases] = await Promise.all([listPeople(), payeeAliases()]);
-  const found = findPerson(people.map(personRef), payee, aliases);
-  return found?.id ?? null;
+  return findPerson(people.map(personRef), payee, aliases)?.id ?? null;
 }
 
 /**
- * The user said a payment was to or from this person: remember the payee's
- * name and UPI ID for them, so the next payment is recognised (IOU-4). A new
- * UPI ID becomes their main one if they have none, else one of their other
- * UPI IDs (decision 0021). A UPI ID already on someone else is left alone.
+ * The user said a payment was to or from this person: learn its UPI ID, the
+ * number in it, the account and the payee name (decision 0025), so the next
+ * payment is recognised. One already on someone else is left alone. The first
+ * UPI ID becomes the one to pay them when they have none.
  */
 export async function rememberPayee(personId: string, payee: { name: string | null; vpa: string | null }): Promise<void> {
-  const people = await listPeople();
-  const person = people.find((p) => p.account.id === personId);
-  if (!person) return;
-  const key = payee.name ? payeeKey(payee.name) : '';
-  if (key && key !== payeeKey(person.account.name)) {
-    const aliases = await payeeAliases();
-    if (aliases.get(key) !== personId) {
-      aliases.set(key, personId);
-      await saveAliases(aliases);
+  const db = await getDb();
+  const account = db.select().from(accounts).where(eq(accounts.id, personId)).get();
+  if (!account) return;
+  await learnFromPayee(personId, payee);
+  const vpa = payee.vpa?.trim().toLowerCase();
+  if (!account.vpa && vpa && isVpa(vpa)) {
+    const people = await identifiedPeople();
+    const id = normaliseIdentifier('upi', vpa);
+    if (id && identifierClashes(people, personId, [id]).length === 0) {
+      db.update(accounts).set({ vpa, dirty: 1, rev: sql`${accounts.rev} + 1` }).where(eq(accounts.id, personId)).run();
     }
   }
-  const vpa = payee.vpa?.trim().toLowerCase();
-  if (!vpa || !isVpa(vpa) || people.some((p) => allVpas(personRef(p)).includes(vpa))) return;
-  const extras = extraVpasOf(person.account);
-  const mobile = mobileFromVpa(vpa);
-  // A UPI ID made from a mobile number: learn the number too, which covers their other apps' IDs.
-  if (mobile && !person.account.phone && !people.some((p) => p.account.phone === mobile)) {
-    await updatePerson(personId, { name: person.account.name, vpa: person.account.vpa ?? vpa, email: person.account.email, phone: mobile });
-    if (!person.account.vpa) return;
-  }
-  if (!person.account.vpa) {
-    await updatePerson(personId, { name: person.account.name, vpa, email: person.account.email });
-  } else if (extras.length < MAX_EXTRA_VPAS) {
-    await updatePerson(personId, { name: person.account.name, vpa: person.account.vpa, email: person.account.email, extraVpas: [...extras, vpa] });
-  }
 }
+
+/**
+ * Payee names linked on this phone before decision 0025 become learned
+ * identifiers, so every phone of the user knows them. Runs once.
+ */
+export async function migrateAliases(): Promise<void> {
+  if (await kvGet(ALIASES_MIGRATED_KEY)) return;
+  const db = await getDb();
+  const live = new Set(db.select({ id: accounts.id }).from(accounts).where(and(eq(accounts.type, 'person'), isNull(accounts.deletedAt))).all().map((r) => r.id));
+  for (const [key, personId] of await payeeAliases()) {
+    if (!live.has(personId)) continue;
+    const id = normaliseIdentifier('payee_name', key);
+    if (id) await addIdentifiers(personId, [id], 'learned');
+  }
+  await kvSet(ALIASES_MIGRATED_KEY, '1');
+}
+
+const ALIASES_MIGRATED_KEY = 'people.aliases.migrated';
 
 function groupsWith(db: Awaited<ReturnType<typeof getDb>>, id: string) {
   return db
@@ -379,6 +463,7 @@ export async function removePerson(id: string): Promise<void> {
     .where(eq(accounts.id, id))
     .run();
   db.delete(personContacts).where(eq(personContacts.personAccountId, id)).run();
+  await removeIdentifiersOf(id);
   const aliases = await payeeAliases();
   let changed = false;
   for (const [key, personId] of aliases) if (personId === id && aliases.delete(key)) changed = true;

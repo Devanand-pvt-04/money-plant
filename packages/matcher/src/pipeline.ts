@@ -42,6 +42,11 @@ export interface PipelineContext {
    * runs later, outside the pipeline, because it needs the network.
    */
   categorise?: (request: CategoriseRequest) => Promise<CategoryDecision | null>;
+  /**
+   * Decision 0025: whether the other side is the user themselves (one of their
+   * own UPI IDs or accounts). Such a payment is never asked about as a person.
+   */
+  isSelf?: (payee: { vpa: string | null; name: string | null }) => boolean;
 }
 
 export interface SmsCapture {
@@ -215,7 +220,7 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
       await store.saveTransaction(transaction);
       result = { outcome: 'created', transactionId: transaction.id };
     } else {
-      const person = looksLikePerson({ channel: parsed.channel, counterparty: transaction.counterparty, vpa: parsed.vpa });
+      const person = !ctx.isSelf?.({ vpa: parsed.vpa, name: transaction.counterparty }) && looksLikePerson({ channel: parsed.channel, counterparty: transaction.counterparty, vpa: parsed.vpa });
       const decision = await ctx.categorise?.({
         direction: parsed.direction,
         amount: parsed.amount,
@@ -408,7 +413,7 @@ export async function ingestStatementRow(ctx: PipelineContext, capture: Statemen
     ],
     sources: [source],
   };
-  const person = looksLikePerson({ channel: parsed.channel, counterparty: parsed.counterparty, vpa: parsed.vpa });
+  const person = !ctx.isSelf?.({ vpa: parsed.vpa, name: parsed.counterparty }) && looksLikePerson({ channel: parsed.channel, counterparty: parsed.counterparty, vpa: parsed.vpa });
   const decision = await ctx.categorise?.({
     direction: parsed.direction,
     amount: parsed.amount,
@@ -533,7 +538,7 @@ async function recategorise(ctx: PipelineContext, tx: LedgerTransaction, account
   if (!OWNED.has(accountsById.get(own.accountId)?.type ?? 'category')) return;
   const sms = tx.sources.find((s) => s.kind === 'sms')?.parsedFields as Partial<ParsedTransaction> | undefined;
   const vpa = sms?.vpa ?? null;
-  const person = looksLikePerson({ channel: sms?.channel ?? 'upi', counterparty: tx.counterparty, vpa });
+  const person = !ctx.isSelf?.({ vpa, name: tx.counterparty }) && looksLikePerson({ channel: sms?.channel ?? 'upi', counterparty: tx.counterparty, vpa });
   const decision = await ctx.categorise({
     direction: own.amount < 0 ? 'debit' : 'credit',
     amount: Math.abs(own.amount) as Paise,

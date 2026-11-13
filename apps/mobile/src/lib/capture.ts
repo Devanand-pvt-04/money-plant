@@ -1,4 +1,5 @@
 import * as Crypto from 'expo-crypto';
+import { selfCheck } from './identity';
 import { and, asc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { addDays, addMonthsToDate, convertOn, dateKey, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey } from '@money-plant/core';
 import { accounts, captureLog, pendingNotifications, sources, transactions } from '@money-plant/db-schema';
@@ -58,7 +59,7 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function context(): Promise<PipelineContext> {
-  return { store: await SqliteLedgerStore.open(), newId: () => Crypto.randomUUID(), categorise: await pipelineCategoriser() };
+  return { store: await SqliteLedgerStore.open(), newId: () => Crypto.randomUUID(), categorise: await pipelineCategoriser(), isSelf: await selfCheck() };
 }
 
 async function fingerprintOf(...parts: (string | number)[]): Promise<string> {

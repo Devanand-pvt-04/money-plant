@@ -3,7 +3,7 @@ import { Alert, Platform, Pressable, Text, TextInput, View } from 'react-native'
 import { Chip, Chips, radius, useColors, makeStyles } from '@/components/ui';
 import { mobileDigits } from '@money-plant/matcher';
 import { pickContact } from '@/lib/contacts';
-import { createPerson, type Person } from '@/lib/people';
+import { createPerson, phoneOf, type Person } from '@/lib/people';
 
 /**
  * People as chips, with a way to add someone by name or from the phone's
@@ -49,7 +49,7 @@ export function PersonPicker(props: {
         return;
       }
       const phone = contact.phones.map(mobileDigits).find((m): m is string => m !== null) ?? null;
-      const samePhone = phone ? props.people.find((p) => p.account.phone === phone) : undefined;
+      const samePhone = phone ? props.people.find((p) => phoneOf(p) === phone) : undefined;
       if (samePhone) {
         if (!props.selected.includes(samePhone.account.id)) props.onToggle(samePhone.account.id);
         setAdding(false);
