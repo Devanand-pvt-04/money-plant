@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
-import { ACCOUNT_TYPE_LABELS, convertOn, DEFAULT_CURRENCY, LIABILITY_TYPES, paise, reconcile, type AccountType, type CurrencyCode, type Paise, type Reconciliation } from '@money-plant/core';
+import { ACCOUNT_TYPE_LABELS, convertOn, statementEnd, DEFAULT_CURRENCY, LIABILITY_TYPES, paise, reconcile, type AccountType, type CurrencyCode, type Paise, type Reconciliation } from '@money-plant/core';
 import {
   accountTypes,
   accounts,
@@ -83,6 +83,10 @@ export async function listAccountBalances(): Promise<AccountBalance[]> {
     const ownAnchors = anchors
       .filter((a) => a.accountId === account.id)
       .map((a) => ({ observedAt: a.observedAt, balance: paise(a.balancePaise), from: a.sourceKind === 'statement' ? ('statement' as const) : ('sms' as const) }));
+    // Decision 0024: a card without a credit limit is checked against its latest bill, at the end of the statement day.
+    if (account.type === 'credit_card' && account.creditLimitPaise === null && account.billStatementOn && account.billTotalPaise !== null) {
+      ownAnchors.push({ observedAt: statementEnd(account.billStatementOn), balance: paise(-account.billTotalPaise), from: 'statement' as const });
+    }
     const custom = account.accountTypeId ? customTypes.get(account.accountTypeId) : undefined;
     const deposit = depositTerms.get(account.id);
     return {

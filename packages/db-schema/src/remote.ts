@@ -38,6 +38,12 @@ export interface RemoteAccount {
   phone?: string | null;
   /** Decision 0024. Missing from rows of a server without the migration. */
   credit_limit_paise?: number | null;
+  statement_day?: number | null;
+  due_days?: number | null;
+  bill_statement_on?: string | null;
+  bill_due_on?: string | null;
+  bill_total_paise?: number | null;
+  bill_minimum_paise?: number | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -74,6 +80,12 @@ export function toRemoteAccount(row: LocalAccount): RemoteAccountWrite {
     extra_vpas: parseExtraVpas(row.extraVpas),
     phone: row.phone,
     credit_limit_paise: row.creditLimitPaise,
+    statement_day: row.statementDay,
+    due_days: row.dueDays,
+    bill_statement_on: row.billStatementOn,
+    bill_due_on: row.billDueOn,
+    bill_total_paise: row.billTotalPaise,
+    bill_minimum_paise: row.billMinimumPaise,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -97,6 +109,12 @@ export function fromRemoteAccount(row: RemoteAccount): LocalAccount {
     extraVpas: JSON.stringify(row.extra_vpas ?? []),
     phone: row.phone ?? null,
     creditLimitPaise: row.credit_limit_paise == null ? null : Number(row.credit_limit_paise),
+    statementDay: row.statement_day ?? null,
+    dueDays: row.due_days ?? null,
+    billStatementOn: row.bill_statement_on ?? null,
+    billDueOn: row.bill_due_on ?? null,
+    billTotalPaise: row.bill_total_paise == null ? null : Number(row.bill_total_paise),
+    billMinimumPaise: row.bill_minimum_paise == null ? null : Number(row.bill_minimum_paise),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

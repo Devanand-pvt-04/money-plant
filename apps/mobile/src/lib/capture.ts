@@ -7,6 +7,7 @@ import {
   BANK_SENDER_TOKENS,
   normaliseSender,
   parseNotification,
+  parseCardStatement,
   parsePreDebit,
   identifyBankSender,
   parseAnySms,
@@ -21,6 +22,7 @@ import { checkPaceAlerts } from './budgets';
 import { pipelineCategoriser } from './categories';
 import { refreshIous } from './ious';
 import { applyPreDebitNotice, refreshRecurring } from './recurring';
+import { applyCardStatement } from './cards';
 import { getDb } from './db';
 import { reportBackground } from './errors';
 import { notifyLedgerChange } from './events';
@@ -208,6 +210,15 @@ async function captureSmsNow(message: SmsMessage): Promise<IngestResult | null> 
   const receivedAt = new Date(message.receivedAt).toISOString();
   // REC-1: an autopay notice is not a payment, but it says one is coming. Notices
   // for dates already past (an old inbox) are skipped; detection covers history.
+  // Decision 0024: a card's statement or bill-due message is the bill, not a payment.
+  const statement = parseCardStatement({ sender: message.sender, body: message.body }, new Date(receivedAt));
+  if (statement && (await applyCardStatement(statement, receivedAt))) {
+    db.insert(captureLog)
+      .values({ fingerprint, channel: 'sms', sender, receivedAt, status: 'ignored', reason: 'card_statement', rawText: null })
+      .onConflictDoNothing()
+      .run();
+    return null;
+  }
   const notice = parsePreDebit({ sender: message.sender, body: message.body }, new Date());
   if (notice) {
     await applyPreDebitNotice(notice);

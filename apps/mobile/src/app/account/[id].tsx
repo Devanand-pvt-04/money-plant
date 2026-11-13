@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Alert, FlatList, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { formatMoney, formatRupees, isBalanceScheme, monthOf, paise, SCHEMES, type Paise, type SchemeKind } from '@money-plant/core';
+import { formatMoney, formatRupees, isBalanceScheme, monthOf, paise, SCHEMES, startOfDate, type Paise, type SchemeKind } from '@money-plant/core';
 import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { accountLabel } from '@/components/account-picker';
 import { LineChart } from '@/components/line-chart';
@@ -17,6 +17,7 @@ import { marketValues, type MarketAccountValue } from '@/lib/demat';
 import { adoptBankBalance, listAccountBalances, listTransactions, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { recurringOverview, type UpcomingPayment } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
+import { cardCycle, type CardCycle } from '@/lib/cards';
 
 async function load(id: string) {
   const [balances, rows, deposit, holdings, recurring] = await Promise.all([
@@ -111,6 +112,7 @@ function GenericView({ data, footer }: { data: typeof EMPTY; footer: React.React
               <PillButton title={account.type === 'credit_card' ? "Use card's balance" : "Use bank's balance"} onPress={() => adoptBankBalance(account.id, reconciliation.latest.anchor)} />
             )}
           </View>
+          {account.type === 'credit_card' && <CardBillCard accountId={account.id} currency={account.currency} />}
           {account.type === 'credit_card' && account.creditLimitPaise === null && (
             <Text style={styles.meta}>Add the card's credit limit so its SMS can tell the app what the card really owes.</Text>
           )}
@@ -121,6 +123,46 @@ function GenericView({ data, footer }: { data: typeof EMPTY; footer: React.React
       ListFooterComponent={footer}
       renderItem={({ item }) => <TransactionItem row={item} />}
     />
+  );
+}
+
+/** Decision 0024: the card's latest bill, whether payments cleared it, and this cycle's spending. */
+/** A calendar date like "2026-10-18" on the phone's own clock. */
+const onDay = (key: string) => formatDate(startOfDate(key).toISOString());
+
+function CardBillCard({ accountId, currency }: { accountId: string; currency: string }) {
+  const styles = useStyles();
+  const { data } = useLedger(() => cardCycle(accountId), null as CardCycle | null, `card-cycle-${accountId}`);
+  if (!data) return null;
+  const { bill, cycleSpend, cycleStart, nextStatement } = data;
+  const due = bill?.dueOn ? onDay(bill.dueOn) : null;
+  return (
+    <Pressable accessibilityRole="button" onPress={() => router.push(`/account/cycle?id=${accountId}`)} style={({ pressed }) => [styles.card, pressed && styles.pressedCard]}>
+      {bill ? (
+        <>
+          <View style={styles.line}>
+            <Text style={styles.lineLabel}>Bill of {onDay(bill.statementOn)}</Text>
+            <Text style={styles.lineAmount}>{formatMoney(bill.total, currency)}</Text>
+          </View>
+          <Text style={styles.cardText}>
+            {bill.status.cleared
+              ? `Paid${bill.status.paid > bill.total ? ` (${formatMoney(bill.status.paid, currency)})` : ''}. The bill is cleared.`
+              : bill.status.paid > 0
+                ? `${formatMoney(bill.status.paid, currency)} paid, ${formatMoney(bill.status.remaining, currency)} still due${due ? ` by ${due}` : ''}.`
+                : `${formatMoney(bill.status.remaining, currency)} due${due ? ` by ${due}` : ''}${bill.minimum !== null ? ` (minimum ${formatMoney(bill.minimum, currency)})` : ''}.`}
+          </Text>
+        </>
+      ) : (
+        <Text style={styles.cardText}>The card's statement SMS will show the bill here.</Text>
+      )}
+      {cycleSpend !== null && cycleStart && (
+        <View style={styles.line}>
+          <Text style={styles.lineLabel}>Spent since {onDay(cycleStart)}</Text>
+          <Text style={styles.lineAmount}>{formatMoney(cycleSpend, currency)}</Text>
+        </View>
+      )}
+      <Text style={styles.note}>{nextStatement ? `Next statement ${onDay(nextStatement)}. Tap to change the billing cycle.` : 'Tap to add the billing cycle.'}</Text>
+    </Pressable>
   );
 }
 

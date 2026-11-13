@@ -34,6 +34,14 @@ export const accounts = sqliteTable(
     phone: text('phone'),
     /** For credit cards: the credit limit, so the available limit in card SMS gives the amount owed (decision 0024). */
     creditLimitPaise: integer('credit_limit_paise'),
+    /** For credit cards: the day of the month the statement is made, and how many days after it the bill is due (decision 0024). */
+    statementDay: integer('statement_day'),
+    dueDays: integer('due_days'),
+    /** For credit cards: the latest bill, from a statement SMS. Dates are "2026-10-18". */
+    billStatementOn: text('bill_statement_on'),
+    billDueOn: text('bill_due_on'),
+    billTotalPaise: integer('bill_total_paise'),
+    billMinimumPaise: integer('bill_minimum_paise'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -872,4 +880,11 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   ALTER TABLE accounts ADD COLUMN phone TEXT;`,
   // A credit card's credit limit (decision 0024).
   `ALTER TABLE accounts ADD COLUMN credit_limit_paise INTEGER;`,
+  // A credit card's billing cycle and latest bill (decision 0024).
+  `ALTER TABLE accounts ADD COLUMN statement_day INTEGER;
+  ALTER TABLE accounts ADD COLUMN due_days INTEGER;
+  ALTER TABLE accounts ADD COLUMN bill_statement_on TEXT;
+  ALTER TABLE accounts ADD COLUMN bill_due_on TEXT;
+  ALTER TABLE accounts ADD COLUMN bill_total_paise INTEGER;
+  ALTER TABLE accounts ADD COLUMN bill_minimum_paise INTEGER;`,
 ];
