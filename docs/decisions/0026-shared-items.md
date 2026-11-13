@@ -37,3 +37,12 @@ Decided by Deva on 2026-11-13, in the thread "Rework IOUs and splits", as step 2
 | A friend who isn't in People yet | Their items show as "A friend" until the next sync makes them a person; answering waits for that | The friend link is what makes them a person (ACC-9) |
 
 Deploy: `npx supabase db push` (both migrations) before the update.
+
+## Step 4: one bill, several people
+
+Decided by Deva on 2026-11-13 ("Yes proceed").
+
+- The split form takes several people for a bill the user paid. Shares are equal (with or without the user, who keeps the odd paise) or typed per person. `createSplit` makes one share per person with one `group_ref`, all or none, and each one comes off the entry's category; what is left there is the user's own part.
+- Each friend sees and answers only their own share, and each settles person by person. The creator's item page lists the other shares of the same bill.
+- Named groups that remember a set of people (a trip, flatmates) aren't built yet; the server's `split_groups` table stays retired.
+- No migration: `group_ref` was already on `shared_items`.

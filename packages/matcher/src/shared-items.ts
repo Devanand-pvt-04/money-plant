@@ -232,3 +232,17 @@ export function ledgerGap(shared: ReadonlyMap<CurrencyCode, Paise>, ledger: Read
   }
   return out;
 }
+
+/**
+ * Step 4: a bill split equally. Returns each other person's share, in order.
+ * With `includeMe` the user is one of the parts and keeps any paise left over
+ * on the category; without, the leftover paise go one each to the first people,
+ * so the shares add up to the whole bill.
+ */
+export function splitEqually(total: Paise, people: number, includeMe: boolean): Paise[] {
+  if (!Number.isSafeInteger(total) || total <= 0 || people <= 0) return [];
+  const parts = people + (includeMe ? 1 : 0);
+  const each = Math.floor(total / parts);
+  const extra = includeMe ? 0 : total - each * parts;
+  return Array.from({ length: people }, (_, i) => paise(each + (i < extra ? 1 : 0)));
+}

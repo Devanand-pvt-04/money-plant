@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { currencyInfo, dateKey, dateOf, formatMoney, paise, parseMoney, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
-import type { LedgerTransaction } from '@money-plant/matcher';
+import { splitEqually, type LedgerTransaction } from '@money-plant/matcher';
 import { CategoryPicker } from '@/components/category-picker';
 import { DateField } from '@/components/date-fields';
 import { formatAmount, formatDate } from '@/components/format';
@@ -13,7 +13,7 @@ import { homeCurrency } from '@/lib/home-currency';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { isVpa } from '@/lib/me';
 import { createPerson, findPersonForPayee, listPeople, SamePersonError, type Person } from '@/lib/people';
-import { createItem, entriesFitting, type EntrySide, type ItemFlow, type ItemKind } from '@/lib/shared';
+import { createItem, createSplit, entriesFitting, type EntrySide, type ItemFlow, type ItemKind } from '@/lib/shared';
 
 interface Choice {
   kind: ItemKind;
@@ -54,7 +54,10 @@ export default function NewItem() {
   const params = useLocalSearchParams<{ from?: string; person?: string; kind?: string; flow?: string }>();
   const [people, setPeople] = useState<Person[]>([]);
   const [accounts, setAccounts] = useState<AccountBalance[]>([]);
-  const [personId, setPersonIdState] = useState<string | null>(params.person ?? null);
+  // Several people only for a bill the user paid (step 4); the first is the one for everything else.
+  const [picked, setPicked] = useState<string[]>(params.person ? [params.person] : []);
+  const personId = picked[0] ?? null;
+  const setPersonIdState = (id: string | null) => setPicked(id ? [id] : []);
   // The entry's payee when they aren't one of the user's people yet: created only on save.
   const [draft, setDraft] = useState<{ name: string; vpa: string | null } | null>(null);
   const [draftSelected, setDraftSelected] = useState(false);
@@ -68,6 +71,10 @@ export default function NewItem() {
     flow: params.flow === 'to_me' ? 'to_me' : 'to_them',
   });
   const [amount, setAmount] = useState('');
+  const [billTotal, setBillTotal] = useState('');
+  const [equal, setEqual] = useState(true);
+  const [includeMe, setIncludeMe] = useState(true);
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [reason, setReason] = useState('');
   const [occurredOn, setOccurredOn] = useState<DateKey>(() => dateKey(new Date()));
   const [category, setCategory] = useState<{ id: string; name: string } | null>(null);
@@ -117,9 +124,22 @@ export default function NewItem() {
   const choices = fromTx ? (fromTx.own < 0 ? MONEY_OUT : MONEY_IN) : ALL;
   const paidByThem = choice.kind === 'share' && choice.flow === 'to_me';
   const wholeEntry = fromTx !== null && choice.kind !== 'share';
+  const canPickSeveral = choice.kind === 'share' && choice.flow === 'to_them';
+  const several = canPickSeveral && picked.length > 1;
+  const typedTotal = parseMoney(billTotal, currency);
+  const total = fromTx ? paise(Math.abs(fromTx.own)) : typedTotal === null ? null : paise(typedTotal);
+  const equalShares = total !== null && total > 0 ? splitEqually(total, picked.length, includeMe) : [];
+  const shareOf = (id: string, i: number): Paise | null => {
+    if (equal) return equalShares[i] ?? null;
+    const v = parseMoney(amounts[id] ?? '', currency);
+    return v === null ? null : paise(v);
+  };
+  const splitParts = picked.map((id, i) => shareOf(id, i));
+  const splitSum = splitParts.every((v): v is Paise => v !== null) ? paise(splitParts.reduce((a, b) => a + b, 0)) : null;
 
   function pick(next: Choice) {
     setChoice(next);
+    if (!(next.kind === 'share' && next.flow === 'to_them')) setPicked((now) => now.slice(0, 1));
     if (fromTx) {
       const whole = Math.abs(fromTx.own);
       const start = next.kind === 'share' ? Math.round(whole / 2) : whole;
@@ -129,13 +149,14 @@ export default function NewItem() {
 
   // Offer the entries that are probably the user's side of it.
   useEffect(() => {
-    if (fromTx || paidByThem || parsed === null || parsed <= 0) return setCandidates([]);
+    const wanted = several ? splitSum : parsed;
+    if (fromTx || paidByThem || wanted === null || wanted <= 0) return setCandidates([]);
     let live = true;
-    entriesFitting({ kind: choice.kind, flow: choice.flow, amount: parsed, occurredOn, personId }).then((found) => live && setCandidates(found.slice(0, 4)));
+    entriesFitting({ kind: choice.kind, flow: choice.flow, amount: wanted, occurredOn, personId }).then((found) => live && setCandidates(found.slice(0, 4)));
     return () => {
       live = false;
     };
-  }, [fromTx, paidByThem, parsed, choice.kind, choice.flow, occurredOn, personId]);
+  }, [fromTx, paidByThem, parsed, several, splitSum, choice.kind, choice.flow, occurredOn, personId]);
 
   const sideFor = useMemo((): EntrySide => {
     if (paidByThem) return category ? { categoryId: category.id } : null;
@@ -144,7 +165,25 @@ export default function NewItem() {
     return null;
   }, [paidByThem, category, side, occurredOn]);
 
+  async function saveSplit() {
+    const shares = picked.map((id, i) => ({ personId: id, amount: shareOf(id, i) }));
+    if (equal && (total === null || total <= 0)) return setError('Enter the bill total as a number above zero');
+    if (shares.some((s) => s.amount === null || s.amount <= 0)) return setError("Enter each person's share as a number above zero");
+    setSaving(true);
+    try {
+      const ids = await createSplit(
+        { shares: shares.map((s) => ({ personId: s.personId, amount: s.amount! })), occurredOn, reason: reason.trim() || null },
+        side.type === 'entry' ? side.id : null,
+      );
+      router.replace(`/item/${ids[0]}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSaving(false);
+    }
+  }
+
   async function save() {
+    if (several) return saveSplit();
     if (!personId && !(draft && draftSelected)) return setError('Pick who it is with');
     if (parsed === null || parsed <= 0) return setError('Enter the amount as a number above zero');
     if (fromTx && parsed > Math.abs(fromTx.own)) return setError(`This entry is ${formatAmount(Math.abs(fromTx.own), fromTx.currency)}; a share can't be more`);
@@ -185,9 +224,13 @@ export default function NewItem() {
       <Text style={styles.label}>With</Text>
       <PersonPicker
         people={people}
-        selected={personId ? [personId] : []}
-        onToggle={(id) => setPersonId(id === personId ? null : id)}
-        onCreated={(id) => reloadPeople().then(() => setPersonId(id))}
+        selected={picked}
+        onToggle={(id) => {
+          if (!canPickSeveral) return setPersonId(id === personId ? null : id);
+          setDraftSelected(false);
+          setPicked((now) => (now.includes(id) ? now.filter((p) => p !== id) : [...now, id]));
+        }}
+        onCreated={(id) => reloadPeople().then(() => (canPickSeveral ? setPicked((now) => [...now, id]) : setPersonId(id)))}
         draft={
           draft
             ? {
@@ -216,6 +259,40 @@ export default function NewItem() {
           : 'Money moved between you, so it is linked to the payment in your account.'}
       </Text>
 
+      {canPickSeveral && <Text style={styles.hint}>Pick more than one person to split the bill between them.</Text>}
+
+      {several ? (
+        <>
+          <Text style={styles.label}>Split</Text>
+          <Chips>
+            <Chip label="Equally" selected={equal} onPress={() => setEqual(true)} />
+            <Chip label="By amount" selected={!equal} onPress={() => setEqual(false)} />
+            {equal && <Chip label={includeMe ? 'Including me' : 'Not including me'} selected={includeMe} onPress={() => setIncludeMe(!includeMe)} />}
+          </Chips>
+          {fromTx ? (
+            <Text style={styles.hint}>Of {formatAmount(Math.abs(fromTx.own), fromTx.currency)} you paid. What isn't shared stays your spending.</Text>
+          ) : (
+            equal && <Field label={`Bill total (${currencyInfo(currency).symbol.trim()})`} value={billTotal} onChangeText={setBillTotal} keyboardType="decimal-pad" />
+          )}
+          {picked.map((id, i) => {
+            const name = people.find((p) => p.account.id === id)?.account.name ?? 'Someone';
+            return equal ? (
+              <View key={id} style={styles.shareRow}>
+                <Text style={styles.value}>{name}</Text>
+                <Text style={styles.value}>{equalShares[i] !== undefined ? formatAmount(equalShares[i]!, currency) : '—'}</Text>
+              </View>
+            ) : (
+              <Field
+                key={id}
+                label={`${name}'s share (${currencyInfo(currency).symbol.trim()})`}
+                value={amounts[id] ?? ''}
+                onChangeText={(v) => setAmounts((now) => ({ ...now, [id]: v }))}
+                keyboardType="decimal-pad"
+              />
+            );
+          })}
+        </>
+      ) : (
       <Field
         label={`${choice.kind === 'share' ? (choice.flow === 'to_them' ? 'Their share' : 'Your share') : 'Amount'} (${currencyInfo(currency).symbol.trim()})`}
         value={amount}
@@ -223,7 +300,8 @@ export default function NewItem() {
         keyboardType="decimal-pad"
         editable={!wholeEntry}
       />
-      {fromTx && choice.kind === 'share' && <Text style={styles.hint}>Of {formatAmount(Math.abs(fromTx.own), fromTx.currency)} you paid.</Text>}
+      )}
+      {fromTx && choice.kind === 'share' && !several && <Text style={styles.hint}>Of {formatAmount(Math.abs(fromTx.own), fromTx.currency)} you paid.</Text>}
       <Field label="What for" value={reason} onChangeText={setReason} placeholder={choice.kind === 'share' ? 'Dinner at Anna’s' : 'Concert tickets'} maxLength={120} />
       {fromTx ? (
         <Field label="When" value={formatDate(fromTx.tx.occurredAt)} editable={false} />
@@ -303,4 +381,5 @@ const useStyles = makeStyles((colors) => ({
   date: { marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   actions: { marginTop: 24, gap: 10 },
+  shareRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
 }));

@@ -50,6 +50,8 @@ export type { ItemFlow, ItemKind, ItemStatus } from '@money-plant/matcher';
 export interface ItemView extends SharedItem {
   reason: string | null;
   categoryName: string | null;
+  /** Ties the shares of one bill split with several people (step 4). */
+  groupRef: string | null;
   createdAt: string;
   /** This user's person for the other side; null when the friend isn't a person here yet. */
   personId: string | null;
@@ -96,6 +98,7 @@ function toView(row: LocalSharedItem, meId: string, link: LocalItemLink | undefi
     ...base,
     reason: row.reason,
     categoryName: row.categoryName,
+    groupRef: row.groupRef,
     createdAt: row.createdAt,
     personId: person?.account.id ?? null,
     personName: person?.account.name ?? 'A friend',
@@ -391,6 +394,8 @@ export interface NewItem {
   amount: Paise;
   occurredOn: DateKey;
   reason: string | null;
+  /** The shares of one bill split with several people share this id (decision 0026, step 4). */
+  groupRef?: string | null;
 }
 
 /** The currency an item takes from where its money is. */
@@ -442,6 +447,7 @@ export async function createItem(input: NewItem, side: EntrySide): Promise<strin
       occurredOn: input.occurredOn,
       reason: input.reason?.trim().slice(0, 120) || null,
       categoryName: input.kind === 'share' ? await categoryNameOf(db, side) : null,
+      groupRef: input.groupRef ?? null,
       counterpartyEmail: person.account.email,
       createdAt: now(),
       dirty: 1,
@@ -462,6 +468,54 @@ export async function createItem(input: NewItem, side: EntrySide): Promise<strin
   notifyLedgerChange();
   pushSoon();
   return id;
+}
+
+/**
+ * Step 4: one bill split with several people, one share each, tied together
+ * by a group ref and settled person by person. With an entry, every share
+ * comes off its category; what is left there is the user's own part.
+ */
+export async function createSplit(
+  input: { shares: readonly { personId: string; amount: Paise }[]; occurredOn: DateKey; reason: string | null },
+  transactionId: string | null,
+): Promise<string[]> {
+  const shares = input.shares.filter((s) => s.amount > 0);
+  if (shares.length === 0) throw new Error('Pick who it is with');
+  if (new Set(shares.map((s) => s.personId)).size !== shares.length) throw new Error('Pick each person once');
+  if (transactionId) {
+    const db = await getDb();
+    const tx = await loadTx(db, transactionId);
+    if (!tx) throw new Error('Entry not found');
+    const owned = ownedAccountIds(db);
+    const people = peopleIds(db);
+    const left = tx.postings.filter((p) => !owned.has(p.accountId) && !people.has(p.accountId) && p.amount > 0).reduce((s, p) => s + p.amount, 0);
+    const total = shares.reduce((s, x) => s + x.amount, 0);
+    const currency = tx.postings.find((p) => owned.has(p.accountId))?.currency;
+    if (total > left) throw new Error(`The shares add up to ${formatAmount(total, currency)}, more than the ${formatAmount(left, currency)} left on this entry`);
+  }
+  const groupRef = shares.length > 1 ? Crypto.randomUUID() : null;
+  const made: string[] = [];
+  try {
+    for (const share of shares) {
+      made.push(
+        await createItem(
+          { personId: share.personId, kind: 'share', flow: 'to_them', amount: share.amount, occurredOn: input.occurredOn, reason: input.reason, groupRef },
+          transactionId ? { transactionId } : null,
+        ),
+      );
+    }
+  } catch (e) {
+    // All or none: the shares already made go again.
+    for (const id of made) await deleteItem(id).catch(() => {});
+    throw e;
+  }
+  return made;
+}
+
+/** The other shares of the same bill, on the creator's phone (a friend sees only their own). */
+export async function sameBill(view: Pick<ItemView, 'id' | 'groupRef'>): Promise<ItemView[]> {
+  if (!view.groupRef) return [];
+  return (await listItems()).filter((v) => v.groupRef === view.groupRef && v.id !== view.id);
 }
 
 /**

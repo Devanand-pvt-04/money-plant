@@ -3,6 +3,7 @@ import { paise } from '@money-plant/core';
 import {
   counterpartCandidates,
   itemStatus,
+  splitEqually,
   ledgerGap,
   linkPostings,
   sharedBalance,
@@ -190,5 +191,21 @@ describe('itemStatus and ledgerGap', () => {
     const gap = ledgerGap(new Map([['INR', paise(80000)]]), new Map([['INR', paise(60000)]]));
     expect(Object.fromEntries(gap)).toEqual({ INR: 20000 });
     expect(ledgerGap(new Map([['INR', paise(1)]]), new Map([['INR', paise(1)]])).size).toBe(0);
+  });
+});
+
+describe('splitEqually (step 4)', () => {
+  it('gives each person an equal share and keeps the odd paise on the user', () => {
+    expect(splitEqually(paise(100_000), 2, true)).toEqual([33_333, 33_333]);
+  });
+
+  it('adds up to the whole bill when the user is not part of it', () => {
+    const shares = splitEqually(paise(100_000), 3, false);
+    expect(shares).toEqual([33_334, 33_333, 33_333]);
+    expect(shares.reduce((s, x) => s + x, 0)).toBe(100_000);
+  });
+
+  it('splits nothing for no one', () => {
+    expect(splitEqually(paise(100_000), 0, true)).toEqual([]);
   });
 });
