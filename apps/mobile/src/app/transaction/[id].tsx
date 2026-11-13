@@ -16,6 +16,7 @@ import { whyLabel } from '@/components/why';
 import { confirmEntry, editEntry } from '@/lib/entries';
 import { repaymentOptions } from '@/lib/ious';
 import { deleteTransaction, getTransaction, splitTransfer, type TransactionRow } from '@/lib/ledger';
+import { PEOPLE_PAUSED } from '@/lib/maintenance';
 import { getRule } from '@/lib/rules-store';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -69,7 +70,7 @@ export default function TransactionDetail() {
   const [repayable, setRepayable] = useState(false);
   const plain = row !== null && (row.tx.kind === 'expense' || row.tx.kind === 'income') && row.tx.postings.length === 2;
   useEffect(() => {
-    if (!plain) return setRepayable(false);
+    if (!plain || PEOPLE_PAUSED) return setRepayable(false);
     let live = true;
     repaymentOptions(id).then(
       (r) => live && setRepayable(r.options.length > 0),
@@ -103,8 +104,10 @@ export default function TransactionDetail() {
   const foreign = foreignAmount(tx);
   const firstSource = [...tx.sources].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))[0];
   const badge = firstSource ? (SOURCE_BADGES[firstSource.kind] ?? 'Added') : null;
-  const canSplit = tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0;
-  const canLend = (tx.kind === 'expense' || tx.kind === 'income') && !split && row.legs.length === 1 && twoLegs;
+  // Splits and loans are paused while they are redesigned.
+  const canSplit = !PEOPLE_PAUSED && tx.kind === 'expense' && row.legs.length === 1 && row.legs[0]!.amount < 0;
+  const canLend = !PEOPLE_PAUSED && (tx.kind === 'expense' || tx.kind === 'income') && !split && row.legs.length === 1 && twoLegs;
+  const showSplit = canSplit || (split && !PEOPLE_PAUSED);
   const canRecur = tx.kind === 'expense' && row.legs.length === 1;
   const editCategory = () => (split ? router.push(`/expense?from=${tx.id}`) : change(tx.id, flow, tx.counterparty));
 
@@ -197,9 +200,9 @@ export default function TransactionDetail() {
         )}
       </Card>
 
-      {(canSplit || split || canRecur || canLend) && (
+      {(showSplit || canRecur || canLend) && (
         <View style={styles.actions}>
-          {(canSplit || split) && <Action icon="users" title={split ? 'Change split' : 'Split'} onPress={() => router.push(`/expense?from=${tx.id}`)} />}
+          {showSplit && <Action icon="users" title={split ? 'Change split' : 'Split'} onPress={() => router.push(`/expense?from=${tx.id}`)} />}
           {canRecur && <Action icon="repeat" title="Recurring" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />}
           {canLend && <Action icon="corner-up-right" title={row.legs[0]!.amount < 0 ? 'I lent it' : 'I borrowed it'} onPress={() => router.push(`/iou/new?from=${tx.id}`)} />}
           {canLend && repayable && (

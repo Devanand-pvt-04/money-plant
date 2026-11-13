@@ -18,6 +18,7 @@ import { owedSummary, type OwedSummary } from '@/lib/ious';
 import { catchUpDue, usePullToRefresh } from '@/lib/refresh';
 import { setupState, type SetupState } from '@/lib/setup';
 import { useLedger } from '@/lib/use-ledger';
+import { PEOPLE_PAUSED } from '@/lib/maintenance';
 import { weekAhead, type DueItem } from '@/lib/week';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-reader';
 
@@ -257,7 +258,7 @@ function Shortcuts({ pending }: { pending: number }) {
   const items: { icon: FeatherName; label: string; href: '/pay' | '/review' | '/expense'; count?: number }[] = [
     ...(Platform.OS === 'android' ? [{ icon: 'maximize' as const, label: 'Scan & pay', href: '/pay' as const }] : []),
     { icon: 'check-square', label: 'Review', href: '/review', count: pending },
-    { icon: 'users', label: 'Split', href: '/expense' },
+    ...(PEOPLE_PAUSED ? [] : [{ icon: 'users' as const, label: 'Split', href: '/expense' as const }]),
   ];
   return (
     <View style={styles.shortcuts}>
