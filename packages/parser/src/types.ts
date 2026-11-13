@@ -23,6 +23,12 @@ export type Instrument = 'account' | 'credit_card' | 'debit_card' | 'card';
 export type Channel = 'upi' | 'card' | 'neft' | 'imps' | 'rtgs' | 'atm' | 'other';
 
 /** The fields a bank SMS yields. These, never the message text, are what leave the parser. */
+/** A debit from a bank account that pays a credit card bill (decision 0023). */
+export interface CardBill {
+  /** The card's last 4 digits, when the message prints them. */
+  last4: string | null;
+}
+
 export interface ParsedTransaction {
   bank: BankId | null;
   direction: Direction;
@@ -58,6 +64,8 @@ export interface ParsedTransaction {
    * said. A statement row replaces the estimate (CAP-10).
    */
   foreign?: { amount: number; currency: CurrencyCode };
+  /** The debit pays a credit card bill, so it is a transfer to that card. Missing means no. */
+  cardBill?: CardBill;
 }
 
 export type SmsParseResult =
