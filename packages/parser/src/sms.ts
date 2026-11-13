@@ -4,6 +4,7 @@ import {
   cleanCounterparty,
   extractAccountLast,
   extractAmounts,
+  extractCardBill,
   extractChannel,
   extractCounterparty,
   extractDirection,
@@ -16,7 +17,7 @@ import {
 } from './extract';
 import { identifyBankSender, isBusinessSender, looksLikeMoney } from './senders';
 import { TEMPLATES } from './templates';
-import type { BankId, ParsedTransaction, SmsInput, SmsParseResult } from './types';
+import type { BankId, CardBill, Direction, Instrument, ParsedTransaction, SmsInput, SmsParseResult } from './types';
 
 const TEMPLATE_CONFIDENCE = 0.95;
 const GENERIC_CONFIDENCE = 0.75;
@@ -91,6 +92,7 @@ export function parseBankText(bank: BankId | null, rawBody: string): SmsParseRes
       template: 'generic',
       confidence: !bank ? UNKNOWN_SENDER_CONFIDENCE : accountLast ? GENERIC_CONFIDENCE : GENERIC_NO_ACCOUNT_CONFIDENCE,
       refund: isRefund(body, direction),
+      ...cardBillField(body, direction, instrument),
       ...(foreign ? { currency: foreign.currency } : {}),
     },
   };
@@ -127,7 +129,13 @@ function matchTemplate(bank: BankId, body: string, amounts: ReturnType<typeof ex
       template: template.id,
       confidence: TEMPLATE_CONFIDENCE,
       refund: isRefund(body, template.direction),
+      ...cardBillField(body, template.direction, instrument),
     };
   }
   return null;
+}
+
+function cardBillField(body: string, direction: Direction, instrument: Instrument): { cardBill?: CardBill } {
+  const cardBill = extractCardBill(body, direction, instrument);
+  return cardBill ? { cardBill } : {};
 }

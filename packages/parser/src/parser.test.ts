@@ -44,6 +44,31 @@ describe('general reader', () => {
   });
 });
 
+describe('card bill payments (decision 0023)', () => {
+  it.each([
+    ['icici', 'ICICI Bank Acct XX798 debited for Rs 3131.96 on 13-Nov-26; CC BillPay-5678 credited. Call 18002662 for dispute.', '5678'],
+    ['hdfc', 'Update! INR 25,000.00 debited from HDFC Bank XX1234 on 12-OCT-26. Info: BILLPAY HDFC CARD. Avl bal:INR 40,000.00', null],
+    ['sbi', 'Your A/c XX4321 is debited by Rs.12,400.00 towards Credit Card XX5678 payment on 14/10/26. Avl Bal Rs.8,000.00', '5678'],
+  ] as const)('reads a bank debit that pays a card (%s)', (bank, body, last4) => {
+    const result = parseBankText(bank, body);
+    expect(result.status === 'parsed' && result.transaction).toMatchObject({ direction: 'debit', instrument: 'account', cardBill: { last4 } });
+  });
+
+  it('works for any bank', () => {
+    const result = parseAnySms({ sender: 'VM-NEWBNK', body: 'A/c X1234 debited INR 2,000.00 on 06-11-26 for credit card bill payment card ending 9876. Bal INR 100.00' });
+    expect(result.status === 'parsed' && result.transaction).toMatchObject({ direction: 'debit', accountLast: '1234', cardBill: { last4: '9876' } });
+  });
+
+  it.each([
+    'Payment of INR 18,500.00 towards ICICI Bank Credit Card XX5678 has been received on 12-Oct-26. Thank you.',
+    'INR 1,299.00 spent on ICICI Bank Credit Card XX5678 on 21-Oct-26 at AMAZON. Avl Limit: INR 98,701.00.',
+    'Rs 149.00 debited from ICICI Bank Acct XX234 on 17-Oct-26 for AutoPay mandate towards NETFLIX. RRN 629412345678.',
+  ])('leaves other messages alone: %s', (body) => {
+    const result = parseBankText('icici', body);
+    expect(result.status === 'parsed' && result.transaction.cardBill).toBeUndefined();
+  });
+});
+
 describe('mandate notices', () => {
   it.each([
     'Your AutoPay mandate with ASPRESENTED is successfully created towards Google Play from 13-May-26 to 31-Dec-36 for Rs 1300.00, RRN 629412345678-ICICI Bank.',

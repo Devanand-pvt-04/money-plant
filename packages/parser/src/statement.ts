@@ -1,6 +1,6 @@
 import { paise, type Paise } from '@money-plant/core';
-import { cleanCounterparty } from './extract';
-import type { BankId, Channel, Direction } from './types';
+import { cleanCounterparty, extractCardBill } from './extract';
+import type { BankId, CardBill, Channel, Direction } from './types';
 
 /** A row as the statement reader returns it: the remarks lines and decimal-string amounts. */
 export interface StatementRowInput {
@@ -25,6 +25,8 @@ export interface ParsedStatementRow {
   reference: string | null;
   balance: Paise | null;
   channel: Channel;
+  /** The row pays a credit card bill, "BIL/INFT/…/CC BillPay-7002/Self" (decision 0023). Missing means no. */
+  cardBill?: CardBill;
 }
 
 const toPaise = (text: string | null): Paise | null => {
@@ -63,15 +65,19 @@ export function parseStatementRow(bank: BankId | null, row: StatementRowInput): 
   const reference = parts.find((part) => /^\d{12}$/.test(part)) ?? parts.find((part) => /^[A-Z0-9]{10,22}$/.test(part) && /\d/.test(part) && part !== 'BANK') ?? null;
   // The first line is the payee cut to 10 letters, or a label like "Credit trxn"; the remarks have it in full.
   const counterparty = cleanCounterparty(payee || title || remarks);
+  const direction: Direction = debit && debit > 0 ? 'debit' : 'credit';
+  // Remarks wrap mid-word, so the joined remarks come first; the spaced lines catch a phrase split between title and remarks.
+  const cardBill = extractCardBill(remarks, direction, 'account') ?? extractCardBill(row.lines.join(' '), direction, 'account');
   return {
     bank,
     date: row.date,
-    direction: debit && debit > 0 ? 'debit' : 'credit',
+    direction,
     amount,
     counterparty,
     vpa: vpa ? vpa.toLowerCase() : null,
     reference,
     balance: toPaise(row.balance),
     channel,
+    ...(cardBill ? { cardBill } : {}),
   };
 }

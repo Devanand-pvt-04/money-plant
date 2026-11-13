@@ -259,7 +259,9 @@ export async function splitTransfer(id: string): Promise<void> {
   const credit = tx.postings.find((p) => p.amount > 0)!;
   const debitSources = tx.sources.filter((s) => s.parsedFields.direction === 'debit');
   const creditSources = tx.sources.filter((s) => s.parsedFields.direction !== 'debit');
-  if (debitSources.length === 0 || creditSources.length === 0) throw new Error('Each side needs its own message');
+  // A card bill payment read from the bank's debit alone has no message for the card's side (decision 0023).
+  const cardBillOnly = creditSources.length === 0 && debitSources.every((s) => s.parsedFields.cardBill !== undefined);
+  if (debitSources.length === 0 || (creditSources.length === 0 && !cardBillOnly)) throw new Error('Each side needs its own message');
 
   const store = new SqliteLedgerStore(db);
   const spending = await store.systemAccount('uncategorised_expense');
@@ -276,6 +278,12 @@ export async function splitTransfer(id: string): Promise<void> {
     postings: [debit, { id: newId(), accountId: spending.id, amount: paise(-debit.amount) }],
     sources: debitSources,
   });
+  if (cardBillOnly) {
+    // Only the money out was real: the card's posting goes.
+    await rebaseOpening(store, credit.accountId);
+    notifyLedgerChange();
+    return;
+  }
   writeTransaction(db, {
     ...tx,
     ...reset,

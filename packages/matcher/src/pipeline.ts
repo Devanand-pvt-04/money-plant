@@ -1,7 +1,7 @@
 import { validatePostings, type AccountType, type Paise } from '@money-plant/core';
 import type { CategoryDecision, PayeeKind } from '@money-plant/categoriser';
-import type { Direction, ParsedNotification, ParsedStatementRow, ParsedTransaction } from '@money-plant/parser';
-import { looksLikePerson, resolveAccount } from './accounts';
+import type { CardBill, Direction, ParsedNotification, ParsedStatementRow, ParsedTransaction } from '@money-plant/parser';
+import { digitsMatch, looksLikePerson, resolveAccount } from './accounts';
 import { findRefunded, REFUND_WINDOW_DAYS } from './refunds';
 import type {
   LedgerAccount,
@@ -117,19 +117,24 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
   const recent = await store.transactionsBetween(iso(at - CARD_PAYMENT_WINDOW), iso(at + CARD_PAYMENT_WINDOW));
 
   let result: IngestResult;
-  const duplicate = findDuplicate(recent, { accountId: account.id, amount, at, reference: parsed.reference, sender: capture.sender });
+  const duplicate =
+    findDuplicate(recent, { accountId: account.id, amount, at, reference: parsed.reference, sender: capture.sender }) ??
+    findPaidCardLeg(recent, { account, amount, at });
   const transfer = duplicate ? null : findTransferLeg(recent, accountsById, { account, amount, at, reference: parsed.reference });
+  // Decision 0023: a debit that pays a credit card bill goes to that card.
+  const card = parsed.direction === 'debit' ? paidCard(accounts, account, parsed.cardBill) : null;
 
   const handOff = duplicate || transfer ? null : findAppPayment(recent, accountsById, { amount, at });
 
   if (duplicate) {
-    await store.saveTransaction(
-      withExtraSource(duplicate, source, {
-        counterparty: duplicate.counterparty ?? parsed.counterparty,
-        // The bank's SMS proves a payment handed to a UPI app went through (PAY-2).
-        ...(duplicate.reviewReason === 'payment_unconfirmed' ? { reviewReason: null, status: 'confirmed' as const } : {}),
-      }),
-    );
+    const merged = withExtraSource(duplicate, source, {
+      counterparty: duplicate.counterparty ?? parsed.counterparty,
+      // The bank's SMS proves a payment handed to a UPI app went through (PAY-2).
+      ...(duplicate.reviewReason === 'payment_unconfirmed' ? { reviewReason: null, status: 'confirmed' as const } : {}),
+      // The card's own SMS confirms a bill payment the bank's debit was sent to (decision 0023).
+      ...(duplicate.kind === 'transfer' && duplicate.reviewReason === 'possible_transfer' && account.type === 'credit_card' ? { reviewReason: null, status: 'confirmed' as const } : {}),
+    });
+    await store.saveTransaction((card && toCardPayment(merged, accountsById, card)) || merged);
     result = { outcome: 'attached', transactionId: duplicate.id };
   } else if (handOff) {
     // PAY-2: the bank SMS for a payment started from Money Plant. The SMS knows the account, and proves it went through.
@@ -147,7 +152,7 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
       .filter((posting) => OWNED.has(accountsById.get(posting.accountId)?.type ?? 'category'))
       .concat({ id: newId(), accountId: account.id, amount });
     const confidence = bumpConfidence(transaction.confidence, parsed.confidence);
-    const reviewReason: ReviewReason | null = refsMatch ? null : 'possible_transfer';
+    const reviewReason: ReviewReason | null = refsMatch || cardDigitsAgree(transaction, accountsById, account, parsed.cardBill) ? null : 'possible_transfer';
     await store.saveTransaction({
       ...transaction,
       kind: 'transfer',
@@ -160,6 +165,13 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
       categoryReason: null,
       categoryRuleId: null,
     });
+    result = { outcome: 'transfer', transactionId: transaction.id };
+  } else if (card) {
+    const transaction = cardPayment(newId, { occurredAt: capture.receivedAt, accountId: account.id, amount, card, source });
+    if (!resolution.certain) transaction.reviewReason = 'unknown_account';
+    else if (transaction.confidence < CONFIRM_THRESHOLD) transaction.reviewReason = 'low_confidence';
+    transaction.status = transaction.reviewReason ? 'pending' : 'confirmed';
+    await store.saveTransaction(transaction);
     result = { outcome: 'transfer', transactionId: transaction.id };
   } else {
     const other = await store.systemAccount(parsed.direction === 'debit' ? 'uncategorised_expense' : 'uncategorised_income');
@@ -286,12 +298,17 @@ export function foreignAmount(tx: Pick<LedgerTransaction, 'sources'>): { amount:
 
 export async function ingestStatementRow(ctx: PipelineContext, capture: StatementCapture, claimed: Set<string>): Promise<IngestResult> {
   const { store, newId } = ctx;
-  if (await store.hasFingerprint(capture.fingerprint)) return { outcome: 'duplicate_source' };
   const { parsed } = capture;
   const accounts = await store.listAccounts();
   const account = accounts.find((a) => a.id === capture.accountId);
   if (!account) throw new Error('Statement account not found');
   const accountsById = new Map(accounts.map((a) => [a.id, a]));
+  const card = parsed.direction === 'debit' ? paidCard(accounts, account, parsed.cardBill) : null;
+  if (await store.hasFingerprint(capture.fingerprint)) {
+    // Imported before this reader knew card bills, or before the card was added: it becomes the transfer now.
+    if (card) await upgradeToCardPayment(store, accountsById, card, capture);
+    return { outcome: 'duplicate_source' };
+  }
 
   const source: LedgerSource = {
     id: capture.sourceId ?? newId(),
@@ -316,7 +333,8 @@ export async function ingestStatementRow(ctx: PipelineContext, capture: Statemen
   const duplicate = (parsed.reference !== null ? open.find((tx) => refsOf(tx).includes(parsed.reference!)) : undefined) ?? closest(open, at);
   if (duplicate) {
     claimed.add(duplicate.id);
-    await store.saveTransaction(withExtraSource(duplicate, source, { counterparty: duplicate.counterparty ?? parsed.counterparty }));
+    const merged = withExtraSource(duplicate, source, { counterparty: duplicate.counterparty ?? parsed.counterparty });
+    await store.saveTransaction((card && toCardPayment(merged, accountsById, card)) || merged);
     return { outcome: 'attached', transactionId: duplicate.id };
   }
 
@@ -346,7 +364,7 @@ export async function ingestStatementRow(ctx: PipelineContext, capture: Statemen
   if (transfer) {
     const { transaction, refsMatch } = transfer;
     claimed.add(transaction.id);
-    const reviewReason: ReviewReason | null = refsMatch ? null : 'possible_transfer';
+    const reviewReason: ReviewReason | null = refsMatch || cardDigitsAgree(transaction, accountsById, account, parsed.cardBill) ? null : 'possible_transfer';
     await store.saveTransaction({
       ...transaction,
       kind: 'transfer',
@@ -361,6 +379,12 @@ export async function ingestStatementRow(ctx: PipelineContext, capture: Statemen
       categoryReason: null,
       categoryRuleId: null,
     });
+    return { outcome: 'transfer', transactionId: transaction.id };
+  }
+
+  if (card) {
+    const transaction = cardPayment(newId, { occurredAt: capture.occurredAt, accountId: account.id, amount, card, source });
+    await store.saveTransaction(transaction);
     return { outcome: 'transfer', transactionId: transaction.id };
   }
 
@@ -634,6 +658,131 @@ function findTransferLeg(
   if (exact) return exact;
   const best = closest(candidates.map((candidate) => candidate.transaction), c.at);
   return best ? { transaction: best, refsMatch: false } : null;
+}
+
+/**
+ * Decision 0023: the credit card a bill payment went to. Certain when the
+ * card's last digits match the ones the bank printed; otherwise only the
+ * user's one card (with no digits known, if digits were printed), and the
+ * entry waits in Review.
+ */
+export function paidCard(
+  accounts: readonly LedgerAccount[],
+  from: LedgerAccount,
+  cardBill: CardBill | undefined,
+): { card: LedgerAccount; certain: boolean } | null {
+  if (!cardBill || from.type === 'credit_card') return null;
+  const cards = accounts.filter((a) => a.type === 'credit_card' && a.id !== from.id);
+  const last4 = cardBill.last4;
+  if (last4 === null) return cards.length === 1 ? { card: cards[0]!, certain: false } : null;
+  const byDigits = cards.filter((c) => c.last4 !== null && digitsMatch(c.last4, last4));
+  if (byDigits.length > 0) return { card: byDigits[0]!, certain: byDigits.length === 1 };
+  return cards.length === 1 && cards[0]!.last4 === null ? { card: cards[0]!, certain: false } : null;
+}
+
+/** A new transfer from a bank account to the credit card it paid. */
+function cardPayment(
+  newId: () => string,
+  p: { occurredAt: string; accountId: string; amount: Paise; card: { card: LedgerAccount; certain: boolean }; source: LedgerSource },
+): LedgerTransaction {
+  const reviewReason: ReviewReason | null = p.card.certain ? null : 'possible_transfer';
+  return {
+    id: newId(),
+    occurredAt: p.occurredAt,
+    counterparty: null,
+    kind: 'transfer',
+    status: reviewReason ? 'pending' : 'confirmed',
+    confidence: p.source.confidence,
+    reviewReason,
+    categoryReason: null,
+    categoryRuleId: null,
+    userSetFields: [],
+    note: null,
+    postings: [
+      { id: newId(), accountId: p.accountId, amount: p.amount },
+      { id: newId(), accountId: p.card.card.id, amount: -p.amount as Paise },
+    ],
+    sources: [p.source],
+  };
+}
+
+/**
+ * An expense that turns out to be a card bill payment becomes a transfer to
+ * the card. Null when the user already said what it is, or it isn't a plain
+ * two-leg expense.
+ */
+function toCardPayment(
+  tx: LedgerTransaction,
+  accountsById: ReadonlyMap<string, LedgerAccount>,
+  card: { card: LedgerAccount; certain: boolean },
+): LedgerTransaction | null {
+  if (tx.kind !== 'expense' || tx.userSetFields.includes('category') || tx.userSetFields.includes('kind') || tx.postings.length !== 2) return null;
+  const other = tx.postings.find((p) => !OWNED.has(accountsById.get(p.accountId)?.type ?? 'category'));
+  if (!other) return null;
+  // Questions about the payee or category no longer apply to a transfer; doubts about the message or account still do.
+  const kept = tx.reviewReason === 'unknown_account' || tx.reviewReason === 'low_confidence' ? tx.reviewReason : null;
+  const reviewReason: ReviewReason | null = card.certain ? kept : 'possible_transfer';
+  return {
+    ...tx,
+    kind: 'transfer',
+    counterparty: null,
+    postings: tx.postings.map((p) => (p === other ? { ...p, accountId: card.card.id } : p)),
+    reviewReason,
+    status: reviewReason ? 'pending' : 'confirmed',
+    categoryReason: null,
+    categoryRuleId: null,
+  };
+}
+
+/** A statement row seen before: its entry becomes the card transfer, and its source learns the card. */
+async function upgradeToCardPayment(
+  store: LedgerStore,
+  accountsById: ReadonlyMap<string, LedgerAccount>,
+  card: { card: LedgerAccount; certain: boolean },
+  capture: StatementCapture,
+): Promise<void> {
+  const day = Date.parse(capture.dayStart);
+  const entries = await store.transactionsBetween(iso(day - DAY), iso(day + 2 * DAY - 1));
+  const tx = entries.find((t) => t.sources.some((s) => s.fingerprint === capture.fingerprint));
+  if (!tx) return;
+  const upgraded = toCardPayment(tx, accountsById, card);
+  if (!upgraded) return;
+  await store.saveTransaction({
+    ...upgraded,
+    sources: upgraded.sources.map((s) => (s.fingerprint === capture.fingerprint ? { ...s, parsedFields: { ...s.parsedFields, cardBill: capture.parsed.cardBill } } : s)),
+  });
+}
+
+/** Whether the bank printed the same last digits as the card on the other side of a transfer. */
+function cardDigitsAgree(
+  tx: LedgerTransaction,
+  accountsById: ReadonlyMap<string, LedgerAccount>,
+  account: LedgerAccount,
+  cardBill: CardBill | undefined,
+): boolean {
+  const legs = tx.postings.map((p) => accountsById.get(p.accountId)).concat(account);
+  const card = legs.find((a) => a?.type === 'credit_card');
+  const last4 = cardBill?.last4 ?? tx.sources.map((s) => (s.parsedFields.cardBill as CardBill | undefined)?.last4).find((d) => typeof d === 'string') ?? null;
+  return !!card?.last4 && last4 !== null && digitsMatch(card.last4, last4);
+}
+
+/**
+ * Decision 0023: the card's own "payment received" message for a bill
+ * payment the bank's debit already sent to this card. Cards can take a few
+ * days to show it.
+ */
+function findPaidCardLeg(recent: readonly LedgerTransaction[], c: { account: LedgerAccount; amount: Paise; at: number }): LedgerTransaction | null {
+  if (c.account.type !== 'credit_card' || c.amount <= 0) return null;
+  return closest(
+    recent.filter(
+      (tx) =>
+        tx.kind === 'transfer' &&
+        Math.abs(Date.parse(tx.occurredAt) - c.at) <= CARD_PAYMENT_WINDOW &&
+        tx.postings.some((p) => p.accountId === c.account.id && p.amount === c.amount) &&
+        tx.sources.every((s) => s.parsedFields.cardBill !== undefined),
+    ),
+    c.at,
+  );
 }
 
 /** Checks a transaction against the ledger rules before it is saved or synced. */

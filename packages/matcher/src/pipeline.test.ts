@@ -329,3 +329,91 @@ describe('default notes from rules and patterns (CAT-7)', () => {
     expect(noteFor({ note: null, userSetFields: [] }, {})).toBeNull();
   });
 });
+
+describe('credit card bill payments (decision 0023)', () => {
+  const CARD_SPEND = 'INR 1,299.00 spent using ICICI Bank Card XX5678 on 01-Nov-26 on AMAZON. Avl Limit: INR 98,701.00.';
+  const BILL_PAID = 'ICICI Bank Acct XX798 debited with Rs 3,131.96 on 13-Nov-26. Info: CC BillPay-5678. Available Balance is Rs 1,10,285.90.';
+  const CARD_RECEIVED = 'Payment of INR 3,131.96 towards ICICI Bank Credit Card XX5678 has been received on 14-Nov-26. Thank you.';
+  const billRow = (last4: string) =>
+    parseStatementRow('icici', { date: '2026-11-13', lines: ['Self', `BIL/INFT/ABC1234567/CC BillPay-${last4}/Self`], debit: '3,131.96', credit: null, balance: null })!;
+  const ingestRow = (ctx: PipelineContext, accountId: string, parsed: ReturnType<typeof billRow>) =>
+    ingestStatementRow(
+      ctx,
+      { parsed, accountId, occurredAt: '2026-11-13T12:00:00.000Z', dayStart: '2026-11-13T00:00:00.000Z', fingerprint: `st|${parsed.counterparty}|${parsed.amount}` },
+      new Set(),
+    );
+  const bankAccount = async ({ sms, accountNamed }: ReturnType<typeof setup>) => {
+    await sms('AX-ICICIB', 'ICICI Bank Acct XX798 debited for Rs 10.00 on 01-Nov-26; SWIGGY credited. UPI:629400000099.', '2026-11-01T09:00:00.000Z');
+    return accountNamed('ICICI Bank ••798');
+  };
+
+  it('sends a bank debit that pays a card bill to that card, and attaches the card\'s own message to it', async () => {
+    const { store, sms, accountNamed } = setup();
+    await sms('AX-ICICIT', CARD_SPEND, '2026-11-01T10:00:00.000Z');
+    const card = [...store.accounts.values()].find((a) => a.type === 'credit_card')!;
+    expect(card.last4).toBe('5678');
+    expect((await sms('AX-ICICIB', BILL_PAID, '2026-11-13T09:00:00.000Z')).outcome).toBe('transfer');
+    const bank = accountNamed('ICICI Bank ••798');
+    const paid = store.live().find((tx) => tx.kind === 'transfer')!;
+    expect(paid).toMatchObject({ status: 'confirmed', reviewReason: null, counterparty: null });
+    expect(checkTransaction(paid)).toBeNull();
+    expect(paid.postings.find((p) => p.accountId === card.id)?.amount).toBe(313196);
+    expect(paid.postings.find((p) => p.accountId === bank.id)?.amount).toBe(-313196);
+    // The card shows the payment a day later: the same entry, not money in.
+    expect((await sms('AX-ICICIT', CARD_RECEIVED, '2026-11-14T18:00:00.000Z')).outcome).toBe('attached');
+    expect(store.live().filter((tx) => tx.kind === 'transfer')).toHaveLength(1);
+    expect(store.live()).toHaveLength(2);
+  });
+
+  it('pairs with the card\'s message when that came first, without asking', async () => {
+    const { store, sms } = setup();
+    await sms('AX-ICICIT', CARD_SPEND, '2026-11-01T10:00:00.000Z');
+    await sms('AX-ICICIT', CARD_RECEIVED, '2026-11-13T08:00:00.000Z');
+    expect((await sms('AX-ICICIB', BILL_PAID, '2026-11-13T09:00:00.000Z')).outcome).toBe('transfer');
+    expect(store.live().find((tx) => tx.kind === 'transfer')).toMatchObject({ status: 'confirmed', reviewReason: null });
+  });
+
+  it('stays money out when the user has no card with those digits', async () => {
+    const { store, sms } = setup();
+    expect((await sms('AX-ICICIB', BILL_PAID, '2026-11-13T09:00:00.000Z')).outcome).toBe('created');
+    expect(store.live()[0]).toMatchObject({ kind: 'expense' });
+  });
+
+  it('turns a statement row into a transfer to the card, also when the SMS made it money out', async () => {
+    const t = setup();
+    const { store, ctx, sms } = t;
+    const bank = await bankAccount(t);
+    await sms('AX-ICICIT', CARD_SPEND, '2026-11-01T10:00:00.000Z');
+    const card = [...store.accounts.values()].find((a) => a.type === 'credit_card')!;
+    // The bank's SMS didn't name the card.
+    await sms('AX-ICICIB', 'ICICI Bank Acct XX798 debited for Rs 3131.96 on 13-Nov-26; INFT credited.', '2026-11-13T09:00:00.000Z');
+    expect(store.live().find((tx) => tx.postings.some((p) => p.amount === -313196))).toMatchObject({ kind: 'expense' });
+    expect((await ingestRow(ctx, bank.id, billRow('5678'))).outcome).toBe('attached');
+    const paid = store.live().find((tx) => tx.postings.some((p) => p.amount === -313196))!;
+    expect(paid).toMatchObject({ kind: 'transfer', status: 'confirmed' });
+    expect(paid.postings.find((p) => p.accountId === card.id)?.amount).toBe(313196);
+    expect(checkTransaction(paid)).toBeNull();
+  });
+
+  it('fixes a row imported before the card was added when the statement is imported again', async () => {
+    const t = setup();
+    const { store, ctx, sms } = t;
+    const bank = await bankAccount(t);
+    expect((await ingestRow(ctx, bank.id, billRow('5678'))).outcome).toBe('created');
+    await sms('AX-ICICIT', CARD_SPEND, '2026-11-01T10:00:00.000Z');
+    expect((await ingestRow(ctx, bank.id, billRow('5678'))).outcome).toBe('duplicate_source');
+    const paid = store.live().find((tx) => tx.postings.some((p) => p.amount === -313196))!;
+    expect(paid).toMatchObject({ kind: 'transfer', status: 'confirmed' });
+    expect(store.live().filter((tx) => tx.postings.some((p) => p.amount === -313196))).toHaveLength(1);
+  });
+
+  it('asks when the digits match no card but the user has only one', async () => {
+    const t = setup();
+    const { store, ctx, sms } = t;
+    const bank = await bankAccount(t);
+    await sms('AX-ICICIT', CARD_SPEND, '2026-11-01T10:00:00.000Z');
+    // Another card's digits: not this one.
+    expect((await ingestRow(ctx, bank.id, billRow('1111'))).outcome).toBe('created');
+    expect(store.live().find((tx) => tx.postings.some((p) => p.amount === -313196))).toMatchObject({ kind: 'expense' });
+  });
+});

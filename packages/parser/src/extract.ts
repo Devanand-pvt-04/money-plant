@@ -1,5 +1,5 @@
 import { currencyInfo, DEFAULT_CURRENCY, isCurrency, parseMoney, parseRupees, type CurrencyCode, type Paise } from '@money-plant/core';
-import type { Channel, Direction, IgnoreReason, Instrument } from './types';
+import type { CardBill, Channel, Direction, IgnoreReason, Instrument } from './types';
 
 /**
  * Field extractors shared by the bank templates and the generic parser. Each
@@ -106,6 +106,8 @@ export function extractDirection(text: string): Direction | null {
 }
 
 export function extractInstrument(text: string, amounts: Amounts): Instrument {
+  // "A/c XX123 debited ... towards Credit Card XX7002": the account pays the card bill.
+  if (paysCardFromAccount(text)) return 'account';
   if (/credit\s*card/i.test(text)) return 'credit_card';
   if (/debit\s*card/i.test(text)) return 'debit_card';
   if (/\bcard\b/i.test(text)) {
@@ -132,6 +134,29 @@ export function extractAccountLast(text: string, instrument: Instrument): string
 
 export function lastDigits(digits: string): string {
   return digits.length > 4 ? digits.slice(-4) : digits;
+}
+
+/**
+ * A payment from a bank account to a credit card bill, as banks word it in
+ * SMS and statement remarks: "CC BillPay-7002", "towards your Credit Card
+ * XX7002", "BILLPAY HDFC CARD", "PAVC/…". Works for any bank; the matcher
+ * turns it into a transfer to the user's card with those digits.
+ */
+const CARD_BILL = /\b(?:CC\s*[-_]?\s*(?:bill\s*pay(?:ment)?|billpay|bill|payment|pymt|pmt|paymt|pay)|credit\s*card|bill\s*pay\w*\s+(?:[a-z]+\s+){0,2}card|card\s*(?:bill|dues)|PAVC)\b/i;
+// The card's digits follow a word naming it: "CC BillPay-7002", "Credit Card XX7002", "card ending 7002".
+const CARD_BILL_DIGITS = /\b(?:card|CC\s*[-_]?\s*bill\s*pay|CC)\b[^\d]{0,24}?[xX*•]*(\d{4})(?![\d.,]\d)/gi;
+
+function paysCardFromAccount(text: string): boolean {
+  return CARD_BILL.test(text) && /\b(?:debited|deducted)\b/i.test(text) && (ACCOUNT_DIGITS.test(text) || BANK_DIGITS.test(text));
+}
+
+/** Whether a debit from a bank account pays a credit card bill, and which card. */
+export function extractCardBill(text: string, direction: Direction, instrument: Instrument): CardBill | null {
+  if (direction !== 'debit' || instrument === 'credit_card') return null;
+  const match = CARD_BILL.exec(text);
+  if (!match) return null;
+  const digits = [...text.slice(match.index).matchAll(CARD_BILL_DIGITS)][0];
+  return { last4: digits ? digits[1]! : null };
 }
 
 const UPI_REF = /\bUPI\s*(?:Ref(?:\.|erence)?\s*)?(?:No\.?|#|ID)?\s*[:\-]?\s*(\d{12})\b/i;

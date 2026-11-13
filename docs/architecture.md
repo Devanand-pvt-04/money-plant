@@ -210,7 +210,7 @@ The matcher runs these rules in order and stops at the first that fits. The thre
 | Same payment, no reference | Same account last 4, same amount, same direction, within 10 minutes | Attach as another source |
 | Payment started in the app | A debit of the same amount on any of the user's accounts, within 10 minutes after a scan-and-pay entry that has no SMS yet | Attach as another source; move the entry to that account and confirm it |
 | Self-transfer | Debit in one owned account and credit of the same amount in another owned account within 24 hours | Merge into one transfer transaction with no category |
-| Card bill payment | Debit from a bank account to a payee that matches an owned card's issuer, and a card credit within 3 days | Post as a transfer to the card's liability account |
+| Card bill payment | A card credit within 3 days of a bank debit of the same amount; or a bank debit whose SMS or statement remarks say it pays a credit card ("CC BillPay-7002", "towards Credit Card XX7002"), for any bank | Post as a transfer to the card's liability account. Confirmed when the printed last digits match the card; asks in Review when only the user's one card fits. The card's later "payment received" message attaches to it (decision 0023) |
 | Refund | Credit from a merchant that had an earlier debit of an equal or larger amount in the last 60 days | Post against the original category |
 | IOU settlement | Credit or debit with a person who has an open IOU, for an amount up to the outstanding balance | Reduce the IOU; mark it settled at zero |
 | Recurring match | Debit to a recurring payee within 3 days of next_due and within 10% of the amount | Mark that occurrence paid; move next_due forward |

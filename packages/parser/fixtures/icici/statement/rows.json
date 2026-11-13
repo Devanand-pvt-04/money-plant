@@ -37,6 +37,14 @@
     {
       "row": { "date": "2026-10-20", "lines": ["Opening balance"], "debit": null, "credit": null, "balance": "16031.36" },
       "expect": null
+    },
+    {
+      "row": { "date": "2026-10-21", "lines": ["Self", "BIL/INFT/ABC1234567/CC BillPay-5678/Self"], "debit": "3131.96", "credit": null, "balance": "12899.40" },
+      "expect": { "direction": "debit", "amount": 313196, "counterparty": "Self", "channel": "other", "cardBill": { "last4": "5678" } }
+    },
+    {
+      "row": { "date": "2026-10-21", "lines": ["Self", "BIL/INFT/ABC1234568/CC Bill", "Pay-5678/Self"], "debit": "500.00", "credit": null, "balance": "12399.40" },
+      "expect": { "direction": "debit", "amount": 50000, "cardBill": { "last4": "5678" } }
     }
   ]
 }
