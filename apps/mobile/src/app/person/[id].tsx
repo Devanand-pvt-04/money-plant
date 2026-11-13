@@ -11,9 +11,8 @@ import { Button, Card, Chip, Chips, ErrorText, Field, Initial, MoneyCard, Sectio
 import { pickContact } from '@/lib/contacts';
 import { linkForEmail } from '@/lib/friends';
 import { getMe } from '@/lib/me';
-import { createItem, itemsWith, payLink, personTotals, reminderMessage, type ItemView } from '@/lib/shared';
-import { openUpiLink } from '@/lib/upi';
-import { createPerson, getPerson, type Person } from '@/lib/people';
+import { createItem, itemsWith, personTotals, reminderMessage, type ItemView } from '@/lib/shared';
+import { createPerson, getPerson, phoneOf, type Person } from '@/lib/people';
 import { useLedger } from '@/lib/use-ledger';
 
 type FeatherName = ComponentProps<typeof Feather>['name'];
@@ -85,7 +84,8 @@ function PersonOverview({ id }: { id: string }) {
   const crumbs = person.balances.filter(isCrumb);
   const square = owing.length === 0;
   const theyOwe = owing.some((b) => b.amount > 0);
-  const pay = payLink(person);
+  // Paying them (IOU-3): copy their UPI ID or number, their QR, or the old direct link, on person/pay.
+  const canPay = person.balances.some((b) => b.currency === 'INR' && b.amount < 0) && Boolean(person.account.vpa || phoneOf(person));
 
   // Settles what is left under ₹1 another way: no money moves (decision 0027).
   async function clearCrumbs() {
@@ -117,7 +117,7 @@ function PersonOverview({ id }: { id: string }) {
     { icon: 'users', label: 'Split', onPress: () => router.push(`/split?person=${id}`) },
     { icon: 'arrow-up-right', label: 'Lend', onPress: () => router.push(`/item/new?person=${id}&kind=loan&flow=to_them`) },
     ...(theyOwe ? [{ icon: 'bell' as const, label: 'Remind', onPress: remind }] : []),
-    ...(pay ? [{ icon: 'send' as const, label: 'Pay by UPI', onPress: () => void openUpiLink(pay).catch((e) => setError(String(e?.message ?? e))) }] : []),
+    ...(canPay ? [{ icon: 'send' as const, label: 'Pay by UPI', onPress: () => router.push(`/person/pay?id=${id}`) }] : []),
   ];
   if (shortcuts.length < 4) shortcuts.push({ icon: 'arrow-down-left', label: 'Borrow', onPress: () => router.push(`/item/new?person=${id}&kind=loan&flow=to_me`) });
 
