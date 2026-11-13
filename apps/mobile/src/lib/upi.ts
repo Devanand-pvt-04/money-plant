@@ -1,4 +1,4 @@
-import { Linking } from 'react-native';
+import { Clipboard, Linking } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { and, desc, eq, gte, isNull } from 'drizzle-orm';
@@ -24,6 +24,46 @@ export async function openUpiLink(uri: string): Promise<void> {
   } catch {
     throw new Error('No UPI app on this phone opened the link');
   }
+}
+
+/**
+ * UPI apps the user can open from "Copy and open". UPI apps warn on or block
+ * person-to-person payments that start from another app's link (UPI risk
+ * rules), but paying a pasted UPI ID or number inside the app is normal.
+ * `scheme` is a fallback that opens the app's home when Android hides the
+ * package from us.
+ */
+export const UPI_APPS = [
+  { name: 'Google Pay', packageName: 'com.google.android.apps.nbu.paisa.user' },
+  { name: 'PhonePe', packageName: 'com.phonepe.app', scheme: 'phonepe://' },
+  { name: 'Paytm', packageName: 'net.one97.paytm', scheme: 'paytmmp://' },
+  { name: 'BHIM', packageName: 'in.org.npci.upiapp' },
+] as const satisfies readonly { name: string; packageName: string; scheme?: string }[];
+
+export type UpiApp = (typeof UPI_APPS)[number];
+
+/** Puts text on the clipboard (React Native's own module, already in the app). */
+export function copyText(text: string): void {
+  Clipboard.setString(text);
+}
+
+/** Opens a UPI app's home screen. Nothing is filled in and no money moves. */
+export async function openUpiApp(app: UpiApp): Promise<void> {
+  try {
+    IntentLauncher.openApplication(app.packageName);
+    return;
+  } catch {
+    // Not installed, or Android doesn't let us see it; try its own link.
+  }
+  if ('scheme' in app) {
+    try {
+      await Linking.openURL(app.scheme);
+      return;
+    } catch {
+      // Fall through.
+    }
+  }
+  throw new Error(`Couldn't open ${app.name} from here. Open it yourself and paste.`);
 }
 
 /** A merchant QR has a merchant code; a friend's has none or 0000. */

@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 const base = process.argv[2] ?? 'origin/main';
 const APP = 'apps/mobile';
 // Dependencies with no native code: changing them is safe over the air.
-const JS_ONLY = new Set(['@supabase/supabase-js', 'drizzle-orm']);
+const JS_ONLY = new Set(['@supabase/supabase-js', 'drizzle-orm', 'qrcode-generator']);
 
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' });
 const atBase = (path) => {
