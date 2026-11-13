@@ -443,8 +443,8 @@ export type EntrySide =
   | { accountId: string; occurredAt: string }
   /** A share the other person paid: the user's spending on this category. */
   | { categoryId: string }
-  /** A repayment settled another way: no money moved (decision 0027). */
-  | { outside: true }
+  /** A repayment settled another way: no money moved (decision 0027). In the person's balance currency; home when left out. */
+  | { outside: true; currency?: CurrencyCode }
   /** Linked later. */
   | null;
 
@@ -472,6 +472,7 @@ async function currencyOf(db: Database, side: EntrySide): Promise<CurrencyCode> 
     const currency = db.select({ currency: accounts.currency }).from(accounts).where(eq(accounts.id, side.accountId)).get()?.currency;
     if (currency) return currency as CurrencyCode;
   }
+  if (side && 'outside' in side && side.currency) return side.currency;
   return homeCurrency();
 }
 

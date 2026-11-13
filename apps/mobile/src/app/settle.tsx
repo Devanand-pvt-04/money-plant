@@ -96,7 +96,7 @@ export default function SettleUp() {
           ? { transactionId: entryId! }
           : how === 'account'
             ? { accountId: accountId!, occurredAt: new Date(`${occurredOn}T12:00:00`).toISOString() }
-            : ({ outside: true } as const);
+            : ({ outside: true, currency } as const);
       const id = await createItem({ personId: person.account.id, kind: 'repayment', flow, amount: value, occurredOn, reason: reason.trim() || null }, side);
       router.replace(`/item/${id}`);
     } catch (e) {
