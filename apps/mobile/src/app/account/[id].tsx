@@ -101,8 +101,19 @@ function GenericView({ data, footer }: { data: typeof EMPTY; footer: React.React
             {((!data.deposit && !data.fund && !data.market) || passbook) && (
               <PillButton title={passbook ? 'Update from passbook' : 'Set balance'} onPress={() => router.push(`/account/balance?id=${account.id}`)} />
             )}
-            {reconciliation?.flagged && <PillButton title="Use bank's balance" onPress={() => adoptBankBalance(account.id, reconciliation.latest.anchor)} />}
+            {account.type === 'credit_card' && (
+              <PillButton
+                title={account.creditLimitPaise !== null ? `Limit ${formatMoney(paise(account.creditLimitPaise), account.currency)}` : 'Set credit limit'}
+                onPress={() => router.push(`/account/limit?id=${account.id}`)}
+              />
+            )}
+            {reconciliation?.flagged && (
+              <PillButton title={account.type === 'credit_card' ? "Use card's balance" : "Use bank's balance"} onPress={() => adoptBankBalance(account.id, reconciliation.latest.anchor)} />
+            )}
           </View>
+          {account.type === 'credit_card' && account.creditLimitPaise === null && (
+            <Text style={styles.meta}>Add the card's credit limit so its SMS can tell the app what the card really owes.</Text>
+          )}
           <Text style={styles.section}>ENTRIES</Text>
         </View>
       }

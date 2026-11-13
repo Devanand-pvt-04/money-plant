@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { paise } from '@money-plant/core';
 import { normaliseSender, parseAnySms, parseNotification, parseSms, parseStatementRow } from '@money-plant/parser';
 import { MemoryStore } from './memory-store';
-import { checkTransaction, ingestNotification, ingestSms, ingestStatementRow, isEstimated, noteFor, type PipelineContext } from './pipeline';
+import { cardBalance, checkTransaction, ingestNotification, ingestSms, ingestStatementRow, isEstimated, noteFor, reportedBalance, type PipelineContext } from './pipeline';
 
 function setup() {
   const store = new MemoryStore();
@@ -415,5 +415,28 @@ describe('credit card bill payments (decision 0023)', () => {
     // Another card's digits: not this one.
     expect((await ingestRow(ctx, bank.id, billRow('1111'))).outcome).toBe('created');
     expect(store.live().find((tx) => tx.postings.some((p) => p.amount === -313196))).toMatchObject({ kind: 'expense' });
+  });
+});
+
+describe('true card balances (decision 0024)', () => {
+  const SPEND = (amount: string, limit: string) => `INR ${amount} spent using ICICI Bank Card XX7002 on 26-Oct-26 on AMAZON PAY INDI. Avl Limit: INR ${limit}. If not you, call 1800 2662/SMS BLOCK 7002 to 9215676766.`;
+
+  it('turns the available limit into what the card owes once the card has a limit', async () => {
+    const { store, sms } = setup();
+    await sms('AX-ICICIT', SPEND('2,356.90', '57,643.10'), '2026-10-26T10:00:00.000Z');
+    const card = [...store.accounts.values()].find((a) => a.type === 'credit_card')!;
+    // No limit yet: nothing to check against.
+    expect(store.anchors).toHaveLength(0);
+    store.accounts.set(card.id, { ...card, creditLimit: paise(6_000_000) });
+    await sms('AX-ICICIT', SPEND('1,244.49', '56,398.61'), '2026-10-27T10:00:00.000Z');
+    expect(store.anchors).toHaveLength(1);
+    expect(store.anchors[0]).toMatchObject({ accountId: card.id, balance: -360139 });
+  });
+
+  it('works out card balances without floating point', () => {
+    expect(cardBalance(paise(6_000_000), paise(5_639_861))).toBe(-360139);
+    expect(cardBalance(paise(6_000_000), paise(6_010_000))).toBe(10000);
+    expect(cardBalance(null, paise(5_639_861))).toBeNull();
+    expect(reportedBalance({ id: 'b', type: 'bank', name: 'Bank', institution: null, last4: null }, { balance: paise(500), availableLimit: null })).toBe(500);
   });
 });

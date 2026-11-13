@@ -35,7 +35,18 @@ describe('reconcile', () => {
       flagged: true,
       latest: { gap: -20000 },
       windowStart: '2026-10-01T10:00:00Z',
+      gapSince: '2026-10-05T10:00:00Z',
     });
+  });
+
+  it('says when a gap that stays the same first showed (decision 0024)', () => {
+    const result = reconcile(
+      paise(0),
+      [p('2026-10-01T10:00:00Z', -10000), p('2026-10-03T10:00:00Z', -10000), p('2026-10-06T10:00:00Z', -10000)],
+      // A card spend of ₹500 on the 2nd was missed; every later SMS shows the same gap.
+      [a('2026-10-01T10:00:00Z', -10000), a('2026-10-03T10:00:00Z', -70000), a('2026-10-06T10:00:00Z', -80000)],
+    );
+    expect(result).toMatchObject({ flagged: true, windowStart: '2026-10-01T10:00:00Z', gapSince: '2026-10-03T10:00:00Z' });
   });
 
   it('takes the last of two readings of the same moment as the latest', () => {
