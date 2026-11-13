@@ -7,7 +7,7 @@ import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { accountLabel } from '@/components/account-picker';
 import { LineChart } from '@/components/line-chart';
 import { Button, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
-import { formatAmount, formatDate, formatDay, formatTime, formatWholeRupees } from '@/components/format';
+import { formatAmount, formatDate, formatDay, formatTime } from '@/components/format';
 import { TransactionItem } from '@/components/transaction-item';
 import { deleteAccount } from '@/lib/accounts';
 import { depositValue, getDeposit } from '@/lib/deposits';
@@ -245,11 +245,11 @@ function BankView({ balance: item, rows, upcoming, footer }: { balance: AccountB
             <View style={styles.heroStats}>
               <View style={styles.grow}>
                 <Text style={styles.heroMuted}>In this month</Text>
-                <Text style={[styles.heroStat, { color: colors.heroAccent }]}>+{formatWholeRupees(moneyIn, account.currency)}</Text>
+                <Text style={[styles.heroStat, { color: colors.heroAccent }]}>+{formatAmount(moneyIn, account.currency)}</Text>
               </View>
               <View style={styles.grow}>
                 <Text style={styles.heroMuted}>Out this month</Text>
-                <Text style={styles.heroStat}>−{formatWholeRupees(moneyOut, account.currency)}</Text>
+                <Text style={styles.heroStat}>−{formatAmount(moneyOut, account.currency)}</Text>
               </View>
             </View>
           </MoneyCard>
@@ -269,7 +269,7 @@ function BankView({ balance: item, rows, upcoming, footer }: { balance: AccountB
                 {upcoming.map((u) => (
                   <Pressable key={u.item.id} accessibilityRole="button" onPress={() => router.push(`/recurring/${u.item.id}`)} style={styles.chip}>
                     <Text style={styles.chipText}>
-                      {u.item.name} {formatWholeRupees(u.item.amount, account.currency)} · {ordinal(Number(u.item.nextDue.slice(8, 10)))}
+                      {u.item.name} {formatAmount(u.item.amount, account.currency)} · {ordinal(Number(u.item.nextDue.slice(8, 10)))}
                     </Text>
                   </Pressable>
                 ))}
@@ -335,10 +335,10 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
           </View>
           <MoneyCard style={styles.fundCard}>
             <View style={styles.fundValue}>
-              <Text style={styles.heroAmount}>{formatWholeRupees(value.value, 'INR')}</Text>
+              <Text style={styles.heroAmount}>{formatAmount(value.value, 'INR')}</Text>
               <Text style={[styles.fundGain, value.gain < 0 && { color: colors.heroDanger }]}>
                 {value.gain >= 0 ? '+' : '−'}
-                {formatWholeRupees(Math.abs(value.gain), 'INR')}
+                {formatAmount(Math.abs(value.gain), 'INR')}
                 {pct !== null ? ` · ${Math.abs(pct).toFixed(1)}%` : ''}
               </Text>
             </View>
@@ -346,7 +346,7 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
               <>
                 <LineChart
                   height={84}
-                  label={`Value over ${chart.length} months, from ${formatWholeRupees(first.value, 'INR')} to ${formatWholeRupees(last.value, 'INR')}, against ${formatWholeRupees(last.invested, 'INR')} put in`}
+                  label={`Value over ${chart.length} months, from ${formatAmount(first.value, 'INR')} to ${formatAmount(last.value, 'INR')}, against ${formatAmount(last.invested, 'INR')} put in`}
                   series={[
                     { values: chart.map((p) => p.invested), color: colors.heroMuted, thickness: 1.5 },
                     { values: chart.map((p) => p.value), color: colors.heroAccent, thickness: 2.5 },
@@ -374,7 +374,7 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
           <View style={styles.tiles}>
             <Tile label="Units" value={(unitsE4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 3 })} />
             <Tile label="NAV today" value={value.navE4 !== null ? fmtNav(value.navE4) : '–'} />
-            <Tile label="Invested" value={formatWholeRupees(invested, 'INR')} />
+            <Tile label="Invested" value={formatAmount(invested, 'INR')} />
             <Tile label="Average cost" value={avgCost !== null ? `${formatAmount(avgCost, 'INR')} a unit` : '–'} />
           </View>
           {holding.sipPaise && holding.sipDay && holding.unitsE4 > 0 ? (
@@ -382,7 +382,7 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
               <Feather name="repeat" size={18} color={colors.primary} />
               <View style={styles.grow}>
                 <Text style={styles.sipTitle}>
-                  SIP {formatWholeRupees(holding.sipPaise, 'INR')} on the {ordinal(holding.sipDay)}
+                  SIP {formatAmount(holding.sipPaise, 'INR')} on the {ordinal(holding.sipDay)}
                 </Text>
                 {nextSip !== null && <Text style={styles.meta}>{nextSip === 0 ? 'Next one today' : nextSip === 1 ? 'Next one tomorrow' : `Next in ${nextSip} days`}</Text>}
               </View>
@@ -403,7 +403,7 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
                 : `${(Math.abs(row.unitsE4!) / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${row.navE4 ? ` at ${fmtNav(row.navE4)}` : ''}`}
             </Text>
           </View>
-          {row.amount !== null && <Text style={styles.historyAmount}>{formatWholeRupees(row.amount, 'INR')}</Text>}
+          {row.amount !== null && <Text style={styles.historyAmount}>{formatAmount(row.amount, 'INR')}</Text>}
         </View>
       )}
       ListFooterComponent={

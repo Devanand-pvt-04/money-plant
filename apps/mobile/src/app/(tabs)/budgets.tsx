@@ -6,7 +6,7 @@ import { BUDGET_SORTS, addMonths, budgetPace, combineBudgets, paise, sortBudgets
 import { askToReplaceBudgets } from '@/components/budget-overlap';
 import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
-import { formatMonth, formatWholeRupees } from '@/components/format';
+import { formatMonth, formatAmount } from '@/components/format';
 import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
 import { ErrorText, Button, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
@@ -26,7 +26,7 @@ import { requestNotificationPermission } from '@/lib/notifications';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
-const rupees = formatWholeRupees;
+const rupees = formatAmount;
 type Segment = 'spending' | 'income';
 
 async function load(month: MonthKey) {

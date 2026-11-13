@@ -1,7 +1,7 @@
 import { Alert } from 'react-native';
 import type { Paise } from '@money-plant/core';
 import { budgetConflict } from '@/lib/budgets';
-import { formatWholeRupees } from './format';
+import { formatAmount } from './format';
 
 /**
  * BUD-1: before a budget is set on `categoryId`, asks whether to replace
@@ -15,7 +15,7 @@ export async function askToReplaceBudgets(categoryId: string, name: string): Pro
     conflict.kind === 'children'
       ? [
           `Replace ${conflict.names.length === 1 ? 'the sub-category budget' : `${conflict.names.length} sub-category budgets`}?`,
-          `${conflict.names.join(', ')} ${conflict.names.length === 1 ? 'has its own budget' : 'have their own budgets'}. One budget for ${name} covers all of ${name} and replaces them.${conflict.sum > 0 ? ` It starts at their total, ${formatWholeRupees(conflict.sum)}.` : ''}`,
+          `${conflict.names.join(', ')} ${conflict.names.length === 1 ? 'has its own budget' : 'have their own budgets'}. One budget for ${name} covers all of ${name} and replaces them.${conflict.sum > 0 ? ` It starts at their total, ${formatAmount(conflict.sum)}.` : ''}`,
         ]
       : [`Replace ${conflict.name}'s budget?`, `${conflict.name} has one budget for all its sub-categories. A budget for ${name} on its own removes ${conflict.name}'s, so you can budget each sub-category.`];
   return new Promise((resolve) =>

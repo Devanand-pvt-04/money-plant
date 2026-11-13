@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { addMonths, currencyInfo, dateOf, monthOf, type MonthKey } from '@money-plant/core';
 import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } from '@/components/activity-filters';
-import { formatAmount, formatDay, formatMonth, formatWholeRupees } from '@/components/format';
+import { formatAmount, formatDay, formatMonth } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
 import { ErrorText, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { useAiWaiting } from '@/lib/ai-settings';
@@ -213,10 +213,10 @@ export default function Activity() {
               </View>
             )}
             <View style={styles.summary}>
-              <Total label="Spent" value={formatWholeRupees(totals.moneyOut)} note={perDay !== null && totals.moneyOut > 0 ? `${formatWholeRupees(perDay)} a day` : null} />
+              <Total label="Spent" value={formatAmount(totals.moneyOut)} note={perDay !== null && totals.moneyOut > 0 ? `${formatAmount(perDay)} a day` : null} />
               <Total
                 label="Money in"
-                value={formatWholeRupees(totals.moneyIn)}
+                value={formatAmount(totals.moneyIn)}
                 color={totals.moneyIn > 0 ? colors.primary : undefined}
                 note={sources}
               />
@@ -277,9 +277,9 @@ export default function Activity() {
           <View style={styles.day}>
             <Text style={styles.dayText}>{section.title.toUpperCase()}</Text>
             <Text style={styles.dayTotal}>
-              {section.moneyOut > 0 ? `−${formatWholeRupees(section.moneyOut)}` : ''}
+              {section.moneyOut > 0 ? `−${formatAmount(section.moneyOut)}` : ''}
               {section.moneyIn > 0 && section.moneyOut > 0 ? ' · ' : ''}
-              {section.moneyIn > 0 && <Text style={{ color: colors.primary }}>+{formatWholeRupees(section.moneyIn)}</Text>}
+              {section.moneyIn > 0 && <Text style={{ color: colors.primary }}>+{formatAmount(section.moneyIn)}</Text>}
             </Text>
           </View>
         )}

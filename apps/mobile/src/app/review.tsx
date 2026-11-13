@@ -7,7 +7,7 @@ import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
 import { SwipeRow } from '@/components/swipe-row';
 import { Button, Card, radius, useColors, makeStyles } from '@/components/ui';
-import { formatDate, formatDateTime, formatDay, formatTime, formatWholeRupees, reviewTime } from '@/components/format';
+import { formatDate, formatDateTime, formatDay, formatTime, formatAmount, reviewTime } from '@/components/format';
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { whyLabel } from '@/components/why';
 import { useCategoryChange } from '@/components/use-category-change';
@@ -325,7 +325,7 @@ function BulkReview({
                   {group.title}
                 </Text>
                 <Text style={styles.meta}>
-                  {group.rows.length} entries · {formatWholeRupees(group.total)} · {group.category ?? 'No category yet'}
+                  {group.rows.length} entries · {formatAmount(group.total)} · {group.category ?? 'No category yet'}
                 </Text>
               </View>
             </View>

@@ -22,7 +22,7 @@ import {
 import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { DateField } from '@/components/date-fields';
-import { formatDay, formatWholeRupees as rupees } from '@/components/format';
+import { formatDay, formatAmount as rupees } from '@/components/format';
 import { Button, Chip, Chips, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { getDeposit, saveDeposit, suggestPayee } from '@/lib/deposits';
 import { listAccountBalances } from '@/lib/ledger';
