@@ -4,7 +4,7 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { LocalHolding } from '@money-plant/db-schema';
 import { accountIcon, accountLabel } from '@/components/account-picker';
-import { formatAmount, formatDate } from '@/components/format';
+import { formatAmount, formatDate, formatSummary } from '@/components/format';
 import { MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { GROUPS, isGroupKey } from '@/lib/account-groups';
 import { fetchNavHistory } from '@/lib/fund-chart';
@@ -25,7 +25,7 @@ const signedPercent = (gain: number, invested: number) => {
   return `${tenths >= 0 ? '+' : '−'}${(Math.abs(tenths) / 10).toFixed(1)}%`;
 };
 // Funds are priced in rupees (decision 0017), whatever the home currency.
-const signedRupees = (amount: number) => `${amount >= 0 ? '+' : '−'}${formatAmount(Math.abs(amount), 'INR')}`;
+const signedRupees = (amount: number) => `${amount >= 0 ? '+' : '−'}${formatSummary(Math.abs(amount), 'INR')}`;
 
 /** NW-4 (decision 0015): one group's accounts, opened from Accounts. Mutual funds get their own page (NW-3). */
 export default function GroupPage() {
@@ -43,7 +43,7 @@ export default function GroupPage() {
       <Stack.Screen options={{ title: group.title }} />
       <MoneyCard>
         <Text style={styles.heroMuted}>{group.key === 'debts' ? 'You owe' : 'Total'}</Text>
-        <Text style={styles.heroAmount}>{formatAmount(Math.abs(total))}</Text>
+        <Text style={styles.heroAmount}>{formatSummary(Math.abs(total))}</Text>
       </MoneyCard>
       <View style={styles.card}>
         {rows.map((item, i) => (
@@ -76,8 +76,8 @@ function AccountRow({ item, first }: { item: AccountBalance; first: boolean }) {
         {reconciliation?.flagged && <Text style={styles.warn}>Off from the bank by {formatAmount(Math.abs(reconciliation.latest.gap), currency)}</Text>}
       </View>
       <View style={styles.values}>
-        <Text style={[styles.amount, value < 0 && { color: colors.danger }]}>{formatAmount(value, currency)}</Text>
-        {foreign && homeValue !== null && <Text style={styles.meta}>{formatAmount(homeValue)}</Text>}
+        <Text style={[styles.amount, value < 0 && { color: colors.danger }]}>{formatSummary(value, currency)}</Text>
+        {foreign && homeValue !== null && <Text style={styles.meta}>{formatSummary(homeValue)}</Text>}
       </View>
     </Pressable>
   );
@@ -128,9 +128,9 @@ function Funds({ rows, holdings, values }: { rows: AccountBalance[]; holdings: L
       />
       <MoneyCard>
         <Text style={styles.heroMuted}>Current value</Text>
-        <Text style={styles.heroAmount}>{formatAmount(worth, 'INR')}</Text>
+        <Text style={styles.heroAmount}>{formatSummary(worth, 'INR')}</Text>
         <View style={styles.heroStats}>
-          <Stat label="Invested" value={formatAmount(invested, 'INR')} />
+          <Stat label="Invested" value={formatSummary(invested, 'INR')} />
           <Stat label="Gain" value={signedRupees(gain)} tone={gain >= 0 ? 'in' : 'out'} />
           <Stat label="Return" value={signedPercent(gain, invested) ?? '–'} tone={gain >= 0 ? 'in' : 'out'} />
         </View>
@@ -174,7 +174,7 @@ function Funds({ rows, holdings, values }: { rows: AccountBalance[]; holdings: L
                   </Text>
                 </View>
                 <View style={styles.right}>
-                  <Text style={styles.amount}>{formatAmount(now, 'INR')}</Text>
+                  <Text style={styles.amount}>{formatSummary(now, 'INR')}</Text>
                   {pct && <Text style={[styles.pct, value!.gain < 0 && { color: colors.danger }]}>{pct}</Text>}
                 </View>
               </View>

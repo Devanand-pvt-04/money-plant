@@ -1,5 +1,6 @@
 import { currencyInfo, formatMoney, type CurrencyCode } from '@money-plant/core';
 import { homeCurrency } from '@/lib/home-currency';
+import { roundSummaries } from '@/lib/rounding';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -53,6 +54,15 @@ export function formatAmount(amount: number, currency: CurrencyCode = homeCurren
   const unit = 10 ** decimals;
   if (amount % unit === 0) return formatWholeRupees(amount, currency);
   return formatMoney(amount, currency);
+}
+
+/**
+ * A total, balance or chart figure: whole rupees while Settings → Round off
+ * summaries is on (the default), exact like formatAmount when it's off. Entries,
+ * splits, settling and the account page's balance use formatAmount instead.
+ */
+export function formatSummary(amount: number, currency: CurrencyCode = homeCurrency()): string {
+  return roundSummaries() ? formatWholeRupees(amount, currency) : formatAmount(amount, currency);
 }
 
 /** Money out as "−₹480", money in as "+₹480". */

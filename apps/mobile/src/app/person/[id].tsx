@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, Share, Switch, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
-import { formatAmount } from '@/components/format';
+import { formatAmount, formatSummary } from '@/components/format';
 import { ItemRow } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, useColors, makeStyles } from '@/components/ui';
@@ -214,7 +214,7 @@ export default function PersonDetail() {
             // Each currency on its own line, never added together (decision 0017).
             person.balances.map((b) => (
               <Text key={b.currency} style={[styles.heroAmount, b.amount > 0 && { color: colors.primary }]}>
-                {formatAmount(Math.abs(b.amount), b.currency)}
+                {formatSummary(Math.abs(b.amount), b.currency)}
               </Text>
             ))
           )}

@@ -7,7 +7,7 @@ import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { accountLabel } from '@/components/account-picker';
 import { LineChart } from '@/components/line-chart';
 import { Button, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
-import { formatAmount, formatDate, formatDay, formatTime } from '@/components/format';
+import { formatAmount, formatDate, formatDay, formatSummary, formatTime } from '@/components/format';
 import { TransactionItem } from '@/components/transaction-item';
 import { deleteAccount } from '@/lib/accounts';
 import { depositValue, getDeposit } from '@/lib/deposits';
@@ -335,10 +335,10 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
           </View>
           <MoneyCard style={styles.fundCard}>
             <View style={styles.fundValue}>
-              <Text style={styles.heroAmount}>{formatAmount(value.value, 'INR')}</Text>
+              <Text style={styles.heroAmount}>{formatSummary(value.value, 'INR')}</Text>
               <Text style={[styles.fundGain, value.gain < 0 && { color: colors.heroDanger }]}>
                 {value.gain >= 0 ? '+' : '−'}
-                {formatAmount(Math.abs(value.gain), 'INR')}
+                {formatSummary(Math.abs(value.gain), 'INR')}
                 {pct !== null ? ` · ${Math.abs(pct).toFixed(1)}%` : ''}
               </Text>
             </View>
@@ -374,7 +374,7 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
           <View style={styles.tiles}>
             <Tile label="Units" value={(unitsE4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 3 })} />
             <Tile label="NAV today" value={value.navE4 !== null ? fmtNav(value.navE4) : '–'} />
-            <Tile label="Invested" value={formatAmount(invested, 'INR')} />
+            <Tile label="Invested" value={formatSummary(invested, 'INR')} />
             <Tile label="Average cost" value={avgCost !== null ? `${formatAmount(avgCost, 'INR')} a unit` : '–'} />
           </View>
           {holding.sipPaise && holding.sipDay && holding.unitsE4 > 0 ? (

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { formatAmount } from '@/components/format';
+import { formatAmount, formatSummary } from '@/components/format';
 import { ItemRow, NetByCurrency } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
 import { ErrorText, Card, Initial, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
@@ -89,12 +89,12 @@ export default function People() {
         <View style={styles.totals}>
           <View style={styles.total}>
             <Text style={styles.meta}>You'll get back</Text>
-            <Text style={[styles.totalAmount, owedToMe > 0 && { color: colors.primary }]}>{formatAmount(owedToMe)}</Text>
+            <Text style={[styles.totalAmount, owedToMe > 0 && { color: colors.primary }]}>{formatSummary(owedToMe)}</Text>
             <Text style={styles.meta}>{owing.length === 0 ? 'from no one' : `from ${owing.length} ${owing.length === 1 ? 'person' : 'people'}`}</Text>
           </View>
           <View style={styles.total}>
             <Text style={styles.meta}>You owe</Text>
-            <Text style={[styles.totalAmount, iOwe > 0 && { color: colors.danger }]}>{formatAmount(iOwe)}</Text>
+            <Text style={[styles.totalAmount, iOwe > 0 && { color: colors.danger }]}>{formatSummary(iOwe)}</Text>
             <Text style={styles.meta}>{owed.length === 0 ? 'to no one' : `to ${owed.length} ${owed.length === 1 ? 'person' : 'people'}`}</Text>
           </View>
         </View>
