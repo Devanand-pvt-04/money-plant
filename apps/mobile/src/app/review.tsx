@@ -25,6 +25,7 @@ import {
   type TransactionRow,
 } from '@/lib/ledger';
 import { repaymentGuesses, type RepaymentGuess } from '@/lib/ious';
+import { PEOPLE_PAUSED } from '@/lib/maintenance';
 import { listRecurring } from '@/lib/recurring';
 import { listRules } from '@/lib/rules-store';
 import type { RecurringPayment } from '@money-plant/matcher';
@@ -58,7 +59,9 @@ async function load() {
       category: names.get(rule.categoryId) ?? 'a category',
     }));
   const suggested = recurring.filter((r) => r.status === 'proposed');
-  const guesses = await repaymentGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, RepaymentGuess>());
+  const guesses = PEOPLE_PAUSED
+    ? new Map<string, RepaymentGuess>()
+    : await repaymentGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, RepaymentGuess>());
   const inCredit = await cardsInCredit(balances).catch(() => [] as CardInCredit[]);
   return { pending, gaps: balances.filter((b) => gapIsDue(b)), inCredit, proposals, suggested, guesses, questions };
 }
@@ -201,7 +204,7 @@ function ReviewCard({
             <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={accept} />
           </View>
         </View>
-        {guess && legs[0] && (
+        {guess && legs[0] && !PEOPLE_PAUSED && (
           <Pressable
             accessibilityRole="button"
             onPress={() => router.push(`/iou/repay?from=${tx.id}&person=${guess.personId}`)}
@@ -212,7 +215,7 @@ function ReviewCard({
           </Pressable>
         )}
         {/* IOU-1, IOU-4, SPL-1: a payment to or from a person is often a loan, a repayment or a shared bill. */}
-        {tx.reviewReason === 'person' && legs[0] && (
+        {tx.reviewReason === 'person' && legs[0] && !PEOPLE_PAUSED && (
           <View style={styles.links}>
             <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/new?from=${tx.id}`)}>
               <Text style={styles.link}>{legs[0].amount < 0 ? 'I lent this' : 'I borrowed this'}</Text>

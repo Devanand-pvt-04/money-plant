@@ -11,6 +11,7 @@ import { mergePeople } from '@/lib/merge-people';
 import { dismissDuplicate, duplicateSuggestions, listPeople, type DuplicateSuggestion, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
 import { groupOverview, listGroups, type GroupOverview } from '@/lib/splits';
+import { PEOPLE_PAUSED } from '@/lib/maintenance';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -35,8 +36,30 @@ function personNote(person: Person, ious: readonly IouView[], day: string): stri
 
 const REASONS: Record<DuplicateSuggestion['reason'], string> = { email: 'same email', vpa: 'same UPI ID', phone: 'same phone number', name: 'same name' };
 
-/** IOU-1 to IOU-5, SPL-1, SPL-3: who owes whom, groups, and one way to add an expense with people. */
 export default function People() {
+  return PEOPLE_PAUSED ? <Paused /> : <PeopleTab />;
+}
+
+/** While IOUs and splits are redesigned, the tab only says so. */
+function Paused() {
+  const colors = useColors();
+  const styles = useStyles();
+  return (
+    <ScrollView contentContainerStyle={styles.paused}>
+      <View style={styles.pausedIcon}>
+        <Feather name="tool" size={28} color={colors.warning} />
+      </View>
+      <Text style={styles.pausedTitle}>Under maintenance</Text>
+      <Text style={styles.pausedBody}>
+        Loans, splits and people are being rebuilt so they add up the same on both phones. They're switched off until then, and
+        the old ones have been cleared. Your bank entries are all still here.
+      </Text>
+    </ScrollView>
+  );
+}
+
+/** IOU-1 to IOU-5, SPL-1, SPL-3: who owes whom, groups, and one way to add an expense with people. */
+function PeopleTab() {
   const colors = useColors();
   const styles = useStyles();
   const navigation = useNavigation();
@@ -234,6 +257,10 @@ export default function People() {
 }
 
 const useStyles = makeStyles((colors) => ({
+  paused: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 64, gap: 12 },
+  pausedIcon: { width: 64, height: 64, borderRadius: radius.pill, backgroundColor: colors.warningSurface, alignItems: 'center', justifyContent: 'center' },
+  pausedTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
+  pausedBody: { fontSize: 15, lineHeight: 22, color: colors.secondary, textAlign: 'center' },
   container: { paddingHorizontal: 20, paddingBottom: 96, gap: 8 },
   duplicateActions: { flexDirection: 'row', gap: 20, marginTop: 6 },
   link: { fontSize: 14, fontWeight: '600', color: colors.primary },
