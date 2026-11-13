@@ -246,3 +246,107 @@ export function splitEqually(total: Paise, people: number, includeMe: boolean): 
   const extra = includeMe ? 0 : total - each * parts;
   return Array.from({ length: people }, (_, i) => paise(each + (i < extra ? 1 : 0)));
 }
+
+/** Decision 0027: how a bill is split between the user and others. */
+export type SplitMethod = 'equally' | 'amounts' | 'percent' | 'shares' | 'adjust';
+
+/**
+ * One row of a split: the user or another person. `in` says whether they are
+ * part of it. `value` depends on the method: amounts in minor units, percent
+ * in hundredths of a percent (2500 is 25%), shares in whole units, adjust as
+ * signed minor units added to an equal part. Ignored for equally.
+ */
+export interface SplitRow {
+  in: boolean;
+  value: number | null;
+}
+
+export type SplitProblem =
+  /** No bill total yet. */
+  | 'no_total'
+  /** Nobody is in. */
+  | 'none_in'
+  /** The parts add up to less than the bill (`left` above zero). */
+  | 'short'
+  /** The parts add up to more than the bill (`left` below zero). */
+  | 'over'
+  /** Percents don't reach 100 (`left` is the hundredths of a percent missing, or too many when below zero). */
+  | 'percent'
+  /** Someone's part would be below zero. */
+  | 'negative';
+
+export interface SplitResult {
+  /** Each row's part, in order; zero for a row that isn't in. */
+  parts: Paise[];
+  /** What is left to assign: minor units, or hundredths of a percent for 'percent'. Zero when it adds up. */
+  left: number;
+  problem: SplitProblem | null;
+}
+
+/** Splits `total` by whole-number weights; the leftover goes to `keeper` when it has a weight, else one each to the first rows that do. */
+function byWeights(total: number, weights: readonly number[], keeper: number): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return weights.map(() => 0);
+  const parts = weights.map((w) => Number((BigInt(total) * BigInt(w)) / BigInt(sum)));
+  let extra = total - parts.reduce((a, b) => a + b, 0);
+  if (extra > 0 && keeper >= 0 && (weights[keeper] ?? 0) > 0) {
+    parts[keeper]! += extra;
+    extra = 0;
+  }
+  for (let i = 0; i < parts.length && extra > 0; i++) {
+    if (weights[i]! > 0) {
+      parts[i]! += 1;
+      extra--;
+    }
+  }
+  return parts;
+}
+
+const whole = (v: number | null) => (v !== null && Number.isSafeInteger(v) && v > 0 ? v : 0);
+
+/**
+ * Decision 0027: a bill split by one of the five methods. `meIndex` is the
+ * user's row (or -1 when the user isn't a row): the user keeps any leftover
+ * paise, and with 'amounts' the user's part is whatever the others leave.
+ * The parts of the rows that are in always add up to `total` when `problem`
+ * is null.
+ */
+export function splitBill(total: number, method: SplitMethod, rows: readonly SplitRow[], meIndex: number): SplitResult {
+  const zero = (): Paise[] => rows.map(() => paise(0));
+  if (!Number.isSafeInteger(total) || total <= 0) return { parts: zero(), left: 0, problem: 'no_total' };
+  const isIn = rows.map((r, i) => r.in && (method === 'equally' || method === 'adjust' || (i === meIndex && method === 'amounts') || whole(r.value) > 0));
+  if (!isIn.some(Boolean)) return { parts: zero(), left: method === 'percent' ? 10_000 : total, problem: 'none_in' };
+  const done = (parts: number[], left: number, problem: SplitProblem | null): SplitResult => ({
+    parts: parts.map((p, i) => paise(isIn[i] ? p : 0)),
+    left,
+    problem: problem ?? (parts.some((p, i) => isIn[i] && p < 0) ? 'negative' : null),
+  });
+  switch (method) {
+    case 'equally':
+      return done(byWeights(total, isIn.map((x) => (x ? 1 : 0)), meIndex), 0, null);
+    case 'shares':
+      return done(byWeights(total, rows.map((r, i) => (isIn[i] ? whole(r.value) : 0)), meIndex), 0, null);
+    case 'percent': {
+      const weights = rows.map((r, i) => (isIn[i] ? whole(r.value) : 0));
+      const left = 10_000 - weights.reduce((a, b) => a + b, 0);
+      return done(byWeights(total, weights, meIndex), left, left === 0 ? null : 'percent');
+    }
+    case 'adjust': {
+      const adj = rows.map((r, i) => (isIn[i] && r.value !== null && Number.isSafeInteger(r.value) ? r.value : 0));
+      const base = total - adj.reduce((a, b) => a + b, 0);
+      if (base < 0) return done(adj, base, 'over');
+      const equal = byWeights(base, isIn.map((x) => (x ? 1 : 0)), meIndex);
+      return done(equal.map((e, i) => e + adj[i]!), 0, null);
+    }
+    case 'amounts': {
+      const parts = rows.map((r, i) => (isIn[i] && i !== meIndex ? whole(r.value) : 0));
+      const others = parts.reduce((a, b) => a + b, 0);
+      if (meIndex >= 0 && isIn[meIndex]) {
+        parts[meIndex] = total - others;
+        return done(parts, 0, others > total ? 'over' : null);
+      }
+      const left = total - others;
+      return done(parts, left, left === 0 ? null : left > 0 ? 'short' : 'over');
+    }
+  }
+}

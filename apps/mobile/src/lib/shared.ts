@@ -52,6 +52,8 @@ export interface ItemView extends SharedItem {
   categoryName: string | null;
   /** Ties the shares of one bill split with several people (step 4). */
   groupRef: string | null;
+  /** A repayment settled another way: no money moved (decision 0027). */
+  settledOutside: boolean;
   createdAt: string;
   /** This user's person for the other side; null when the friend isn't a person here yet. */
   personId: string | null;
@@ -99,6 +101,7 @@ function toView(row: LocalSharedItem, meId: string, link: LocalItemLink | undefi
     reason: row.reason,
     categoryName: row.categoryName,
     groupRef: row.groupRef,
+    settledOutside: row.settledOutside,
     createdAt: row.createdAt,
     personId: person?.account.id ?? null,
     personName: person?.account.name ?? 'A friend',
@@ -361,6 +364,63 @@ async function makeTypedEntry(db: Database, view: ItemView, personId: string, pe
   setLink(db, link.id, { transactionId: id, ...linkedFields(view) });
 }
 
+/**
+ * The hidden account a debt settled another way is written against (decision
+ * 0027): not one of the user's accounts, not spending or income. One per user,
+ * with an id derived from the user's id, so every device makes the same one.
+ */
+async function settledAccountId(db: Database): Promise<string> {
+  const id = await derivedId('system:settled');
+  const existing = db.select({ id: accounts.id, deletedAt: accounts.deletedAt }).from(accounts).where(eq(accounts.id, id)).get();
+  if (!existing) {
+    db.insert(accounts)
+      .values({ id, type: 'settled', name: 'Settled outside the app', institution: null, last4: null, openingBalancePaise: 0, createdAt: now(), dirty: 1 })
+      .run();
+  }
+  return id;
+}
+
+/** A repayment settled another way: the person's balance moves against the hidden settled account, and no account of the user's changes. */
+async function makeOutsideEntry(db: Database, view: ItemView, personId: string, personName: string): Promise<void> {
+  if (view.kind !== 'repayment') throw new Error('Only a repayment can be settled another way');
+  const settled = await settledAccountId(db);
+  // Paid back to the user ('to_me'): what the person owes goes down.
+  const person = paise(view.flow === 'to_me' ? -view.amount : view.amount);
+  const id = Crypto.randomUUID();
+  writeTransaction(db, {
+    id,
+    occurredAt: new Date(`${view.occurredOn}T12:00:00`).toISOString(),
+    counterparty: personName,
+    kind: 'iou',
+    status: 'confirmed',
+    confidence: 1,
+    reviewReason: null,
+    categoryReason: null,
+    categoryRuleId: null,
+    userSetFields: ['category', 'amount', 'account', 'occurredAt', 'kind'],
+    note: view.reason,
+    postings: [
+      { id: Crypto.randomUUID(), accountId: personId, amount: person, currency: view.currency },
+      { id: Crypto.randomUUID(), accountId: settled, amount: paise(-person), currency: view.currency },
+    ],
+    sources: [
+      {
+        id: Crypto.randomUUID(),
+        kind: 'manual',
+        sender: null,
+        externalRef: null,
+        fingerprint: `manual:${id}`,
+        parsedFields: { settled: view.id, amount: view.amount, counterparty: personName },
+        receivedAt: now(),
+        confidence: 1,
+        rawText: null,
+      },
+    ],
+  });
+  const link = await ensureLink(db, view.id, personId);
+  setLink(db, link.id, { transactionId: id, ...linkedFields(view) });
+}
+
 async function requireView(id: string): Promise<ItemView> {
   const view = await getItem(id);
   if (!view) throw new Error('Not found');
@@ -383,6 +443,8 @@ export type EntrySide =
   | { accountId: string; occurredAt: string }
   /** A share the other person paid: the user's spending on this category. */
   | { categoryId: string }
+  /** A repayment settled another way: no money moved (decision 0027). */
+  | { outside: true }
   /** Linked later. */
   | null;
 
@@ -432,6 +494,8 @@ async function categoryNameOf(db: Database, side: EntrySide): Promise<string | n
 export async function createItem(input: NewItem, side: EntrySide): Promise<string> {
   if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Enter an amount above zero');
   if (side && 'categoryId' in side && !(input.kind === 'share' && input.flow === 'to_me')) throw new Error('Only a share someone else paid needs a category');
+  const outside = side !== null && 'outside' in side;
+  if (outside && input.kind !== 'repayment') throw new Error('Only paying back can be settled another way');
   const db = await getDb();
   const [me, person] = await Promise.all([getMe(), requirePerson(input.personId)]);
   const id = Crypto.randomUUID();
@@ -448,6 +512,7 @@ export async function createItem(input: NewItem, side: EntrySide): Promise<strin
       reason: input.reason?.trim().slice(0, 120) || null,
       categoryName: input.kind === 'share' ? await categoryNameOf(db, side) : null,
       groupRef: input.groupRef ?? null,
+      settledOutside: outside,
       counterpartyEmail: person.account.email,
       createdAt: now(),
       dirty: 1,
@@ -459,6 +524,7 @@ export async function createItem(input: NewItem, side: EntrySide): Promise<strin
     if (side && 'transactionId' in side) await linkInto(db, view, person.account.id, side.transactionId);
     else if (side && 'accountId' in side) await makeTypedEntry(db, view, person.account.id, person.account.name, side.accountId, side.occurredAt);
     else if (side && 'categoryId' in side) await makeShareEntry(db, view, person.account.id, person.account.name, side.categoryId);
+    else if (outside) await makeOutsideEntry(db, view, person.account.id, person.account.name);
   } catch (e) {
     // Nothing half-made: the item goes again, before it was ever sent.
     db.delete(sharedItems).where(eq(sharedItems.id, id)).run();
@@ -592,6 +658,7 @@ export async function linkEntry(id: string, transactionId: string): Promise<void
   const view = await requireView(id);
   if (!view.personId) throw new Error('This friend isn\'t in your People yet. Pull down on People to sync, then try again.');
   if (view.kind === 'share' && view.flow === 'to_me') throw new Error('A share someone else paid needs no bank entry of yours');
+  if (view.settledOutside) throw new Error('This was settled another way, so no payment goes with it');
   if (view.link?.transactionId) await undoLink(db, view.link);
   await linkInto(db, view, view.personId, transactionId);
   notifyLedgerChange();
@@ -604,6 +671,7 @@ export async function recordEntry(id: string, accountId: string, occurredAt: str
   const view = await requireView(id);
   if (!view.personId) throw new Error('This friend isn\'t in your People yet. Pull down on People to sync, then try again.');
   if (view.kind === 'share') throw new Error('Link the bank entry you paid with instead');
+  if (view.settledOutside) throw new Error('This was settled another way, so no payment goes with it');
   const person = await requirePerson(view.personId);
   if (view.link?.transactionId) await undoLink(db, view.link);
   await makeTypedEntry(db, view, person.account.id, person.account.name, accountId, occurredAt);
@@ -717,7 +785,7 @@ export interface ItemGuess {
 /** For Review: entries that are probably the user's side of an item waiting for one. */
 export async function itemGuesses(txs: readonly LedgerTransaction[]): Promise<Map<string, ItemGuess>> {
   const out = new Map<string, ItemGuess>();
-  const waiting = (await listItems()).filter((v) => v.status === 'needs_link' && v.personId && !(v.kind === 'share' && v.flow === 'to_me'));
+  const waiting = (await listItems()).filter((v) => v.status === 'needs_link' && v.personId && !v.settledOutside && !(v.kind === 'share' && v.flow === 'to_me'));
   if (waiting.length === 0 || txs.length === 0) return out;
   const db = await getDb();
   const owned = ownedAccountIds(db);
@@ -837,11 +905,25 @@ async function reconcile(): Promise<number> {
   return changed;
 }
 
-/** A friend's loan or repayment, or the user's own, links itself when exactly one entry fits and its payee is the person. */
+/**
+ * A friend's loan or repayment, or the user's own, links itself when exactly
+ * one entry fits and its payee is the person. One settled another way is
+ * written on this side straight away.
+ */
 async function autoLink(db: Database): Promise<number> {
   let linked = 0;
   for (const view of await listItems()) {
     if (view.status !== 'needs_link' || view.kind === 'share' || !view.personId) continue;
+    // Settled another way (decision 0027): this side writes it against its own settled account, no question asked.
+    if (view.settledOutside) {
+      try {
+        await makeOutsideEntry(db, view, view.personId, view.personName);
+        linked++;
+      } catch {
+        // Left for the next run.
+      }
+      continue;
+    }
     const fits = await fitting(db, view);
     if (fits.length !== 1 || !fits[0]!.payeeIsPerson) continue;
     try {
@@ -892,8 +974,9 @@ export async function owedSummary(): Promise<OwedSummary> {
 // ---- Words ----
 
 /** What an item is, in a few words from the user's side: "You paid, they owe their share", "You lent". */
-export function itemTitle(view: Pick<ItemView, 'kind' | 'flow' | 'personName'>): string {
+export function itemTitle(view: Pick<ItemView, 'kind' | 'flow' | 'personName' | 'settledOutside'>): string {
   const name = view.personName;
+  if (view.settledOutside) return view.flow === 'to_me' ? `${name} settled up with you` : `You settled up with ${name}`;
   if (view.kind === 'share') return view.flow === 'to_them' ? `${name}'s share of what you paid` : `Your share of what ${name} paid`;
   if (view.kind === 'loan') return view.flow === 'to_them' ? `You lent ${name}` : `${name} lent you`;
   return view.flow === 'to_them' ? `You paid ${name} back` : `${name} paid you back`;
@@ -908,9 +991,10 @@ export const STATUS_TEXT: Record<ItemStatus, string> = {
 };
 
 /** A status line that fits the item: a share someone else paid needs no bank entry, so it never says "link". */
-export function statusText(view: Pick<ItemView, 'status' | 'kind' | 'flow' | 'mine' | 'oneSided'>): string {
+export function statusText(view: Pick<ItemView, 'status' | 'kind' | 'flow' | 'mine' | 'oneSided' | 'settledOutside'>): string {
   if (view.status === 'needs_link' && view.kind === 'share' && view.flow === 'to_them') return 'Link the entry you paid with';
   if (view.status === 'needs_link' && view.kind !== 'share') return view.flow === 'to_them' ? 'Link the payment you sent' : 'Link the payment you got';
+  if (view.settledOutside) return 'Settled another way';
   if (view.status === 'linked' && view.oneSided) return 'Only on your phone';
   return STATUS_TEXT[view.status];
 }

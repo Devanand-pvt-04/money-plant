@@ -4,7 +4,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(23);
+select plan(26);
 
 set local session_replication_role = replica;
 insert into auth.users (id, email, aud, role) values
@@ -115,6 +115,21 @@ update friend_links set friend_user_id = 'cccccccc-0000-4000-8000-000000000003',
 where id = 'f0000000-0000-4000-8000-000000000002';
 select pg_temp.act_as('cccccccc-0000-4000-8000-000000000003', 'chitra@example.com');
 select is((select count(*)::int from shared_items), 2, 'once linked, Chitra reads the loan and the share moved to her');
+
+-- ---- Decision 0027: settled another way ----
+
+select pg_temp.act_as('aaaaaaaa-0000-4000-8000-000000000001', 'asha@example.com');
+insert into shared_items (id, kind, flow, amount_paise, occurred_on, counterparty_email, settled_outside) values
+  ('a5000000-0000-4000-8000-000000000009', 'repayment', 'to_me', 25300, '2026-11-13', 'bala@example.com', true);
+select is((select settled_outside from shared_items where id = 'a5000000-0000-4000-8000-000000000009'), true,
+  'a repayment can be settled outside the app');
+select throws_ok(
+  $$insert into shared_items (id, kind, flow, amount_paise, occurred_on, settled_outside) values
+    ('a5000000-0000-4000-8000-00000000000a', 'share', 'to_them', 100, '2026-11-13', true)$$,
+  '23514', null, 'only a repayment can be settled outside the app');
+select lives_ok(
+  $$insert into accounts (id, type, name) values ('a0000000-0000-4000-8000-0000000000aa', 'settled', 'Settled outside the app')$$,
+  'each user can have a hidden settled-outside account');
 
 select * from finish();
 rollback;

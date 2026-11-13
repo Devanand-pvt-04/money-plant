@@ -42,11 +42,13 @@ const CHANNEL_IN: Record<string, string> = {
 };
 
 /** The entry's amount as shown in lists: transfers unsigned, money out with a minus, money in with a plus. */
-export function displayAmount({ tx, legs }: TransactionRow, colors: Palette): { text: string; color: string } {
+export function displayAmount({ tx, legs, settled }: TransactionRow, colors: Palette): { text: string; color: string } {
   // Someone else paid (SPL-2): no account of the user's moved, so show their share as money out.
   const amount = legs[0]?.amount ?? -tx.postings.reduce((sum, p) => sum + Math.max(0, p.amount), 0);
   // Each entry shows in its own currency (decision 0017).
   const currency = legs[0]?.currency ?? tx.postings[0]?.currency ?? 'INR';
+  // Settled another way (decision 0027): nothing moved, so the amount is muted and unsigned.
+  if (settled) return { text: formatAmount(Math.abs(tx.postings.reduce((sum, p) => sum + Math.max(0, p.amount), 0)), currency), color: colors.muted };
   if (tx.kind === 'transfer') {
     // Between currencies: what left and what arrived, "₹83,500 → $1,000".
     const into = legs.find((leg) => leg.amount > 0 && leg.currency !== currency);
@@ -70,7 +72,7 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
   const note = tx.note?.trim() || null;
   const title = note ?? payee;
   const { text, color } = displayAmount(row, colors);
-  const detail = tx.kind === 'transfer' ? 'Transfer' : (row.category?.name ?? 'No category');
+  const detail = tx.kind === 'transfer' ? 'Transfer' : row.settled ? 'Settled another way' : (row.category?.name ?? 'No category');
   const pick = tx.kind !== 'transfer' && tx.status === 'pending' && !row.category;
   const where = showTime ? formatTime(tx.occurredAt) : tx.kind !== 'transfer' ? legs[0]?.accountName : undefined;
   return (
@@ -79,9 +81,9 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
       onPress={() => router.push(`/transaction/${tx.id}`)}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      {tx.kind === 'transfer' ? (
+      {tx.kind === 'transfer' || row.settled ? (
         <View style={styles.transfer}>
-          <Feather name="repeat" size={16} color={colors.muted} />
+          <Feather name={row.settled ? 'check-circle' : 'repeat'} size={16} color={colors.muted} />
         </View>
       ) : row.category ? (
         <CategoryIcon category={row.category.look} size={40} />

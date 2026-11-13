@@ -3,6 +3,7 @@ import { paise } from '@money-plant/core';
 import {
   counterpartCandidates,
   itemStatus,
+  splitBill,
   splitEqually,
   ledgerGap,
   linkPostings,
@@ -207,5 +208,78 @@ describe('splitEqually (step 4)', () => {
 
   it('splits nothing for no one', () => {
     expect(splitEqually(paise(100_000), 0, true)).toEqual([]);
+  });
+});
+
+describe('splitBill (decision 0027)', () => {
+  const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
+  const on = (value: number | null = null) => ({ in: true, value });
+  const off = { in: false, value: null };
+
+  it('splits equally and keeps the odd paise on the user', () => {
+    const r = splitBill(41_200, 'equally', [on(), on(), on(), on(), on()], 0);
+    expect(r.problem).toBeNull();
+    expect(r.parts).toEqual([8_240, 8_240, 8_240, 8_240, 8_240]);
+    const odd = splitBill(100_000, 'equally', [on(), on(), on()], 0);
+    expect(odd.parts).toEqual([33_334, 33_333, 33_333]);
+  });
+
+  it('leaves out someone who is not in, and spreads paise over the others when the user is out', () => {
+    const r = splitBill(100_000, 'equally', [off, on(), on(), on()], 0);
+    expect(r.parts).toEqual([0, 33_334, 33_333, 33_333]);
+    expect(sum(r.parts)).toBe(100_000);
+  });
+
+  it('splits by shares: 2 for a couple, 1 each for the rest', () => {
+    const r = splitBill(240_000, 'shares', [on(1), on(2), on(1), on(2)], 0);
+    expect(r.parts).toEqual([40_000, 80_000, 40_000, 80_000]);
+    expect(splitBill(100_000, 'shares', [on(1), on(1), on(1)], 0).parts).toEqual([33_334, 33_333, 33_333]);
+  });
+
+  it('a row with no shares is out', () => {
+    const r = splitBill(90_000, 'shares', [on(1), on(0), on(2)], 0);
+    expect(r.parts).toEqual([30_000, 0, 60_000]);
+  });
+
+  it('splits by percent and says how far from 100% it is', () => {
+    const r = splitBill(100_000, 'percent', [on(5_000), on(2_500), on(2_500)], 0);
+    expect(r.problem).toBeNull();
+    expect(r.parts).toEqual([50_000, 25_000, 25_000]);
+    const short = splitBill(100_000, 'percent', [on(5_000), on(2_500)], 0);
+    expect(short.problem).toBe('percent');
+    expect(short.left).toBe(2_500);
+    expect(splitBill(100_000, 'percent', [on(6_000), on(6_000)], 0).left).toBe(-2_000);
+  });
+
+  it('by amounts: the user takes what the others leave', () => {
+    const r = splitBill(100_000, 'amounts', [on(), on(30_000), on(25_000)], 0);
+    expect(r.problem).toBeNull();
+    expect(r.parts).toEqual([45_000, 30_000, 25_000]);
+    expect(splitBill(100_000, 'amounts', [on(), on(80_000), on(30_000)], 0).problem).toBe('over');
+  });
+
+  it('by amounts without the user: the others must add up to the bill', () => {
+    const short = splitBill(100_000, 'amounts', [off, on(30_000), on(25_000)], 0);
+    expect(short.problem).toBe('short');
+    expect(short.left).toBe(45_000);
+    expect(splitBill(100_000, 'amounts', [off, on(50_000), on(50_000)], 0).problem).toBeNull();
+  });
+
+  it('adjusts an equal split for someone who had extra', () => {
+    const r = splitBill(100_000, 'adjust', [on(0), on(15_000), on(0)], 0);
+    expect(r.problem).toBeNull();
+    expect(r.parts).toEqual([28_334, 43_333, 28_333]);
+    expect(sum(r.parts)).toBe(100_000);
+    expect(splitBill(100_000, 'adjust', [on(0), on(-20_000), on(0)], 0).parts).toEqual([40_000, 20_000, 40_000]);
+  });
+
+  it('flags adjustments bigger than the bill or a part below zero', () => {
+    expect(splitBill(10_000, 'adjust', [on(0), on(20_000)], 0).problem).toBe('over');
+    expect(splitBill(10_000, 'adjust', [on(0), on(-12_000)], 0).problem).toBe('negative');
+  });
+
+  it('needs a total and someone in', () => {
+    expect(splitBill(0, 'equally', [on()], 0).problem).toBe('no_total');
+    expect(splitBill(10_000, 'equally', [off, off], 0).problem).toBe('none_in');
   });
 });

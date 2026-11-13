@@ -26,7 +26,7 @@ import { homeCurrency } from './home-currency';
 import { homeConverter } from './home-money';
 
 /** Accounts that hold the user's money, as opposed to category and people accounts. */
-const NON_OWNED: AccountType[] = ['category', 'person', 'exchange'];
+const NON_OWNED: AccountType[] = ['category', 'person', 'exchange', 'settled'];
 
 export interface AccountBalance {
   account: LocalAccount;
@@ -147,6 +147,8 @@ export interface TransactionRow {
   homeAmount: Paise | null;
   /** Names of every account the postings touch, including categories. */
   accountNames: Record<string, string>;
+  /** A debt settled another way (decision 0027): no money moved in any account. */
+  settled: boolean;
 }
 
 async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
@@ -194,6 +196,7 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
       legs,
       homeAmount: homeAmount === null ? null : paise(homeAmount),
       accountNames: Object.fromEntries(tx.postings.map((p) => [p.accountId, byId.get(p.accountId)?.name ?? 'Unknown account'])),
+      settled: tx.postings.some((p) => byId.get(p.accountId)?.type === 'settled'),
     };
   });
 }

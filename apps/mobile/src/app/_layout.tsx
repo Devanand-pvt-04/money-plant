@@ -184,6 +184,8 @@ export default function RootLayout() {
             <Stack.Screen name="recurring/[id]" options={{ title: 'Recurring payment' }} />
             <Stack.Screen name="person/[id]" options={{ title: 'Person' }} />
             <Stack.Screen name="item/new" options={{ title: 'With someone', presentation: 'modal' }} />
+            <Stack.Screen name="split" options={{ title: 'Split a bill', presentation: 'modal' }} />
+            <Stack.Screen name="settle" options={{ title: 'Settle up', presentation: 'modal' }} />
             <Stack.Screen name="item/[id]" options={{ title: '' }} />
             <Stack.Screen name="friends" options={{ title: 'Friends' }} />
             <Stack.Screen name="profile" options={{ title: 'Your name and UPI ID', presentation: 'modal' }} />

@@ -18,6 +18,8 @@ export const ACCOUNT_TYPES = [
   'custom',
   // Hidden: balances transfers between currencies (LED-11, decision 0017).
   'exchange',
+  // Hidden: the other side of a debt settled another way, with no money moving (decision 0027).
+  'settled',
 ] as const;
 
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -38,6 +40,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   category: 'Category',
   custom: 'Custom',
   exchange: 'Currency exchange',
+  settled: 'Settled outside the app',
 };
 
 /**
@@ -45,14 +48,14 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
  * other flows; `custom` accounts are created from a user-defined account type (ACC-6).
  */
 export const USER_ACCOUNT_TYPES = ACCOUNT_TYPES.filter(
-  (type) => type !== 'person' && type !== 'category' && type !== 'custom' && type !== 'exchange',
+  (type) => type !== 'person' && type !== 'category' && type !== 'custom' && type !== 'exchange' && type !== 'settled',
 );
 
 /**
  * Accounts that take postings in any currency (decision 0017). Every other
  * account takes postings only in its own currency.
  */
-export const ANY_CURRENCY_TYPES: ReadonlySet<AccountType> = new Set(['person', 'category', 'exchange']);
+export const ANY_CURRENCY_TYPES: ReadonlySet<AccountType> = new Set(['person', 'category', 'exchange', 'settled']);
 
 /** Built-in types whose balance is money owed rather than money held. */
 export const LIABILITY_TYPES: ReadonlySet<AccountType> = new Set(['credit_card', 'loan']);
