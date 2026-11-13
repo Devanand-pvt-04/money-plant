@@ -48,7 +48,11 @@ On Windows, clone to a short path such as `C:\dev\money-plant`, because Android 
 
 In the [Supabase dashboard](https://supabase.com/dashboard/project/dywcmxixmzeqhzifuhwm):
 
-1. **SQL Editor** → New query → paste `supabase/migrations/20261021000000_accounts.sql` → Run. Do this again for each new migration file a PR adds. Or, from the repo root: `npx supabase login`, `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`, `npx supabase db push`.
+1. **Migrations run from GitHub.** The **Database migrations** action applies `supabase/migrations` after every merge to main that adds one, and again before every OTA update, so the server is always ready before the phones get new code. Set it up once with two repository secrets (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+   - `SUPABASE_ACCESS_TOKEN`: create one at [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens).
+   - `SUPABASE_DB_PASSWORD`: the database password (Project Settings → Database; reset it there if you don't have it).
+
+   To run it by hand: **Actions → Database migrations → Run workflow**. From a PC it is still `npx supabase login`, `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`, `npx supabase db push`.
 2. **Authentication → Sign In / Providers → Email**: make sure Email is enabled.
 3. **Set up a free SMTP sender.** Supabase only lets you edit email templates once custom SMTP is on, and its built-in sender allows just a few emails an hour. Gmail is free and needs no domain:
    1. Turn on 2-Step Verification for the Google account at [myaccount.google.com/security](https://myaccount.google.com/security).

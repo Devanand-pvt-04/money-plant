@@ -4,6 +4,8 @@ name: OTA update
 # Actions tab: Run workflow, pick the channel, describe the change. Same as
 # `npx eas-cli@latest update` from apps/mobile, without a Windows machine.
 # Needs the EXPO_TOKEN repository secret (docs/setup.md, section 11).
+# Database migrations are applied first (migrate.yml), so an update never
+# reaches the phones before the server changes it needs.
 # Updates only reach builds whose app.json version matches the commit's.
 
 on:
@@ -28,7 +30,12 @@ permissions:
   contents: read
 
 jobs:
+  migrate:
+    uses: ./.github/workflows/migrate.yml
+    secrets: inherit
+
   publish:
+    needs: migrate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
