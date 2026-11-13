@@ -61,4 +61,12 @@ Ships as an OTA plus `npx supabase db push` (db push first). No native change.
 - Review shows a card's gap once it is 3 days old, with "Add the missing entries" (quick add opens on the card and the time), "Record as unrecorded card spending", "Only adjust the balance", and, when the card owes less than recorded, "My credit limit went up to ₹X". Banks get the same first three choices.
 - A card above ₹0 with no balance checks shows in Review with the same choices plus "The card really is in credit".
 
-**Step 2 (later):** statement SMS as balance checks, a shared limit across cards (`limit_shared_with`), and suggesting the limit from a set balance.
+**Step 2 (billing cycle; Deva chose all four uses on 2026-11-13):**
+- Statement and bill-due SMS from any bank are read for the total due, minimum due, due date and statement date (`parseCardStatement`). They never make an entry.
+- The card stores its cycle and latest bill on `accounts` (migration `20261128000000_card_billing`): `statement_day` and `due_days`, learned from the newest statement SMS and editable on the card page ("Billing cycle"), and `bill_statement_on`, `bill_due_on`, `bill_total_paise`, `bill_minimum_paise`. A statement SMS without a printed date is dated by the statement day when it comes within 5 days of it, else by the day it arrived. A reminder only fills in a missing due date.
+- Accurate statement checks: a card without a credit limit is checked against its latest bill at the end of the statement day. A card with a limit relies on its SMS only, since the available limit counts unbilled EMI principal that the bill leaves out.
+- Bill cleared or still due: transfers into the card after the statement day count as payments. The card page shows "₹X due by …", "₹Y paid, ₹Z still due" or "The bill is cleared".
+- Due reminder: Home's week ahead shows the card bill with what is still due, from 6 days before the due date until it is cleared (up to a month overdue).
+- This cycle's spending on the card page: money out since the last statement date, and the next statement date.
+
+**Later:** a limit shared across cards (`limit_shared_with`), and suggesting the limit from a set balance.
