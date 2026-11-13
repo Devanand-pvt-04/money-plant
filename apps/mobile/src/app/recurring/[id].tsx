@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { useEffect, useState, type ComponentProps } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import Feather from '@expo/vector-icons/Feather';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import {
   CADENCES,
@@ -18,8 +19,9 @@ import type { RecurringPayment } from '@money-plant/matcher';
 import { FormScroll } from '@/components/keyboard';
 import { CategoryPicker } from '@/components/category-picker';
 import { DateField } from '@/components/date-fields';
-import { formatDate, formatDateTime } from '@/components/format';
-import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
+import { AccountPicker } from '@/components/account-picker';
+import { formatAmount, formatDate, formatDateTime } from '@/components/format';
+import { Button, Card, Chip, Chips, ErrorText, Field, MoneyCard, figures, useColors, makeStyles } from '@/components/ui';
 import { categoryNames } from '@/lib/categories';
 import { homeCurrency } from '@/lib/home-currency';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
@@ -33,6 +35,7 @@ const ORIGIN_LABELS: Record<RecurringPayment['origin'], string> = {
 
 /** REC-2: add or edit a recurring payment. `/recurring/new?from=<entry id>` starts from an existing entry. */
 export default function RecurringDetail() {
+  const colors = useColors();
   const styles = useStyles();
   const { id, from } = useLocalSearchParams<{ id: string; from?: string }>();
   const navigation = useNavigation();
@@ -50,9 +53,24 @@ export default function RecurringDetail() {
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(isNew);
+  const [pickingAccount, setPickingAccount] = useState(false);
 
   useEffect(() => {
-    navigation.setOptions({ title: isNew ? 'Add recurring payment' : 'Recurring payment' });
+    navigation.setOptions({
+      title: isNew ? 'Add recurring payment' : editing ? 'Edit recurring payment' : 'Recurring payment',
+      headerRight:
+        isNew || editing
+          ? undefined
+          : () => (
+              <Pressable accessibilityRole="button" accessibilityLabel="Edit" hitSlop={8} onPress={() => setEditing(true)} style={styles.headerButton}>
+                <Feather name="edit-2" size={18} color={colors.text} />
+              </Pressable>
+            ),
+    });
+  }, [navigation, isNew, editing, colors, styles]);
+
+  useEffect(() => {
     (async () => {
       const [balances, categories] = await Promise.all([listAccountBalances(), categoryNames()]);
       setAccounts(balances);
@@ -85,7 +103,7 @@ export default function RecurringDetail() {
         setNextDue(due);
       }
     })();
-  }, [id, from, isNew, navigation]);
+  }, [id, from, isNew]);
 
   // In the paying account's currency; with no account, the payment's own, else the home currency (decision 0017).
   const currency = accounts.find((b) => b.account.id === accountId)?.currency ?? (accountId === null ? item?.currency : undefined) ?? homeCurrency();
@@ -107,7 +125,11 @@ export default function RecurringDetail() {
         payee: payee.trim() || null,
         currency,
       });
-      router.back();
+      if (isNew) return router.back();
+      const saved = await getRecurring(id);
+      if (saved) setItem(saved);
+      setSaving(false);
+      setEditing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSaving(false);
@@ -116,31 +138,75 @@ export default function RecurringDetail() {
 
   const act = (work: () => Promise<void>) => () => work().then(() => router.back(), (e) => setError(String(e?.message ?? e)));
 
+  const remove = () =>
+    item &&
+    Alert.alert('Delete this recurring payment?', 'Its reminders stop. Past entries stay in your ledger.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: act(() => deleteRecurring(item.id)) },
+    ]);
+
+  // Decision 0028: an existing payment opens on a money card with shortcuts; the form sits behind the pencil.
+  if (item && !editing) {
+    const accountName = accounts.find((b) => b.account.id === item.accountId)?.account.name ?? null;
+    const shortcuts: { icon: ComponentProps<typeof Feather>['name']; label: string; onPress: () => void }[] =
+      item.status === 'active'
+        ? [
+            { icon: 'check', label: 'I paid this one', onPress: act(() => closeOccurrence(item.id, 'paid')) },
+            { icon: 'skip-forward', label: 'Skip this one', onPress: act(() => closeOccurrence(item.id, 'skipped')) },
+            { icon: 'pause', label: 'Pause', onPress: act(() => setRecurringStatus(item.id, 'paused')) },
+          ]
+        : [{ icon: 'play', label: item.status === 'paused' ? 'Resume' : 'Track it', onPress: act(() => setRecurringStatus(item.id, 'active')) }];
+    return (
+      <ScrollView contentContainerStyle={styles.view}>
+        <MoneyCard>
+          <View>
+            <Text style={styles.heroLabel}>{item.name}</Text>
+            <Text style={styles.heroValue}>{formatAmount(item.amount, item.currency ?? homeCurrency())}</Text>
+            <Text style={styles.heroNote}>
+              {CADENCE_LABELS[item.cadence]}
+              {item.status === 'active'
+                ? ` · next ${formatDate(`${item.nextDue}T12:00:00`)} (${dueLabel(daysBetween(today(), item.nextDue)).toLowerCase()})`
+                : item.status === 'paused'
+                  ? ' · paused, no reminders'
+                  : item.status === 'proposed'
+                    ? ' · suggested, not tracked yet'
+                    : ' · you said this is not recurring'}
+            </Text>
+          </View>
+          <View style={styles.heroLine} />
+          <View style={styles.shortcuts}>
+            {shortcuts.map((sc) => (
+              <Pressable key={sc.label} accessibilityRole="button" onPress={sc.onPress} style={({ pressed }) => [styles.shortcut, pressed && styles.pressedFade]}>
+                <View style={styles.shortcutIcon}>
+                  <Feather name={sc.icon} size={18} color={colors.heroAccent} />
+                </View>
+                <Text style={styles.shortcutLabel} numberOfLines={1}>
+                  {sc.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </MoneyCard>
+        {error && <ErrorText>{error}</ErrorText>}
+        <Card>
+          <DetailRow label="Paid from" value={accountName ?? 'Not sure'} first onPress={() => setEditing(true)} />
+          <DetailRow label="Payee in bank SMS" value={item.vpa ?? item.merchant ?? 'None'} onPress={() => setEditing(true)} />
+          <DetailRow label="Category" value={item.categoryId ? (names.get(item.categoryId) ?? 'Category') : 'None'} onPress={() => setEditing(true)} />
+          <DetailRow
+            label={ORIGIN_LABELS[item.origin]}
+            value={item.lastPaidAt ? `Last paid ${formatDateTime(item.lastPaidAt)}` : 'Not seen paid yet'}
+            onPress={item.lastTransactionId ? () => router.push(`/transaction/${item.lastTransactionId}`) : undefined}
+          />
+        </Card>
+        <Pressable accessibilityRole="button" style={styles.remove} onPress={remove}>
+          <Text style={styles.removeText}>Delete</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
+
   return (
     <FormScroll contentContainerStyle={styles.container}>
-      {item && (
-        <View style={styles.status}>
-          <Text style={styles.statusTitle}>
-            {item.status === 'active'
-              ? `Next: ${formatDate(`${item.nextDue}T12:00:00`)} (${dueLabel(daysBetween(today(), item.nextDue)).toLowerCase()})`
-              : item.status === 'paused'
-                ? 'Paused: no reminders'
-                : item.status === 'proposed'
-                  ? 'Suggested: not tracked yet'
-                  : 'You said this is not recurring'}
-          </Text>
-          <Text style={styles.meta}>
-            {ORIGIN_LABELS[item.origin]}
-            {item.lastPaidAt ? `. Last paid ${formatDateTime(item.lastPaidAt)}` : ''}
-          </Text>
-          {item.lastTransactionId && (
-            <Pressable accessibilityRole="link" hitSlop={8} onPress={() => router.push(`/transaction/${item.lastTransactionId}`)}>
-              <Text style={styles.link}>See the last payment</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-
       <Field label="Name" value={name} onChangeText={setName} placeholder="Rent, Netflix, Car EMI" maxLength={80} />
       <Field label={`Amount (${currencyInfo(currency).symbol.trim()})`} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
       <Text style={styles.label}>How often</Text>
@@ -153,10 +219,8 @@ export default function RecurringDetail() {
 
       <Text style={styles.label}>Paid from</Text>
       <Chips>
-        <Chip label="Not sure" selected={accountId === null} onPress={() => setAccountId(null)} />
-        {accounts.map((b) => (
-          <Chip key={b.account.id} label={b.account.name} selected={accountId === b.account.id} onPress={() => setAccountId(b.account.id)} />
-        ))}
+        <Chip label={accounts.find((b) => b.account.id === accountId)?.account.name ?? 'Pick an account'} selected={accountId !== null} onPress={() => setPickingAccount(true)} />
+        {accountId && <Chip label="Not sure" selected={false} onPress={() => setAccountId(null)} />}
       </Chips>
       <Text style={styles.hint}>With an account, the reminder warns you if it looks short.</Text>
 
@@ -178,30 +242,7 @@ export default function RecurringDetail() {
       {error && <ErrorText>{error}</ErrorText>}
       <View style={styles.actions}>
         <Button title={isNew ? 'Add' : 'Save'} onPress={save} loading={saving} />
-        {item?.status === 'active' && (
-          <>
-            <Button title="I paid this one" variant="secondary" onPress={act(() => closeOccurrence(item.id, 'paid'))} />
-            <Button title="Skip this one" variant="secondary" onPress={act(() => closeOccurrence(item.id, 'skipped'))} />
-            <Button title="Pause" variant="secondary" onPress={act(() => setRecurringStatus(item.id, 'paused'))} />
-          </>
-        )}
-        {item && item.status !== 'active' && (
-          <Button title={item.status === 'paused' ? 'Resume' : 'Track it'} variant="secondary" onPress={act(() => setRecurringStatus(item.id, 'active'))} />
-        )}
-        {item && (
-          <Pressable
-            accessibilityRole="button"
-            style={styles.remove}
-            onPress={() =>
-              Alert.alert('Delete this recurring payment?', 'Its reminders stop. Past entries stay in your ledger.', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', style: 'destructive', onPress: act(() => deleteRecurring(item.id)) },
-              ])
-            }
-          >
-            <Text style={styles.removeText}>Delete</Text>
-          </Pressable>
-        )}
+        {!isNew && <Button title="Cancel" variant="secondary" onPress={() => setEditing(false)} />}
       </View>
       <CategoryPicker
         visible={picking}
@@ -213,16 +254,60 @@ export default function RecurringDetail() {
         }}
         onClose={() => setPicking(false)}
       />
+      <AccountPicker
+        visible={pickingAccount}
+        title="Paid from"
+        onClose={() => setPickingAccount(false)}
+        onPick={(b) => {
+          setAccountId(b.account.id);
+          setPickingAccount(false);
+        }}
+      />
     </FormScroll>
+  );
+}
+
+/** One line of the payment's details; tapping it opens the form (or the last payment). */
+function DetailRow({ label, value, first, onPress }: { label: string; value: string; first?: boolean; onPress?: () => void }) {
+  const colors = useColors();
+  const styles = useStyles();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => [styles.detail, !first && styles.divided, pressed && styles.pressed]}
+    >
+      <View style={styles.grow}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <Text style={styles.detailValue} numberOfLines={1}>
+          {value}
+        </Text>
+      </View>
+      {onPress && <Feather name="chevron-right" size={18} color={colors.muted} />}
+    </Pressable>
   );
 }
 
 const useStyles = makeStyles((colors) => ({
   container: { paddingHorizontal: 20, paddingBottom: 48 },
-  status: { padding: 16, borderRadius: 18, backgroundColor: colors.subtle, gap: 4 },
-  statusTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
-  meta: { fontSize: 13, color: colors.muted },
-  link: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 4 },
+  view: { padding: 16, paddingBottom: 48, gap: 16 },
+  headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  heroLabel: { fontSize: 13, fontWeight: '500', color: colors.heroMuted },
+  heroValue: { fontSize: 34, fontWeight: '700', color: colors.heroText, letterSpacing: -1, ...figures },
+  heroNote: { fontSize: 13, color: colors.heroMuted, marginTop: 2 },
+  heroLine: { height: 1, backgroundColor: colors.heroLine },
+  shortcuts: { flexDirection: 'row' },
+  shortcut: { flex: 1, alignItems: 'center', gap: 6 },
+  shortcutIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.heroPill, alignItems: 'center', justifyContent: 'center' },
+  shortcutLabel: { fontSize: 12, fontWeight: '500', color: colors.heroText },
+  pressedFade: { opacity: 0.7 },
+  detail: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingHorizontal: 16, paddingVertical: 10 },
+  divided: { borderTopWidth: 1, borderTopColor: colors.divider },
+  pressed: { backgroundColor: colors.pressed },
+  grow: { flex: 1, minWidth: 0 },
+  detailLabel: { fontSize: 12, color: colors.muted },
+  detailValue: { fontSize: 15, fontWeight: '500', color: colors.text, marginTop: 2 },
   label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
   date: { marginTop: 16 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
