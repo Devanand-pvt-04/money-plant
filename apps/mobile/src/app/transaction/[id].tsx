@@ -222,7 +222,7 @@ export default function TransactionDetail() {
 
       {(canSplit || canRecur || canLend) && (
         <View style={styles.actions}>
-          {canSplit && <Action icon="users" title={split ? 'Split again' : 'Split'} onPress={() => router.push(`/item/new?from=${tx.id}&kind=share`)} />}
+          {canSplit && <Action icon="users" title={split ? 'Split again' : 'Split'} onPress={() => router.push(`/split?from=${tx.id}`)} />}
           {canRecur && <Action icon="repeat" title="Recurring" onPress={() => router.push(`/recurring/new?from=${tx.id}`)} />}
           {canLend && <Action icon="corner-up-right" title={out ? 'I lent it' : 'I borrowed it'} onPress={() => router.push(`/item/new?from=${tx.id}&kind=loan`)} />}
           {canLend && <Action icon="corner-down-left" title={out ? 'I paid back' : 'Paid me back'} onPress={() => router.push(`/item/new?from=${tx.id}&kind=repayment`)} />}

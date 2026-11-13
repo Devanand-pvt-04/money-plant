@@ -48,7 +48,11 @@ On Windows, clone to a short path such as `C:\dev\money-plant`, because Android 
 
 In the [Supabase dashboard](https://supabase.com/dashboard/project/dywcmxixmzeqhzifuhwm):
 
-1. **SQL Editor** → New query → paste `supabase/migrations/20261021000000_accounts.sql` → Run. Do this again for each new migration file a PR adds. Or, from the repo root: `npx supabase login`, `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`, `npx supabase db push`.
+1. **Migrations run from GitHub.** The **Database migrations** action applies `supabase/migrations` after every merge to main that adds one, and again before every OTA update, so the server is always ready before the phones get new code. Set it up once with two repository secrets (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+   - `SUPABASE_ACCESS_TOKEN`: create one at [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens).
+   - `SUPABASE_DB_PASSWORD`: the database password (Project Settings → Database; reset it there if you don't have it).
+
+   To run it by hand: **Actions → Database migrations → Run workflow**. From a PC it is still `npx supabase login`, `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`, `npx supabase db push`.
 2. **Authentication → Sign In / Providers → Email**: make sure Email is enabled.
 3. **Set up a free SMTP sender.** Supabase only lets you edit email templates once custom SMTP is on, and its built-in sender allows just a few emails an hour. Gmail is free and needs no domain:
    1. Turn on 2-Step Verification for the Google account at [myaccount.google.com/security](https://myaccount.google.com/security).
@@ -151,7 +155,7 @@ The production app, **Money Plant**, is the one to rely on (decision 0011). The 
 1. Once, and again whenever a PR bumps `version` in app.json: `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`. Install the APK and sign in; your ledger syncs down.
 2. Give SMS and notification access to the production app only.
 3. Ship a JavaScript fix to preview first (`--channel preview`, as above). Once it works there, send the same fix to the daily app: `npx eas-cli@latest update --channel production --message "<what changed>"`.
-4. Or ship an update from GitHub instead of your PC: **Actions → OTA update → Run workflow**, pick `preview` or `production` and describe the change. It runs typecheck and tests first, then publishes for Android. Once, before the first run: create an access token at expo.dev (Account settings → Access tokens) and add it as the repository secret `EXPO_TOKEN` (GitHub → Settings → Secrets and variables → Actions → New repository secret).
+4. Updates ship from GitHub by themselves: every merge to main that changes the app or a shared package applies any new migrations, runs typecheck and tests, and publishes to `production`, titled after the PR. A merge that bumps the app.json version publishes nothing, because it needs a new build. To publish by hand (for example to `preview`): **Actions → OTA update → Run workflow**. Once, before the first run: create an access token at expo.dev (Account settings → Access tokens) and add it as the repository secret `EXPO_TOKEN` (GitHub → Settings → Secrets and variables → Actions → New repository secret).
 5. Errors from the phones land in the `app_errors` table (Table Editor in the Supabase dashboard).
 6. Set up the weekly backup to your PC once: see [scripts/backup/README.md](../scripts/backup/README.md).
 

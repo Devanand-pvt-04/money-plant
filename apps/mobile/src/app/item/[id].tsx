@@ -23,6 +23,7 @@ import {
   updateItem,
   type ItemView,
 } from '@/lib/shared';
+import { getPerson } from '@/lib/people';
 import { useLedger } from '@/lib/use-ledger';
 
 /** One shared item (decision 0026): what it is, where it stands on this side, and what the user can do next. */
@@ -33,11 +34,15 @@ export default function ItemDetail() {
   const navigation = useNavigation();
   const load = useCallback(async () => {
     const view = await getItem(id);
-    const candidates = view && view.status === 'needs_link' ? await candidatesFor(id).catch(() => []) : [];
+    const candidates = view && view.status === 'needs_link' && !view.settledOutside ? await candidatesFor(id).catch(() => []) : [];
     const bill = view ? await sameBill(view) : [];
-    return { view, candidates, bill };
+    // Whether the person's balance still leans the way this item does, so settling makes sense.
+    const person = view?.personId ? await getPerson(view.personId) : null;
+    const open = person?.balances.find((b) => b.currency === view?.currency)?.amount ?? 0;
+    const personOwes = view ? (view.flow === 'to_them' ? open > 0 : open < 0) : false;
+    return { view, candidates, bill, personOwes };
   }, [id]);
-  const { data } = useLedger(load, { view: null as ItemView | null, candidates: [] as LedgerTransaction[], bill: [] as ItemView[] });
+  const { data } = useLedger(load, { view: null as ItemView | null, candidates: [] as LedgerTransaction[], bill: [] as ItemView[], personOwes: false });
   const [accounts, setAccounts] = useState<AccountBalance[]>([]);
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState('');
@@ -69,6 +74,13 @@ export default function ItemDetail() {
   };
   const owedToMe = view.flow === 'to_them';
   const paidByThem = view.kind === 'share' && view.flow === 'to_me';
+  // Something still owed that a repayment can settle (decision 0027).
+  const canSettle =
+    view.personId !== null &&
+    (view.kind === 'loan' || view.kind === 'share') &&
+    view.status !== 'declined' &&
+    view.status !== 'needs_answer' &&
+    data.personOwes;
   const inCurrency = view.currency === 'INR' ? accounts.filter((b) => b.currency === 'INR') : accounts.filter((b) => b.currency === view.currency);
 
   function startEdit() {
@@ -132,7 +144,7 @@ export default function ItemDetail() {
         </Card>
       )}
 
-      {view.status === 'needs_link' && (
+      {view.status === 'needs_link' && !view.settledOutside && (
         <>
           <SectionTitle>{view.kind === 'share' ? 'The entry you paid with' : view.flow === 'to_them' ? 'The payment you sent' : 'The payment you got'}</SectionTitle>
           {data.candidates.length > 0 ? (
@@ -187,7 +199,16 @@ export default function ItemDetail() {
         </>
       )}
 
-      {view.transactionId && (
+      {canSettle && (
+        <View style={styles.actions}>
+          <Button title="Settle up" onPress={() => router.push(`/settle?person=${view.personId}&item=${view.id}`)} />
+          <Text style={styles.hint}>
+            {owedToMe ? `When ${view.personName} pays you back, or you call it even.` : `When you pay ${view.personName} back, or you call it even.`}
+          </Text>
+        </View>
+      )}
+
+      {view.transactionId && !view.settledOutside && (
         <View style={styles.actions}>
           <Button title="Open your entry" variant="secondary" onPress={() => router.push(`/transaction/${view.transactionId}`)} />
           {!paidByThem && (

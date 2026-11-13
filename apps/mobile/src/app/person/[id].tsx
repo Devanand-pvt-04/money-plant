@@ -237,6 +237,7 @@ export default function PersonDetail() {
               {formatAmount(Math.abs(amount), currency)} of what you and {person.account.name} share isn't in your ledger yet. Link your entries below.
             </Text>
           ))}
+          {person.balances.length > 0 && <Button title="Settle up" onPress={() => router.push(`/settle?person=${id}`)} />}
           <View style={styles.buttons}>
             {person.balances.length > 0 && <Button title="Remind" variant="secondary" onPress={remind} />}
             {pay && <Button title="Pay with UPI" variant="secondary" onPress={() => void openUpiLink(pay).catch((e) => setError(String(e?.message ?? e)))} />}
@@ -260,7 +261,7 @@ export default function PersonDetail() {
               <Switch value={!doubtful.has(id)} onValueChange={countInNetWorth} disabled={savingDoubt} />
             </View>
           )}
-          <Button title="Split a bill with them" onPress={() => router.push(`/item/new?person=${id}&kind=share`)} />
+          <Button title="Split a bill with them" variant={person.balances.length > 0 ? 'secondary' : 'primary'} onPress={() => router.push(`/split?person=${id}`)} />
           <Button title="Record a loan or repayment" variant="secondary" onPress={() => router.push(`/item/new?person=${id}&kind=loan`)} />
         </>
       )}

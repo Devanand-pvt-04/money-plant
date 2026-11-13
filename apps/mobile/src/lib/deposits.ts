@@ -187,7 +187,7 @@ export async function refreshDeposits(): Promise<number> {
       .from(accounts)
       .where(isNull(accounts.deletedAt))
       .all()
-      .filter((a) => a.type !== 'category' && a.type !== 'person' && a.type !== 'exchange')
+      .filter((a) => a.type !== 'category' && a.type !== 'person' && a.type !== 'exchange' && a.type !== 'settled')
       .map((a) => a.id),
   );
   const on = today();

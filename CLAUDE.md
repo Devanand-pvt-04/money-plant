@@ -35,8 +35,8 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 - `npx supabase db start` then `npx supabase test db`: database access tests (needs Docker); CI runs them with `supabase db advisors`, `pnpm audit` and gitleaks
 - `cd apps/mobile && npx expo install <pkg>`: add Expo or React Native packages so versions match the SDK. Use `pnpm --filter <pkg> add` for everything else
 - `cd apps/mobile && npx expo run:android`: local development build (needs Android Studio), or `npx eas-cli@latest build --profile development --platform android` for a cloud build
-- `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`: the production APK Deva uses daily. JS fixes ship with `npx eas-cli@latest update --channel preview`, then `--channel production` once tried (decision 0011)
-- `npx supabase db push`: apply `supabase/migrations` to the hosted project (after `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`)
+- `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`: the production APK Deva uses daily. JS fixes ship to production by themselves after a merge to main (`.github/workflows/ota-update.yml`); Deva no longer uses preview. By hand: Actions → OTA update, or `npx eas-cli@latest update --channel production --platform android`
+- Migrations reach the hosted project through `.github/workflows/migrate.yml`: after a merge to main that touches `supabase/migrations`, and before every OTA update from the Actions tab. By hand: `npx supabase db push` (after `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`)
 - `npx supabase functions deploy <name>`: deploy one edge function from `supabase/functions/` (for example `delete-account`)
 
 ## Expo notes

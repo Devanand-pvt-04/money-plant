@@ -1,19 +1,31 @@
 name: OTA update
 
-# Publishes a JavaScript-only update to the phones (decision 0011), from the
-# Actions tab: Run workflow, pick the channel, describe the change. Same as
+# Publishes a JavaScript-only update to the phones (decision 0011). Same as
 # `npx eas-cli@latest update` from apps/mobile, without a Windows machine.
+# - After every merge to main that changes the app or a shared package, it
+#   publishes to production by itself (Deva's daily app; preview is no longer
+#   in use, 2026-11-13), titled after the merged PR. It skips a merge that
+#   moved app.json's version: that needs a new build.
+# - By hand: Actions → OTA update → Run workflow, for either channel.
 # Needs the EXPO_TOKEN repository secret (docs/setup.md, section 11).
+# Database migrations are applied first (migrate.yml), so an update never
+# reaches the phones before the server changes it needs.
 # Updates only reach builds whose app.json version matches the commit's.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
   workflow_dispatch:
     inputs:
       channel:
-        description: Which app gets the update. Try preview first.
+        description: Which app gets the update
         type: choice
-        options: [preview, production]
-        default: preview
+        options: [production, preview]
+        default: production
       message:
         description: What changed, shown in the Expo dashboard
         type: string
@@ -21,34 +33,75 @@ on:
 
 # One publish at a time per channel, so two runs never race.
 concurrency:
-  group: ota-${{ inputs.channel }}
+  group: ota-${{ inputs.channel || 'production' }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  migrate:
+    uses: ./.github/workflows/migrate.yml
+    secrets: inherit
+
   publish:
+    needs: migrate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # After a merge: a new app.json version means a new native build, which
+      # no phone has yet, so there is nothing to update over the air.
+      - name: Needs a new build?
+        id: native
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            before=$(git show "$BEFORE:apps/mobile/app.json" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).expo.version)")
+            now=$(node -e "process.stdout.write(require('./apps/mobile/app.json').expo.version)")
+            if [ "$before" != "$now" ]; then
+              echo "::notice::app.json version moved $before -> $now: build and install the new APK; no OTA published."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            node scripts/check-native-version.mjs "$BEFORE"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v6
+        if: steps.native.outputs.skip != 'true'
       - uses: actions/setup-node@v4
+        if: steps.native.outputs.skip != 'true'
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: steps.native.outputs.skip != 'true'
       # Never ship a bundle that CI would reject.
       - run: pnpm typecheck
+        if: steps.native.outputs.skip != 'true'
       - run: pnpm test
+        if: steps.native.outputs.skip != 'true'
       - uses: expo/expo-github-action@v8
+        if: steps.native.outputs.skip != 'true'
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
       # Android only: iOS has no build yet. Inputs go through env, never into the script text.
       - name: Publish
+        if: steps.native.outputs.skip != 'true'
         working-directory: apps/mobile
         env:
-          CHANNEL: ${{ inputs.channel }}
-          MESSAGE: ${{ inputs.message }}
-        run: eas update --channel "$CHANNEL" --platform android --message "$MESSAGE" --non-interactive
+          CHANNEL: ${{ inputs.channel || 'production' }}
+          MESSAGE: ${{ inputs.message || github.event.head_commit.message }}
+        # A merge commit becomes "Merge pull request #95: <the PR's title>"; anything else keeps its first line.
+        run: |
+          first=$(printf '%s\n' "$MESSAGE" | head -n 1)
+          title=$(printf '%s\n' "$MESSAGE" | awk 'NF' | sed -n 2p)
+          case "$first" in
+            "Merge pull request "*) msg="${first%% from *}: $title" ;;
+            *) msg="$first" ;;
+          esac
+          eas update --channel "$CHANNEL" --platform android --message "$msg" --non-interactive

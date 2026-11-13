@@ -228,7 +228,7 @@ function ReviewCard({
               <Text style={styles.link}>{legs[0].amount > 0 ? 'Paid me back' : 'I paid back'}</Text>
             </Pressable>
             {tx.kind === 'expense' && (
-              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/item/new?from=${tx.id}&kind=share`)}>
+              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/split?from=${tx.id}`)}>
                 <Text style={styles.link}>Split it</Text>
               </Pressable>
             )}

@@ -349,7 +349,7 @@ describe('shared items (decision 0026)', () => {
   it('sends only what the creator writes and keeps a pending answer local', () => {
     const local = {
       id: 'i-1', userId: 'u', kind: 'share' as const, flow: 'to_them' as const, amountPaise: 60_000, currency: 'INR', occurredOn: '2026-11-13',
-      reason: 'Dinner', categoryName: 'Food', groupRef: null, counterpartyEmail: 'bala@example.com', counterpartyUserId: 'b',
+      reason: 'Dinner', categoryName: 'Food', groupRef: null, settledOutside: false, counterpartyEmail: 'bala@example.com', counterpartyUserId: 'b',
       answer: 'accepted' as const, answeredAt: '2026-11-13T10:00:00.000Z', myAnswer: null, createdAt: '2026-11-13T09:00:00.000Z',
       updatedAt: null, deletedAt: null, dirty: 1, rev: 1,
     };
@@ -368,6 +368,18 @@ describe('shared items (decision 0026)', () => {
       updated_at: '2026-11-13T10:00:01+00:00',
     });
     expect(back).toEqual({ ...local, updatedAt: '2026-11-13T10:00:01+00:00', dirty: 0, rev: 0 });
+  });
+
+  it('carries a repayment settled another way, and reads one from an older phone as not', () => {
+    const base = {
+      id: 'i-2', user_id: 'u', kind: 'repayment' as const, flow: 'to_me' as const, amount_paise: 25_300, currency: 'INR', occurred_on: '2026-11-13',
+      reason: null, category_name: null, group_ref: null, counterparty_email: null, counterparty_user_id: null, answer: null, answered_at: null,
+      created_at: '2026-11-13T09:00:00+00:00', updated_at: '2026-11-13T09:00:00+00:00', deleted_at: null,
+    };
+    const settled = fromRemoteSharedItem({ ...base, settled_outside: true });
+    expect(settled.settledOutside).toBe(true);
+    expect(toRemoteSharedItem(settled)).toMatchObject({ settled_outside: true });
+    expect(fromRemoteSharedItem(base).settledOutside).toBe(false);
   });
 
   it('round-trips a link with what its entry carries', () => {

@@ -53,7 +53,7 @@ export function ItemRow({ view, first }: { view: ItemView; first: boolean }) {
           {view.reason ?? itemTitle(view)}
         </Text>
         <Text style={[styles.meta, attention && { color: colors.warning }, view.status === 'declined' && { color: colors.danger }]} numberOfLines={2}>
-          {[view.reason ? itemTitle(view) : null, formatDate(`${view.occurredOn}T12:00:00`), done ? null : statusText(view)].filter(Boolean).join(' · ')}
+          {[view.reason ? itemTitle(view) : null, formatDate(`${view.occurredOn}T12:00:00`), done && !view.settledOutside ? null : statusText(view)].filter(Boolean).join(' · ')}
         </Text>
       </View>
       <Text style={[styles.amount, view.status === 'declined' && styles.settled, view.status !== 'declined' && { color: view.flow === 'to_them' ? colors.primary : colors.danger }]}>

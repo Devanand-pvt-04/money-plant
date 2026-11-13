@@ -254,10 +254,10 @@ function Shortcuts({ pending }: { pending: number }) {
   const colors = useColors();
   const styles = useStyles();
   // Adding an entry is the floating + on every tab, so it isn't repeated here.
-  const items: { icon: FeatherName; label: string; href: '/pay' | '/review' | '/item/new?kind=share'; count?: number }[] = [
+  const items: { icon: FeatherName; label: string; href: '/pay' | '/review' | '/split'; count?: number }[] = [
     ...(Platform.OS === 'android' ? [{ icon: 'maximize' as const, label: 'Scan & pay', href: '/pay' as const }] : []),
     { icon: 'check-square', label: 'Review', href: '/review', count: pending },
-    { icon: 'users' as const, label: 'Split', href: '/item/new?kind=share' as const },
+    { icon: 'users' as const, label: 'Split', href: '/split' as const },
   ];
   return (
     <View style={styles.shortcuts}>

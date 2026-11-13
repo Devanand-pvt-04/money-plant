@@ -139,6 +139,7 @@ The MVP has 73 requirements across 11 areas. "Must" items block the first releas
 | IOU-3 | Settle with a UPI pay link that opens the user's chosen UPI app | Must |
 | IOU-4 | A repayment is its own item, linked to the bank entry it came in or went out by (decision 0026); it links itself when exactly one entry of the amount fits and its payee is the person. Before decision 0026: mark an IOU settled automatically when the matching payment SMS arrives; partial payments reduce the balance. A payment is matched by UPI ID, the exact name, or a bank name the user linked to the person before ("GOBAL NAIR" is Gobal). When it isn't matched, the user can say "Paid me back" (or "I paid back") on the entry: it settles their open IOUs with that bank entry, adds no new entry, and remembers the payee's name and UPI ID for next time. Review asks "Is this Gobal paying you back?" when exactly one person has an open IOU of exactly that amount | Must |
 | IOU-5 | A shareable reminder message for people not on the app, with a UPI "pay me" link. Due-date reminders are not part of shared items (decision 0026) | Should |
+| IOU-6 | Settle up with a person or from an open item: the amount (their whole balance by default) and how it was paid: a payment in the user's bank (linked), cash or another account (a typed entry), or settled another way, which moves no money in any account and writes the person's side against a hidden "Settled outside the app" account on each phone (decision 0027) | Must |
 
 ### Splits
 
@@ -148,7 +149,7 @@ Splits are personal in the MVP: they live in the payer's ledger, so friends don'
 | --- | --- | --- |
 | SPL-1 | One "with someone" flow covers splits, loans, repayments and someone else paying (decision 0026). Any existing entry can be split or linked; it keeps its sources and its bank leg, and only its category part moves to the person | Must |
 | SPL-2 | Record a split that someone else paid, as money the user owes | Must |
-| SPL-3 | Split one bill with several people, equally or by amount: one share per person, settled person by person through IOU-3 and IOU-4 (decision 0026, step 4). Named groups (a trip, flatmates) come later | Should |
+| SPL-3 | Split one bill with several people on its own screen: equally, by amounts, by percent, by shares (units) or equally with adjustments (decision 0027). The user has a row too and keeps any odd paise; a bar says whether it adds up. One share per person, settled person by person through IOU-3, IOU-4 and IOU-6 (decision 0026, step 4). Named groups (a trip, flatmates) come later | Should |
 | SPL-4 | Match payees to the phone's contacts by the phone number in a UPI ID or by payee name. Contacts are matched on the phone and never uploaded | Should |
 
 ### Scan and pay

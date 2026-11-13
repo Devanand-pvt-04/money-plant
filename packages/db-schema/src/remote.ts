@@ -555,6 +555,7 @@ export interface RemoteSharedItem {
   reason: string | null;
   category_name: string | null;
   group_ref: string | null;
+  settled_outside?: boolean | null;
   counterparty_email: string | null;
   counterparty_user_id: string | null;
   answer: LocalSharedItem['answer'];
@@ -576,6 +577,7 @@ export function toRemoteSharedItem(row: LocalSharedItem) {
     reason: row.reason,
     category_name: row.categoryName,
     group_ref: row.groupRef,
+    settled_outside: row.settledOutside,
     counterparty_email: row.counterpartyEmail,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
@@ -594,6 +596,7 @@ export function fromRemoteSharedItem(row: RemoteSharedItem): LocalSharedItem {
     reason: row.reason,
     categoryName: row.category_name,
     groupRef: row.group_ref,
+    settledOutside: row.settled_outside === true,
     counterpartyEmail: row.counterparty_email,
     counterpartyUserId: row.counterparty_user_id,
     answer: row.answer,

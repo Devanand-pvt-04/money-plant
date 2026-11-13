@@ -443,6 +443,8 @@ export const sharedItems = sqliteTable(
     reason: text('reason'),
     categoryName: text('category_name'),
     groupRef: text('group_ref'),
+    /** Decision 0027: a repayment settled another way; each side writes it against its own "Settled outside the app" account. */
+    settledOutside: integer('settled_outside', { mode: 'boolean' }).notNull().default(false),
     counterpartyEmail: text('counterparty_email'),
     counterpartyUserId: text('counterparty_user_id'),
     answer: text('answer', { enum: ['accepted', 'declined'] }),
@@ -958,4 +960,6 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX item_links_item_idx ON item_links (item_id);
   CREATE INDEX item_links_dirty_idx ON item_links (dirty);`,
+  // Decision 0027: a repayment settled another way.
+  `ALTER TABLE shared_items ADD COLUMN settled_outside INTEGER NOT NULL DEFAULT 0;`,
 ];

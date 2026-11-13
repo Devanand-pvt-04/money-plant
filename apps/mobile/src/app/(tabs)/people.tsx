@@ -173,7 +173,7 @@ export default function People() {
         {(
           [
             { icon: 'user-plus', title: 'Add a person', href: '/person/new' },
-            { icon: 'users', title: 'Split a bill', href: '/item/new?kind=share' },
+            { icon: 'users', title: 'Split a bill', href: '/split' },
             { icon: 'corner-up-right', title: 'Record a loan', href: '/item/new?kind=loan' },
             { icon: 'corner-down-left', title: 'Record a repayment', href: '/item/new?kind=repayment' },
           ] as const
