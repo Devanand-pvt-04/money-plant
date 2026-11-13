@@ -53,5 +53,6 @@ jobs:
       # CLI 3 targets the local stack unless told otherwise; --remote is the linked project.
       - name: Pending migrations
         run: supabase db push --remote --dry-run
+      # No terminal to confirm on; the dry run above shows what --yes applies.
       - name: Apply
-        run: supabase db push --remote
+        run: supabase db push --remote --yes
