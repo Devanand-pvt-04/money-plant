@@ -10,8 +10,7 @@ import {
   fundTransactions,
   fxRates,
   holdings,
-  iouPayments,
-  ious,
+  itemLinks,
   kv,
   merchantCache,
   navHistory,
@@ -23,7 +22,7 @@ import {
   recurring,
   rules,
   sources,
-  splitGroups,
+  sharedItems,
   transactions,
 } from '@money-plant/db-schema';
 import { getDb } from './db';
@@ -35,7 +34,7 @@ const AUTH_KEYS = 'sb-%';
 
 /**
  * Empties this phone's database: every entry, account, category, rule,
- * budget, IOU, sync cursor and capture log, including the SMS text kept for
+ * budget, shared item, sync cursor and capture log, including the SMS text kept for
  * failed messages. With `keepSession` the user stays signed in (ACC-7);
  * otherwise the stored session goes too (sign out, ACC-4).
  */
@@ -56,9 +55,8 @@ export async function wipeLocal(options: { keepSession: boolean }): Promise<void
       deposits,
       holdings,
       fundTransactions,
-      iouPayments,
-      ious,
-      splitGroups,
+      itemLinks,
+      sharedItems,
       personContacts,
       personIdentifiers,
       accounts,

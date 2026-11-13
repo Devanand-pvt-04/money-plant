@@ -424,75 +424,63 @@ export const prices = sqliteTable('prices', {
 });
 
 /**
- * IOUs (IOU-1 to IOU-5). The same row as public.ious, so a shared IOU has
- * the owner's view of `person_account_id` and `direction`; lib/ious.ts turns
- * it round for the other person. `response` is local only: a confirm or
- * decline waiting to reach the server through respond_iou.
+ * Decision 0026: what two people owe each other, one row both read. The same
+ * row as public.shared_items, so `flow` is from the creator's side
+ * (`user_id`); lib/shared.ts turns it round for the other person. Only the
+ * creator's rows are pushed. `my_answer` is local only: this user's accept or
+ * decline of a friend's share, waiting to reach answer_shared_item.
  */
-export const ious = sqliteTable(
-  'ious',
+export const sharedItems = sqliteTable(
+  'shared_items',
   {
     id: text('id').primaryKey(),
     userId: text('user_id').notNull(),
-    ownerName: text('owner_name'),
-    ownerEmail: text('owner_email'),
-    ownerVpa: text('owner_vpa'),
-    personAccountId: text('person_account_id').notNull(),
-    direction: text('direction').$type<'lent' | 'borrowed'>().notNull(),
+    kind: text('kind', { enum: ['share', 'loan', 'repayment'] }).notNull(),
+    flow: text('flow', { enum: ['to_them', 'to_me'] }).notNull(),
     amountPaise: integer('amount_paise').notNull(),
     currency: text('currency').notNull().default('INR'),
-    reason: text('reason'),
     occurredOn: text('occurred_on').notNull(),
-    dueDate: text('due_date'),
-    transactionId: text('transaction_id'),
+    reason: text('reason'),
+    categoryName: text('category_name'),
+    groupRef: text('group_ref'),
     counterpartyEmail: text('counterparty_email'),
     counterpartyUserId: text('counterparty_user_id'),
-    counterpartyPersonAccountId: text('counterparty_person_account_id'),
-    counterpartyTransactionId: text('counterparty_transaction_id'),
-    counterpartyVpa: text('counterparty_vpa'),
-    confirmedAt: text('confirmed_at'),
-    declinedAt: text('declined_at'),
-    response: text('response').$type<'accept' | 'decline'>(),
+    answer: text('answer', { enum: ['accepted', 'declined'] }),
+    answeredAt: text('answered_at'),
+    myAnswer: text('my_answer', { enum: ['accepted', 'declined'] }),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
     dirty: integer('dirty').notNull().default(1),
     rev: integer('rev').notNull().default(0),
   },
-  (table) => [index('ious_dirty_idx').on(table.dirty)],
+  (table) => [index('shared_items_dirty_idx').on(table.dirty)],
 );
 
-/** Repayments of IOUs, each recorded by the user whose ledger saw it (IOU-4). */
-export const iouPayments = sqliteTable(
-  'iou_payments',
+/**
+ * Decision 0026: this user's link from a shared item to their own person and
+ * their own entry, with what that entry carries for it (`linked_*`). Synced
+ * between the user's own phones only.
+ */
+export const itemLinks = sqliteTable(
+  'item_links',
   {
     id: text('id').primaryKey(),
-    userId: text('user_id').notNull(),
-    iouId: text('iou_id').notNull(),
-    amountPaise: integer('amount_paise').notNull(),
-    currency: text('currency').notNull().default('INR'),
-    paidAt: text('paid_at').notNull(),
+    itemId: text('item_id').notNull(),
+    personAccountId: text('person_account_id').notNull(),
     transactionId: text('transaction_id'),
+    linkedKind: text('linked_kind', { enum: ['share', 'loan', 'repayment'] }),
+    linkedFlow: text('linked_flow', { enum: ['to_them', 'to_me'] }),
+    linkedPaise: integer('linked_paise'),
+    linkedCurrency: text('linked_currency'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
     dirty: integer('dirty').notNull().default(1),
     rev: integer('rev').notNull().default(0),
   },
-  (table) => [index('iou_payments_iou_idx').on(table.iouId), index('iou_payments_dirty_idx').on(table.dirty)],
+  (table) => [index('item_links_item_idx').on(table.itemId), index('item_links_dirty_idx').on(table.dirty)],
 );
-
-/** Personal split groups: a trip, flatmates (SPL-3). `member_account_ids` is a JSON array of person account ids. */
-export const splitGroups = sqliteTable('split_groups', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  memberAccountIds: text('member_account_ids').notNull().default('[]'),
-  createdAt: text('created_at').notNull(),
-  updatedAt: text('updated_at'),
-  deletedAt: text('deleted_at'),
-  dirty: integer('dirty').notNull().default(1),
-  rev: integer('rev').notNull().default(0),
-});
 
 /**
  * Decision 0025: what the user knows about each of their people (UPI IDs, phone,
@@ -524,9 +512,8 @@ export const personContacts = sqliteTable('person_contacts', {
 });
 
 export type LocalAccount = typeof accounts.$inferSelect;
-export type LocalIou = typeof ious.$inferSelect;
-export type LocalIouPayment = typeof iouPayments.$inferSelect;
-export type LocalSplitGroup = typeof splitGroups.$inferSelect;
+export type LocalSharedItem = typeof sharedItems.$inferSelect;
+export type LocalItemLink = typeof itemLinks.$inferSelect;
 export type LocalPersonIdentifier = typeof personIdentifiers.$inferSelect;
 export type LocalRecurring = typeof recurring.$inferSelect;
 export type LocalDeposit = typeof deposits.$inferSelect;
@@ -927,4 +914,48 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX person_identifiers_person_idx ON person_identifiers (person_account_id);
   CREATE INDEX person_identifiers_dirty_idx ON person_identifiers (dirty);`,
+  // Shared items (decision 0026): replace IOUs, repayments and split groups.
+  `DROP TABLE IF EXISTS ious;
+  DROP TABLE IF EXISTS iou_payments;
+  DROP TABLE IF EXISTS split_groups;
+  CREATE TABLE shared_items (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    flow TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'INR',
+    occurred_on TEXT NOT NULL,
+    reason TEXT,
+    category_name TEXT,
+    group_ref TEXT,
+    counterparty_email TEXT,
+    counterparty_user_id TEXT,
+    answer TEXT,
+    answered_at TEXT,
+    my_answer TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX shared_items_dirty_idx ON shared_items (dirty);
+  CREATE TABLE item_links (
+    id TEXT PRIMARY KEY NOT NULL,
+    item_id TEXT NOT NULL,
+    person_account_id TEXT NOT NULL,
+    transaction_id TEXT,
+    linked_kind TEXT,
+    linked_flow TEXT,
+    linked_paise INTEGER,
+    linked_currency TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX item_links_item_idx ON item_links (item_id);
+  CREATE INDEX item_links_dirty_idx ON item_links (dirty);`,
 ];

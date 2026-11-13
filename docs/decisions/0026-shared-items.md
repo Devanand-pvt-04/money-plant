@@ -22,4 +22,18 @@ Decided by Deva on 2026-11-13, in the thread "Rework IOUs and splits", as step 2
 - `supabase/migrations/20261130000000_shared_items.sql`: tables, guard, row-level security, `answer_shared_item`, `friend_with_email`, items reaching a new friend, `clear_my_data`. Tests: `shared_items.test.sql`, `rls.test.sql`.
 - `packages/matcher/src/shared-items.ts`: balance, postings each kind makes, linking and unlinking an entry, finding the other side's entry, status, ledger gap. Tests alongside.
 
-The app moves to shared items in step 3, which also retires `ious`, `iou_payments` and `split_groups`. Apply this migration (`npx supabase db push`) any time before that step's update; nothing uses it yet.
+## Step 3: the app
+
+- `supabase/migrations/20261201000000_item_link_amounts.sql`: each link records what its entry carries for the item (kind, flow, amount, currency), so a change made later on the item is taken back out exactly, on any of the user's phones. `item_links` joins the realtime publication.
+- `apps/mobile/src/lib/shared.ts`: items from the viewer's side, creating them with the user's side (an entry of theirs, a payment typed by hand, or the category of a share someone else paid), linking and unlinking, accepting and declining, finding candidates, Review's guesses, and `reconcileItems`, which runs after each sync and capture.
+- Screens: `item/new` (from People, a person, the Split shortcut, or an entry's Split / I lent it / I paid back / I borrowed it / Paid me back), `item/[id]`, the People tab ("Waiting for you"), the person page. An entry that carries items shows them, and its category is changed for what is left after the people's parts.
+- The People maintenance notice (PR #90) is gone. Due dates and their reminders are not part of shared items; the person page's Remind shares a message with a UPI "pay me" link.
+- The app no longer reads or writes `ious`, `iou_payments` or `split_groups`; the phone drops its copies. The server tables stay until every phone has this update, so an older app still syncs, and a later migration drops them.
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Removed or changed items | The phone undoes its own link: the amount goes back to the entry's category (or Uncategorised, which sends the entry to Review), and an entry made only for the item (a share entry, a typed payment) is removed. A new amount is linked again to the same entry when it still fits | The ledger follows the shared row without the user redoing anything |
+| Linking on its own | A loan or repayment links itself only when exactly one entry fits and its payee is that person (decision 0025). Otherwise Review asks "Is this the money you lent Ravi?" | No guessing on money between people |
+| A friend who isn't in People yet | Their items show as "A friend" until the next sync makes them a person; answering waits for that | The friend link is what makes them a person (ACC-9) |
+
+Deploy: `npx supabase db push` (both migrations) before the update.

@@ -1,8 +1,8 @@
 import * as Crypto from 'expo-crypto';
 import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DEFAULT_CURRENCY, paise, type CurrencyCode, type Paise } from '@money-plant/core';
-import { accounts, iouPayments, ious, personContacts, postings, splitGroups, transactions, type LocalAccount, type LocalPersonIdentifier } from '@money-plant/db-schema';
-import { findDuplicatePeople, findPerson, identifierClashes, mobileDigits, normaliseIdentifier, outstanding, pairKey, type DuplicatePair, type Identifier } from '@money-plant/matcher';
+import { accounts, itemLinks, personContacts, postings, sharedItems, transactions, type LocalAccount, type LocalPersonIdentifier } from '@money-plant/db-schema';
+import { findDuplicatePeople, findPerson, identifierClashes, mobileDigits, normaliseIdentifier, pairKey, type DuplicatePair, type Identifier } from '@money-plant/matcher';
 import { getDb } from './db';
 import { homeConverter } from './home-money';
 import { kvGet, kvSet } from './kv';
@@ -269,40 +269,31 @@ export async function updatePerson(id: string, input: PersonInput): Promise<void
     .where(eq(accounts.id, id))
     .run();
   await writeIdentifiers(id, fields);
-  if (before && before.email !== fields.email) await shareIousOf(id, fields.email);
+  if (before && before.email !== fields.email) await shareItemsOf(id, fields.email);
   await linkContact(id, input.contactId);
   notifyLedgerChange();
 }
 
 /**
- * Points this user's IOUs with a person at `email`. Settled ones stay as they
- * are: shared, they would reach the other person without their repayments and
- * look owed (decision 0020). A settled IOU shared with an email that is
- * changing is taken back instead.
+ * Decision 0026: the items this user made with a person go to `email`, so a
+ * friend with that email sees them (or no one, for null). The server finds
+ * the friend from the email and asks again for any share.
  */
-export async function shareIousOf(personId: string, email: string | null): Promise<void> {
+export async function shareItemsOf(personId: string, email: string | null): Promise<void> {
   const db = await getDb();
   const me = await getMe();
-  const rows = db
-    .select()
-    .from(ious)
-    .where(and(eq(ious.personAccountId, personId), eq(ious.userId, me.id), isNull(ious.deletedAt)))
-    .all();
-  if (rows.length === 0) return;
-  const payments = db
-    .select()
-    .from(iouPayments)
-    .where(and(inArray(iouPayments.iouId, rows.map((r) => r.id)), isNull(iouPayments.deletedAt)))
+  const ids = db
+    .select({ id: itemLinks.itemId })
+    .from(itemLinks)
+    .where(and(eq(itemLinks.personAccountId, personId), isNull(itemLinks.deletedAt)))
     .all()
-    .map((p) => ({ id: p.id, iouId: p.iouId, byMe: p.userId === me.id, amount: paise(p.amountPaise), paidAt: p.paidAt }));
-  for (const row of rows) {
+    .map((r) => r.id);
+  if (ids.length === 0) return;
+  for (const row of db.select().from(sharedItems).where(and(inArray(sharedItems.id, ids), eq(sharedItems.userId, me.id), isNull(sharedItems.deletedAt))).all()) {
     if (row.counterpartyEmail === email) continue;
-    const open = outstanding({ id: row.id, amount: paise(row.amountPaise) }, payments) > 0;
-    const next = open ? email : null;
-    if (row.counterpartyEmail === next) continue;
-    db.update(ious)
-      .set({ counterpartyEmail: next, dirty: 1, rev: sql`${ious.rev} + 1` })
-      .where(eq(ious.id, row.id))
+    db.update(sharedItems)
+      .set({ counterpartyEmail: email, counterpartyUserId: null, answer: null, answeredAt: null, dirty: 1, rev: sql`${sharedItems.rev} + 1` })
+      .where(eq(sharedItems.id, row.id))
       .run();
   }
 }
@@ -380,22 +371,19 @@ export async function migrateAliases(): Promise<void> {
 
 const ALIASES_MIGRATED_KEY = 'people.aliases.migrated';
 
-function groupsWith(db: Awaited<ReturnType<typeof getDb>>, id: string) {
-  return db
-    .select({ id: splitGroups.id, name: splitGroups.name, members: splitGroups.memberAccountIds })
-    .from(splitGroups)
-    .where(isNull(splitGroups.deletedAt))
+/** Items with this person that still count: not removed, and not a share declined. */
+function liveItemsWith(db: Awaited<ReturnType<typeof getDb>>, id: string) {
+  const ids = db
+    .select({ id: itemLinks.itemId })
+    .from(itemLinks)
+    .where(and(eq(itemLinks.personAccountId, id), isNull(itemLinks.deletedAt)))
     .all()
-    .filter((g) => {
-      try {
-        return (JSON.parse(g.members) as unknown[]).includes(id);
-      } catch {
-        return false;
-      }
-    });
+    .map((r) => r.id);
+  if (ids.length === 0) return [];
+  return db.select().from(sharedItems).where(and(inArray(sharedItems.id, ids), isNull(sharedItems.deletedAt))).all();
 }
 
-/** Whether anything refers to this person: an entry, an IOU, a split group or a friend link. */
+/** Whether anything refers to this person: an entry, a shared item or a friend link. */
 export async function personInUse(id: string): Promise<boolean> {
   const db = await getDb();
   const account = db.select().from(accounts).where(eq(accounts.id, id)).get();
@@ -407,13 +395,7 @@ export async function personInUse(id: string): Promise<boolean> {
     .where(and(eq(postings.accountId, id), isNull(transactions.deletedAt)))
     .get();
   if (posting) return true;
-  const iou = db
-    .select({ id: ious.id })
-    .from(ious)
-    .where(and(isNull(ious.deletedAt), or(eq(ious.personAccountId, id), eq(ious.counterpartyPersonAccountId, id))))
-    .get();
-  if (iou) return true;
-  return groupsWith(db, id).length > 0;
+  return liveItemsWith(db, id).length > 0;
 }
 
 /**
@@ -430,26 +412,6 @@ export async function removalBlocker(id: string): Promise<string | null> {
   const name = person.account.name;
   if (person.account.email) return `${name} is linked on Money Plant by email, so they stay. Merge a duplicate into them instead.`;
   if (person.balances.length > 0) return `${name} isn't settled up. Settle up, or merge them into the right person.`;
-  const db = await getDb();
-  const me = await getMe();
-  const rows = db
-    .select()
-    .from(ious)
-    .where(and(isNull(ious.deletedAt), isNull(ious.declinedAt), or(eq(ious.personAccountId, id), eq(ious.counterpartyPersonAccountId, id))))
-    .all();
-  if (rows.length > 0) {
-    const payments = db
-      .select()
-      .from(iouPayments)
-      .where(and(inArray(iouPayments.iouId, rows.map((r) => r.id)), isNull(iouPayments.deletedAt)))
-      .all()
-      .map((p) => ({ id: p.id, iouId: p.iouId, byMe: p.userId === me.id, amount: paise(p.amountPaise), paidAt: p.paidAt }));
-    if (rows.some((r) => outstanding({ id: r.id, amount: paise(r.amountPaise) }, payments) > 0)) {
-      return `${name} still has an open IOU. Settle it, or merge them into the right person.`;
-    }
-  }
-  const groups = groupsWith(db, id);
-  if (groups.length > 0) return `${name} is in ${groups.map((g) => g.name).join(', ')}. Take them out of the group first.`;
   return null;
 }
 

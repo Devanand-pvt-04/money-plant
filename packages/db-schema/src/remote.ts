@@ -4,15 +4,14 @@ import type {
   LocalAccountType,
   LocalBalanceAnchor,
   LocalBudget,
-  LocalIou,
-  LocalIouPayment,
+  LocalItemLink,
   LocalPosting,
   LocalRecurring,
   LocalDeposit,
   LocalHolding,
   HoldingKind,
   LocalRule,
-  LocalSplitGroup,
+  LocalSharedItem,
   LocalPersonIdentifier,
   LocalSource,
   LocalTransaction,
@@ -544,79 +543,62 @@ export function fromRemoteRecurring(row: RemoteRecurring): LocalRecurring {
   };
 }
 
-export interface RemoteIou {
+/** Decision 0026: a row of public.shared_items, the creator's or a friend's. */
+export interface RemoteSharedItem {
   id: string;
   user_id: string;
-  owner_name: string | null;
-  owner_email: string | null;
-  owner_vpa: string | null;
-  person_account_id: string;
-  direction: LocalIou['direction'];
+  kind: LocalSharedItem['kind'];
+  flow: LocalSharedItem['flow'];
   amount_paise: number;
-  currency?: string;
-  reason: string | null;
+  currency: string;
   occurred_on: string;
-  due_date: string | null;
-  transaction_id: string | null;
+  reason: string | null;
+  category_name: string | null;
+  group_ref: string | null;
   counterparty_email: string | null;
   counterparty_user_id: string | null;
-  counterparty_person_account_id: string | null;
-  counterparty_transaction_id: string | null;
-  counterparty_vpa: string | null;
-  confirmed_at: string | null;
-  declined_at: string | null;
+  answer: LocalSharedItem['answer'];
+  answered_at: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
 }
 
-/**
- * What the owner sends. The counterparty's fields, the response times and
- * owner_email are set on the server (ious_guard, respond_iou), so they are
- * left out; the server would ignore them anyway.
- */
-export function toRemoteIou(row: LocalIou) {
+/** What the creator sends. The other side and the answer are set by the server (shared_items_guard). */
+export function toRemoteSharedItem(row: LocalSharedItem) {
   return {
     id: row.id,
-    owner_name: row.ownerName,
-    owner_vpa: row.ownerVpa,
-    person_account_id: row.personAccountId,
-    direction: row.direction,
+    kind: row.kind,
+    flow: row.flow,
     amount_paise: row.amountPaise,
     currency: row.currency,
-    reason: row.reason,
     occurred_on: row.occurredOn,
-    due_date: row.dueDate,
-    transaction_id: row.transactionId,
+    reason: row.reason,
+    category_name: row.categoryName,
+    group_ref: row.groupRef,
     counterparty_email: row.counterpartyEmail,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
 }
 
-export function fromRemoteIou(row: RemoteIou): LocalIou {
+export function fromRemoteSharedItem(row: RemoteSharedItem): LocalSharedItem {
   return {
     id: row.id,
     userId: row.user_id,
-    ownerName: row.owner_name,
-    ownerEmail: row.owner_email,
-    ownerVpa: row.owner_vpa,
-    personAccountId: row.person_account_id,
-    direction: row.direction,
+    kind: row.kind,
+    flow: row.flow,
     amountPaise: Number(row.amount_paise),
     currency: row.currency ?? 'INR',
-    reason: row.reason,
     occurredOn: row.occurred_on,
-    dueDate: row.due_date,
-    transactionId: row.transaction_id,
+    reason: row.reason,
+    categoryName: row.category_name,
+    groupRef: row.group_ref,
     counterpartyEmail: row.counterparty_email,
     counterpartyUserId: row.counterparty_user_id,
-    counterpartyPersonAccountId: row.counterparty_person_account_id,
-    counterpartyTransactionId: row.counterparty_transaction_id,
-    counterpartyVpa: row.counterparty_vpa,
-    confirmedAt: row.confirmed_at === null ? null : iso(row.confirmed_at),
-    declinedAt: row.declined_at === null ? null : iso(row.declined_at),
-    response: null,
+    answer: row.answer,
+    answeredAt: row.answered_at === null ? null : iso(row.answered_at),
+    myAnswer: null,
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -625,74 +607,47 @@ export function fromRemoteIou(row: RemoteIou): LocalIou {
   };
 }
 
-export interface RemoteIouPayment {
+/** Decision 0026: a row of public.item_links, always this user's own. */
+export interface RemoteItemLink {
   id: string;
   user_id: string;
-  iou_id: string;
-  amount_paise: number;
-  currency?: string;
-  paid_at: string;
+  item_id: string;
+  person_account_id: string;
   transaction_id: string | null;
+  linked_kind: LocalItemLink['linkedKind'];
+  linked_flow: LocalItemLink['linkedFlow'];
+  linked_paise: number | null;
+  linked_currency: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
 }
 
-export function toRemoteIouPayment(row: LocalIouPayment): Omit<RemoteIouPayment, 'user_id' | 'updated_at'> {
+export function toRemoteItemLink(row: LocalItemLink): Omit<RemoteItemLink, 'user_id' | 'updated_at'> {
   return {
     id: row.id,
-    iou_id: row.iouId,
-    amount_paise: row.amountPaise,
-    currency: row.currency,
-    paid_at: row.paidAt,
+    item_id: row.itemId,
+    person_account_id: row.personAccountId,
     transaction_id: row.transactionId,
+    linked_kind: row.linkedKind,
+    linked_flow: row.linkedFlow,
+    linked_paise: row.linkedPaise,
+    linked_currency: row.linkedCurrency,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
 }
 
-export function fromRemoteIouPayment(row: RemoteIouPayment): LocalIouPayment {
+export function fromRemoteItemLink(row: RemoteItemLink): LocalItemLink {
   return {
     id: row.id,
-    userId: row.user_id,
-    iouId: row.iou_id,
-    amountPaise: Number(row.amount_paise),
-    currency: row.currency ?? 'INR',
-    paidAt: iso(row.paid_at),
+    itemId: row.item_id,
+    personAccountId: row.person_account_id,
     transactionId: row.transaction_id,
-    createdAt: iso(row.created_at),
-    updatedAt: row.updated_at,
-    deletedAt: row.deleted_at,
-    dirty: 0,
-    rev: 0,
-  };
-}
-
-export interface RemoteSplitGroup {
-  id: string;
-  user_id: string;
-  name: string;
-  member_account_ids: string[];
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-}
-
-export function toRemoteSplitGroup(row: LocalSplitGroup): Omit<RemoteSplitGroup, 'user_id' | 'updated_at'> {
-  return {
-    id: row.id,
-    name: row.name,
-    member_account_ids: JSON.parse(row.memberAccountIds) as string[],
-    created_at: row.createdAt,
-    deleted_at: row.deletedAt,
-  };
-}
-
-export function fromRemoteSplitGroup(row: RemoteSplitGroup): LocalSplitGroup {
-  return {
-    id: row.id,
-    name: row.name,
-    memberAccountIds: JSON.stringify(row.member_account_ids ?? []),
+    linkedKind: row.linked_kind ?? null,
+    linkedFlow: row.linked_flow ?? null,
+    linkedPaise: row.linked_paise === null || row.linked_paise === undefined ? null : Number(row.linked_paise),
+    linkedCurrency: row.linked_currency ?? null,
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

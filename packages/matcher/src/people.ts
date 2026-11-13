@@ -1,5 +1,5 @@
 import { mobileFromVpa } from './contacts';
-import { allVpas, payeeKey } from './ious';
+import { allVpas, payeeKey } from './payees';
 import { identifierClashes, type Identifier } from './identity';
 
 /**

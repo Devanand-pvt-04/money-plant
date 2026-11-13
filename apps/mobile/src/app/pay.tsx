@@ -16,7 +16,6 @@ import { Button, ErrorText, Initial, radius, useColors, makeStyles } from '@/com
 import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { editEntry, setCategoryForEntries } from '@/lib/entries';
 import { listAccountBalances } from '@/lib/ledger';
-import { PEOPLE_PAUSED } from '@/lib/maintenance';
 import { guessForPayee, isShop, payWithUpi, recentPayees, settleUnconfirmed, type PayeeGuess, type PaymentResult } from '@/lib/upi';
 
 /** UPI's per-payment ceiling for most payments, ₹1,00,000. */
@@ -467,14 +466,12 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
             />
           )}
           <View style={styles.answer}>
-            {!PEOPLE_PAUSED && (
-              <Pressable accessibilityRole="button" onPress={() => router.replace(`/expense?from=${id}`)} style={styles.tile}>
-                <Feather name="users" size={16} color={colors.text} />
-                <Text style={styles.tileText}>Split it</Text>
-              </Pressable>
-            )}
-            {!PEOPLE_PAUSED && !isShop(payment) && (
-              <Pressable accessibilityRole="button" onPress={() => router.replace(`/iou/new?from=${id}`)} style={styles.tile}>
+            <Pressable accessibilityRole="button" onPress={() => router.replace(`/item/new?from=${id}&kind=share`)} style={styles.tile}>
+              <Feather name="users" size={16} color={colors.text} />
+              <Text style={styles.tileText}>Split it</Text>
+            </Pressable>
+            {!isShop(payment) && (
+              <Pressable accessibilityRole="button" onPress={() => router.replace(`/item/new?from=${id}&kind=loan`)} style={styles.tile}>
                 <Feather name="corner-up-right" size={16} color={colors.text} />
                 <Text style={styles.tileText}>I lent it</Text>
               </Pressable>

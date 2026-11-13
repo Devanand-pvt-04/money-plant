@@ -3,7 +3,7 @@ import { Alert, Platform, Pressable, ScrollView, Share, Switch, Text, View } fro
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { FormScroll } from '@/components/keyboard';
 import { formatAmount } from '@/components/format';
-import { IouRow } from '@/components/people-rows';
+import { ItemRow } from '@/components/people-rows';
 import { Sheet } from '@/components/sheet';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, useColors, makeStyles } from '@/components/ui';
 import { mobileDigits } from '@money-plant/matcher';
@@ -12,14 +12,14 @@ import { setDoubtful, useDoubtfulPeople } from '@/lib/doubtful';
 import { inviteFriend, inviteMessage, linkForEmail, type FriendLink } from '@/lib/friends';
 import { getMe, splitVpas } from '@/lib/me';
 import { markInvited } from '@/lib/setup';
-import { listIous, type IouView } from '@/lib/ious';
+import { itemsWith, payLink, personTotals, reminderMessage, type ItemView } from '@/lib/shared';
+import { openUpiLink } from '@/lib/upi';
 import { mergePeople } from '@/lib/merge-people';
 import { removeIdentifier } from '@/lib/identity';
 import { createPerson, extraVpasOf, formatBankAccount, getPerson, phoneOf, listPeople, personInUse, removalBlocker, removePerson, SamePersonError, updatePerson, type Person } from '@/lib/people';
-import { today } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
 
-/** A person: their UPI ID and email (IOU-2, IOU-3), the phone contact they are (SPL-4), and every IOU with them. */
+/** A person: what you owe each other and every shared item with them (decision 0026), and everything that identifies them (decision 0025). */
 export default function PersonDetail() {
   const colors = useColors();
   const styles = useStyles();
@@ -27,11 +27,18 @@ export default function PersonDetail() {
   const navigation = useNavigation();
   const isNew = id === 'new';
   const load = useCallback(async () => {
-    if (isNew) return { person: null, ious: [] as IouView[], inUse: true, blocker: null as string | null, others: [] as Person[] };
-    const [person, all, inUse, blocker, people] = await Promise.all([getPerson(id), listIous(), personInUse(id), removalBlocker(id), listPeople()]);
-    return { person, ious: all.filter((v) => v.personId === id), inUse, blocker, others: people.filter((p) => p.account.id !== id) };
+    if (isNew) return { person: null, items: [] as ItemView[], gap: new Map<string, number>(), inUse: true, blocker: null as string | null, others: [] as Person[] };
+    const [person, items, totals, inUse, blocker, people] = await Promise.all([getPerson(id), itemsWith(id), personTotals(id), personInUse(id), removalBlocker(id), listPeople()]);
+    return { person, items, gap: totals.gap as Map<string, number>, inUse, blocker, others: people.filter((p) => p.account.id !== id) };
   }, [id, isNew]);
-  const { data } = useLedger(load, { person: null as Person | null, ious: [] as IouView[], inUse: true, blocker: null as string | null, others: [] as Person[] });
+  const { data } = useLedger(load, {
+    person: null as Person | null,
+    items: [] as ItemView[],
+    gap: new Map<string, number>(),
+    inUse: true,
+    blocker: null as string | null,
+    others: [] as Person[],
+  });
   const [merging, setMerging] = useState(false);
   const [name, setName] = useState('');
   const [vpa, setVpa] = useState('');
@@ -85,7 +92,7 @@ export default function PersonDetail() {
     const [removeName, keepName] = keepOther ? [here.name, other.name] : [other.name, here.name];
     Alert.alert(
       `Merge ${removeName} into ${keepName}?`,
-      `Everything with ${removeName} (entries, IOUs, groups, UPI ID) moves to ${keepName}, and ${removeName} is removed. Open IOUs are shared with ${keepName} if they're on Money Plant.`,
+      `Everything with ${removeName} (entries, shared items, UPI IDs) moves to ${keepName}, and ${removeName} is removed. Your items are shared with ${keepName} if they're on Money Plant.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -183,9 +190,18 @@ export default function PersonDetail() {
   }
 
   const person = data.person;
-  const day = today();
-  const open = data.ious.filter((v) => v.outstanding > 0 && v.state !== 'declined');
-  const closed = data.ious.filter((v) => !open.includes(v));
+  const open = data.items.filter((v) => v.status !== 'linked' && v.status !== 'declined');
+  const closed = data.items.filter((v) => !open.includes(v));
+  const pay = person ? payLink(person) : null;
+
+  async function remind() {
+    if (!person) return;
+    try {
+      await Share.share({ message: reminderMessage(person, await getMe()) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   return (
     <FormScroll contentContainerStyle={styles.container}>
@@ -216,15 +232,24 @@ export default function PersonDetail() {
 
       {person && (
         <>
-          <SectionTitle>Open</SectionTitle>
-          {open.length === 0 ? (
-            <Text style={styles.meta}>Nothing open with {person.account.name}.</Text>
-          ) : (
-            <Card>
-              {open.map((v, i) => (
-                <IouRow key={v.id} view={v} today={day} first={i === 0} />
-              ))}
-            </Card>
+          {[...data.gap].map(([currency, amount]) => (
+            <Text key={currency} style={styles.hint}>
+              {formatAmount(Math.abs(amount), currency)} of what you and {person.account.name} share isn't in your ledger yet. Link your entries below.
+            </Text>
+          ))}
+          <View style={styles.buttons}>
+            {person.balances.length > 0 && <Button title="Remind" variant="secondary" onPress={remind} />}
+            {pay && <Button title="Pay with UPI" variant="secondary" onPress={() => void openUpiLink(pay).catch((e) => setError(String(e?.message ?? e)))} />}
+          </View>
+          {open.length > 0 && (
+            <>
+              <SectionTitle>Waiting for you</SectionTitle>
+              <Card>
+                {open.map((v, i) => (
+                  <ItemRow key={v.id} view={v} first={i === 0} />
+                ))}
+              </Card>
+            </>
           )}
           {(person.balance > 0 || doubtful.has(id)) && (
             <View style={styles.switchRow}>
@@ -235,8 +260,8 @@ export default function PersonDetail() {
               <Switch value={!doubtful.has(id)} onValueChange={countInNetWorth} disabled={savingDoubt} />
             </View>
           )}
-          <Button title="Add an expense with them" onPress={() => router.push(`/expense?person=${id}`)} />
-          <Button title="Record a loan" variant="secondary" onPress={() => router.push(`/iou/new?person=${id}`)} />
+          <Button title="Split a bill with them" onPress={() => router.push(`/item/new?person=${id}&kind=share`)} />
+          <Button title="Record a loan or repayment" variant="secondary" onPress={() => router.push(`/item/new?person=${id}&kind=loan`)} />
         </>
       )}
 
@@ -262,7 +287,7 @@ export default function PersonDetail() {
         </>
       )}
       <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="ravi@gmail.com" />
-      <Text style={styles.hint}>If they use Money Plant with this email, they see your IOUs with them and can confirm them.</Text>
+      <Text style={styles.hint}>If they use Money Plant with this email, they see what you share with them and can accept it.</Text>
       {savedEmail && link !== undefined && (
         link?.state === 'friends' ? (
           <Text style={styles.linked}>Linked on Money Plant</Text>
@@ -289,10 +314,10 @@ export default function PersonDetail() {
 
       {closed.length > 0 && (
         <>
-          <SectionTitle>Settled</SectionTitle>
+          <SectionTitle>History</SectionTitle>
           <Card>
             {closed.map((v, i) => (
-              <IouRow key={v.id} view={v} today={day} first={i === 0} />
+              <ItemRow key={v.id} view={v} first={i === 0} />
             ))}
           </Card>
         </>
@@ -307,7 +332,7 @@ export default function PersonDetail() {
               <Text style={styles.hint}>
                 {data.inUse
                   ? "They're settled up. Removing them keeps past entries under their name."
-                  : 'They have no entries, IOUs or groups, so removing them changes nothing else.'}
+                  : 'They have no entries or shared items, so removing them changes nothing else.'}
               </Text>
             </>
           ) : (
@@ -317,7 +342,7 @@ export default function PersonDetail() {
       )}
 
       <Sheet visible={merging} onClose={() => setMerging(false)} title={`Who else is ${person?.account.name ?? 'this'}?`} tall>
-        <Text style={styles.hint}>Pick the other entry for the same person. Their entries and IOUs come together into one.</Text>
+        <Text style={styles.hint}>Pick the other entry for the same person. Their entries and shared items come together into one.</Text>
         <ScrollView>
           {data.others.map((p) => (
             <Pressable
@@ -351,6 +376,7 @@ const useStyles = makeStyles((colors) => ({
   hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
   linked: { fontSize: 13, fontWeight: '600', color: colors.primary, marginTop: 6 },
   actions: { marginTop: 16, gap: 10 },
+  buttons: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 8 },
   switchLabel: { fontSize: 15, color: colors.text },
   grow: { flex: 1 },

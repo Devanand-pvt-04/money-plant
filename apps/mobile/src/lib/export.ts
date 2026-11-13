@@ -4,7 +4,7 @@ import { ACCOUNT_TYPE_LABELS, dateKey, DEFAULT_CURRENCY, minorDecimal, toCsv, ty
 import { accountTypes, accounts, budgets, postings, recurring, transactions } from '@money-plant/db-schema';
 import { getDb } from './db';
 import { homeCurrency } from './home-currency';
-import { listIous } from './ious';
+import { itemTitle, listItems, statusText } from './shared';
 
 export interface ExportResult {
   folder: string;
@@ -53,7 +53,7 @@ async function buildFiles(): Promise<[string, string][]> {
   const postingRows = db.select().from(postings).all();
   const budgetRows = db.select().from(budgets).where(isNull(budgets.deletedAt)).all();
   const recurringRows = db.select().from(recurring).where(isNull(recurring.deletedAt)).all();
-  const iouViews = await listIous();
+  const items = await listItems();
 
   const byId = new Map(accountRows.map((a) => [a.id, a]));
   const typeName = new Map(typeRows.map((t) => [t.id, t.name]));
@@ -127,16 +127,15 @@ async function buildFiles(): Promise<[string, string][]> {
     r.vpa ?? r.merchant,
   ]);
 
-  const iousCsv = iouViews.map((v) => [
+  const itemsCsv = items.map((v) => [
     v.occurredOn,
-    v.otherName,
-    v.direction === 'lent' ? 'They owe me' : 'I owe them',
+    v.personName,
+    itemTitle(v),
+    v.flow === 'to_them' ? 'They owe me' : 'I owe them',
     minorDecimal(v.amount, v.currency),
-    minorDecimal(v.outstanding, v.currency),
     v.currency,
-    v.dueDate,
     v.reason,
-    v.state,
+    statusText(v),
   ]);
 
   return [
@@ -145,6 +144,6 @@ async function buildFiles(): Promise<[string, string][]> {
     ['accounts', toCsv(['Type', 'Name', 'Bank', 'Last 4', 'Opening balance', 'Currency', 'UPI ID', 'Email', 'ID'], accountsCsv)],
     ['budgets', toCsv(['Month', 'Category', 'Limit', 'Currency'], budgetsCsv)],
     ['recurring', toCsv(['Name', 'Amount', 'Currency', 'Every', 'Next due', 'Paid from', 'Category', 'Status', 'Payee'], recurringCsv)],
-    ['ious', toCsv(['Date', 'Person', 'Direction', 'Amount', 'Still owed', 'Currency', 'Due', 'Reason', 'State'], iousCsv)],
+    ['shared', toCsv(['Date', 'Person', 'What', 'Direction', 'Amount', 'Currency', 'Reason', 'Status'], itemsCsv)],
   ];
 }

@@ -24,8 +24,7 @@ import {
   type AccountBalance,
   type TransactionRow,
 } from '@/lib/ledger';
-import { repaymentGuesses, type RepaymentGuess } from '@/lib/ious';
-import { PEOPLE_PAUSED } from '@/lib/maintenance';
+import { itemGuesses, linkEntry, type ItemGuess } from '@/lib/shared';
 import { listRecurring } from '@/lib/recurring';
 import { listRules } from '@/lib/rules-store';
 import type { RecurringPayment } from '@money-plant/matcher';
@@ -59,11 +58,16 @@ async function load() {
       category: names.get(rule.categoryId) ?? 'a category',
     }));
   const suggested = recurring.filter((r) => r.status === 'proposed');
-  const guesses = PEOPLE_PAUSED
-    ? new Map<string, RepaymentGuess>()
-    : await repaymentGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, RepaymentGuess>());
+  const guesses = await itemGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, ItemGuess>());
   const inCredit = await cardsInCredit(balances).catch(() => [] as CardInCredit[]);
   return { pending, gaps: balances.filter((b) => gapIsDue(b)), inCredit, proposals, suggested, guesses, questions };
+}
+
+/** The question for an entry that is probably the user's side of an item (decision 0026). */
+function guessText(guess: ItemGuess): string {
+  if (guess.kind === 'share') return `Is this what you paid for ${guess.name}'s share?`;
+  if (guess.kind === 'loan') return guess.flow === 'to_them' ? `Is this the money you lent ${guess.name}?` : `Is this the money ${guess.name} lent you?`;
+  return guess.flow === 'to_me' ? `Is this ${guess.name} paying you back?` : `Is this you paying ${guess.name} back?`;
 }
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
@@ -79,7 +83,7 @@ export default function Review() {
       inCredit: [] as CardInCredit[],
       proposals: [] as Proposal[],
       suggested: [] as RecurringPayment[],
-      guesses: new Map<string, RepaymentGuess>(),
+      guesses: new Map<string, ItemGuess>(),
       questions: { senders: [] } as CaptureQuestions,
     },
     'review',
@@ -139,7 +143,7 @@ function ReviewCard({
 }: {
   row: TransactionRow;
   /** IOU-4: someone with an open loan of exactly this amount. */
-  guess: RepaymentGuess | null;
+  guess: ItemGuess | null;
   onChangeCategory: (id: string, flow: 'expense' | 'income', merchant: string | null) => void;
 }) {
   const colors = useColors();
@@ -204,29 +208,27 @@ function ReviewCard({
             <Button title={isTransfer ? 'Yes, a transfer' : 'Looks right'} onPress={accept} />
           </View>
         </View>
-        {guess && legs[0] && !PEOPLE_PAUSED && (
+        {guess && legs[0] && (
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push(`/iou/repay?from=${tx.id}&person=${guess.personId}`)}
+            onPress={() => linkEntry(guess.itemId, tx.id).catch((e) => Alert.alert("Couldn't link it", String(e?.message ?? e)))}
             style={({ pressed }) => [styles.guess, pressed && styles.guessPressed]}
           >
             <Feather name="corner-down-left" size={16} color={colors.primary} />
-            <Text style={styles.guessText}>{legs[0].amount > 0 ? `Is this ${guess.name} paying you back?` : `Is this you paying ${guess.name} back?`}</Text>
+            <Text style={styles.guessText}>{guessText(guess)}</Text>
           </Pressable>
         )}
         {/* IOU-1, IOU-4, SPL-1: a payment to or from a person is often a loan, a repayment or a shared bill. */}
-        {tx.reviewReason === 'person' && legs[0] && !PEOPLE_PAUSED && (
+        {tx.reviewReason === 'person' && legs[0] && !guess && (
           <View style={styles.links}>
-            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/new?from=${tx.id}`)}>
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/item/new?from=${tx.id}&kind=loan`)}>
               <Text style={styles.link}>{legs[0].amount < 0 ? 'I lent this' : 'I borrowed this'}</Text>
             </Pressable>
-            {!guess && (
-              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/iou/repay?from=${tx.id}`)}>
-                <Text style={styles.link}>{legs[0].amount > 0 ? 'Paid me back' : 'I paid back'}</Text>
-              </Pressable>
-            )}
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/item/new?from=${tx.id}&kind=repayment`)}>
+              <Text style={styles.link}>{legs[0].amount > 0 ? 'Paid me back' : 'I paid back'}</Text>
+            </Pressable>
             {tx.kind === 'expense' && (
-              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/expense?from=${tx.id}`)}>
+              <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push(`/item/new?from=${tx.id}&kind=share`)}>
                 <Text style={styles.link}>Split it</Text>
               </Pressable>
             )}

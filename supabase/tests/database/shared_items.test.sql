@@ -4,7 +4,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(21);
+select plan(23);
 
 set local session_replication_role = replica;
 insert into auth.users (id, email, aud, role) values
@@ -63,6 +63,12 @@ insert into transactions (id, occurred_at, kind, status, confidence) values
 insert into item_links (id, item_id, person_account_id, transaction_id) values
   ('b6000000-0000-4000-8000-000000000001', 'a5000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001');
 select is((select count(*)::int from item_links), 1, 'Bala links it to the entry his phone made');
+update item_links set linked_kind = 'share', linked_flow = 'to_me', linked_paise = 60000, linked_currency = 'INR'
+where id = 'b6000000-0000-4000-8000-000000000001';
+select is((select linked_paise::int from item_links), 60000, 'Bala''s link records what his entry carries');
+select throws_ok(
+  $$update item_links set linked_paise = null where id = 'b6000000-0000-4000-8000-000000000001'$$,
+  '23514', null, 'what an entry carries is recorded whole or not at all');
 select throws_ok(
   $$insert into item_links (id, item_id, person_account_id, transaction_id) values
     ('b6000000-0000-4000-8000-000000000002', 'a5000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001')$$,
