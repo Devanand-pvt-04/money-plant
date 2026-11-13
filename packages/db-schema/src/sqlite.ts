@@ -32,6 +32,8 @@ export const accounts = sqliteTable(
     extraVpas: text('extra_vpas').notNull().default('[]'),
     /** For people: their 10-digit mobile number, to recognise UPI IDs made from it (decision 0021). */
     phone: text('phone'),
+    /** For credit cards: the credit limit, so the available limit in card SMS gives the amount owed (decision 0024). */
+    creditLimitPaise: integer('credit_limit_paise'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -868,4 +870,6 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   // Several UPI IDs for a person (decision 0021).
   `ALTER TABLE accounts ADD COLUMN extra_vpas TEXT NOT NULL DEFAULT '[]';
   ALTER TABLE accounts ADD COLUMN phone TEXT;`,
+  // A credit card's credit limit (decision 0024).
+  `ALTER TABLE accounts ADD COLUMN credit_limit_paise INTEGER;`,
 ];

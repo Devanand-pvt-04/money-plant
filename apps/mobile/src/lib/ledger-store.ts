@@ -36,7 +36,7 @@ export function systemAccountId(key: SystemAccountKey): Promise<string> {
 }
 
 function toLedgerAccount(row: typeof accounts.$inferSelect): LedgerAccount {
-  return { id: row.id, type: row.type, name: row.name, institution: row.institution, last4: row.last4 };
+  return { id: row.id, type: row.type, name: row.name, institution: row.institution, last4: row.last4, creditLimit: row.creditLimitPaise === null ? null : paise(row.creditLimitPaise) };
 }
 
 function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
@@ -191,7 +191,7 @@ export class SqliteLedgerStore implements LedgerStore {
   async createAccount(account: LedgerAccount) {
     this.db
       .insert(accounts)
-      .values({ ...account, openingBalancePaise: 0, createdAt: now(), dirty: 1 })
+      .values({ id: account.id, type: account.type, name: account.name, institution: account.institution, last4: account.last4, openingBalancePaise: 0, createdAt: now(), dirty: 1 })
       .run();
   }
 

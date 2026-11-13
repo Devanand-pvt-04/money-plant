@@ -8,9 +8,11 @@ export interface LedgerAccount {
   name: string;
   institution: string | null;
   last4: string | null;
+  /** Credit cards: the limit the user entered, so card SMS can say what the card owes (decision 0024). */
+  creditLimit?: Paise | null;
 }
 
-export type NewLedgerAccount = Omit<LedgerAccount, 'id'>;
+export type NewLedgerAccount = Omit<LedgerAccount, 'id' | 'creditLimit'>;
 
 /** Category accounts the capture pipeline posts to until milestone 3 adds real categories. */
 export type SystemAccountKey = 'uncategorised_expense' | 'uncategorised_income' | 'adjustments';

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { formatMoney } from '@money-plant/core';
+import { formatMoney, paise } from '@money-plant/core';
 import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
 import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
 import { SwipeRow } from '@/components/swipe-row';
@@ -20,6 +20,7 @@ import {
   listTransactions,
   splitTransfer,
   adoptBankBalance,
+  setCurrentBalance,
   type AccountBalance,
   type TransactionRow,
 } from '@/lib/ledger';
@@ -28,6 +29,7 @@ import { listRecurring } from '@/lib/recurring';
 import { listRules } from '@/lib/rules-store';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { useLedger } from '@/lib/use-ledger';
+import { acceptCardCredit, beforePayment, cardsInCredit, gapIsDue, recordUnrecorded, type CardInCredit } from '@/lib/cards';
 import { captureQuestions, type CaptureQuestions } from '@/lib/senders';
 import { CaptureQuestionCards } from '@/components/capture-questions';
 import { useReviewTimer } from '@/lib/health';
@@ -57,7 +59,8 @@ async function load() {
     }));
   const suggested = recurring.filter((r) => r.status === 'proposed');
   const guesses = await repaymentGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, RepaymentGuess>());
-  return { pending, gaps: balances.filter((b) => b.reconciliation?.flagged), proposals, suggested, guesses, questions };
+  const inCredit = await cardsInCredit(balances).catch(() => [] as CardInCredit[]);
+  return { pending, gaps: balances.filter((b) => gapIsDue(b)), inCredit, proposals, suggested, guesses, questions };
 }
 
 /** LED-6 review inbox, with pattern proposals (CAT-8) and balance gaps from LED-7. */
@@ -70,6 +73,7 @@ export default function Review() {
     {
       pending: [] as TransactionRow[],
       gaps: [] as AccountBalance[],
+      inCredit: [] as CardInCredit[],
       proposals: [] as Proposal[],
       suggested: [] as RecurringPayment[],
       guesses: new Map<string, RepaymentGuess>(),
@@ -80,7 +84,7 @@ export default function Review() {
   const { picker, change } = useCategoryChange();
   const [questionError, setQuestionError] = useState<string | null>(null);
   const nothing =
-    data.gaps.length === 0 && data.proposals.length === 0 && data.suggested.length === 0 && data.questions.senders.length === 0;
+    data.gaps.length === 0 && data.inCredit.length === 0 && data.proposals.length === 0 && data.suggested.length === 0 && data.questions.senders.length === 0;
 
   return (
     <>
@@ -104,7 +108,7 @@ export default function Review() {
             {data.suggested.map((item) => (
               <Suggestion key={item.id} item={item} />
             ))}
-            {data.gaps.length > 0 && <Gaps gaps={data.gaps} />}
+            {(data.gaps.length > 0 || data.inCredit.length > 0) && <Gaps gaps={data.gaps} inCredit={data.inCredit} />}
             <BulkReview pending={data.pending} onChangeCategory={change} />
           </>
         }
@@ -381,24 +385,70 @@ function PatternCard({ proposal }: { proposal: Proposal }) {
   );
 }
 
-function Gaps({ gaps }: { gaps: AccountBalance[] }) {
+/**
+ * LED-7 and decision 0024: a balance that doesn't match what the bank or card
+ * says. The user always chooses the fix: add the missing entries, record one
+ * entry for what's missing, or only adjust the balance.
+ */
+function Gaps({ gaps, inCredit }: { gaps: AccountBalance[]; inCredit: CardInCredit[] }) {
   const styles = useStyles();
+  const [busy, setBusy] = useState(false);
+  const run = (work: () => Promise<void>) => {
+    setBusy(true);
+    work()
+      .catch((e) => Alert.alert("Couldn't fix the balance", String(e?.message ?? e)))
+      .finally(() => setBusy(false));
+  };
   return (
     <View style={styles.gaps}>
       {gaps.map(({ account, reconciliation }) => {
         if (!reconciliation) return null;
         const { latest, windowStart } = reconciliation;
+        const card = account.type === 'credit_card';
+        const who = card ? 'the card' : 'the bank';
+        const missing = latest.gap > 0 ? `${formatMoney(latest.gap, account.currency)} of money in` : `${formatMoney(-latest.gap, account.currency)} of ${card ? 'spending' : 'money out'}`;
+        const limit = account.creditLimitPaise;
         return (
           <View key={account.id} style={styles.gapCard}>
-            <Text style={styles.gapTitle}>{account.name} doesn't match the bank</Text>
+            <Text style={styles.gapTitle}>{account.name} doesn't match {who}</Text>
             <Text style={styles.gapText}>
-              The bank said {formatMoney(latest.anchor.balance, account.currency)} on {formatDateTime(latest.anchor.observedAt)}; the ledger has{' '}
-              {formatMoney(latest.computed, account.currency)}.{' '}
-              {latest.gap > 0 ? `${formatMoney(latest.gap, account.currency)} of money in` : `${formatMoney(-latest.gap, account.currency)} of money out`} is
-              probably missing
+              {card ? 'The card owed' : 'The bank said'} {formatMoney(card ? -latest.anchor.balance : latest.anchor.balance, account.currency)} on {formatDateTime(latest.anchor.observedAt)}; the ledger has{' '}
+              {formatMoney(card ? -latest.computed : latest.computed, account.currency)}. {missing} probably wasn't recorded
               {windowStart ? ` between ${formatDateTime(windowStart)} and ${formatDateTime(latest.anchor.observedAt)}` : ''}.
             </Text>
-            <Button title="Use the bank's balance" variant="secondary" onPress={() => adoptBankBalance(account.id, latest.anchor)} />
+            {card && latest.gap > 0 && limit !== null && (
+              <Button
+                title={`My credit limit went up to ${formatMoney(limit + latest.gap, account.currency)}`}
+                variant="secondary"
+                disabled={busy}
+                onPress={() => router.push(`/account/limit?id=${account.id}&suggest=${limit + latest.gap}${windowStart ? `&from=${encodeURIComponent(windowStart)}` : ''}`)}
+              />
+            )}
+            <Button title="Add the missing entries" variant="secondary" disabled={busy} onPress={() => router.push(`/quick-add?account=${account.id}&at=${encodeURIComponent(latest.anchor.observedAt)}`)} />
+            <Button
+              title={latest.gap < 0 ? (card ? 'Record as unrecorded card spending' : 'Record as unrecorded spending') : 'Record as unrecorded money in'}
+              variant="secondary"
+              disabled={busy}
+              onPress={() => run(() => recordUnrecorded(account.id, latest.gap, latest.anchor.observedAt))}
+            />
+            <Button title="Only adjust the balance" variant="secondary" disabled={busy} onPress={() => run(() => adoptBankBalance(account.id, latest.anchor))} />
+          </View>
+        );
+      })}
+      {inCredit.map(({ balance, paidAt }) => {
+        const { account } = balance;
+        const extra = formatMoney(balance.balance, account.currency);
+        const at = beforePayment(paidAt);
+        return (
+          <View key={account.id} style={styles.gapCard}>
+            <Text style={styles.gapTitle}>{account.name} shows {extra} in your favour</Text>
+            <Text style={styles.gapText}>
+              After your last payment the card is {extra} in credit. Usually that means {extra} of spending on the card that the app didn't see.
+            </Text>
+            <Button title="Add the missing entries" variant="secondary" disabled={busy} onPress={() => router.push(`/quick-add?account=${account.id}&at=${encodeURIComponent(at)}`)} />
+            <Button title="Record as unrecorded card spending" variant="secondary" disabled={busy} onPress={() => run(() => recordUnrecorded(account.id, paise(-balance.balance), at))} />
+            <Button title="Only set the balance to zero" variant="secondary" disabled={busy} onPress={() => run(() => setCurrentBalance(account.id, paise(0)))} />
+            <Button title="The card really is in credit" variant="secondary" disabled={busy} onPress={() => run(() => acceptCardCredit(balance))} />
           </View>
         );
       })}

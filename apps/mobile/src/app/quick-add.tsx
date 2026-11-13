@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, Text, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { currencyInfo, formatMoney, paise, parseMoney, type CurrencyCode } from '@money-plant/core';
@@ -54,6 +54,8 @@ export default function QuickAdd() {
   const colors = useColors();
   const styles = useStyles();
   const insets = useSafeAreaInsets();
+  // "Add the missing entries" from a balance check opens on that account and time (decision 0024).
+  const params = useLocalSearchParams<{ account?: string; at?: string }>();
   // While the note is typed, the phone's keyboard takes the keypad's place.
   const typing = useKeyboard().height > 0;
   const [defaults, setDefaults] = useState<QuickAddDefaults | null>(null);
@@ -63,7 +65,7 @@ export default function QuickAdd() {
   const [category, setCategory] = useState<CategoryNode | null>(null);
   const [from, setFrom] = useState<AccountBalance | null>(null);
   const [to, setTo] = useState<AccountBalance | null>(null);
-  const [when, setWhen] = useState(() => new Date().toISOString());
+  const [when, setWhen] = useState(() => (params.at && !Number.isNaN(Date.parse(params.at)) ? params.at : new Date().toISOString()));
   const [note, setNote] = useState<string | null>(null);
   const [picking, setPicking] = useState<'category' | 'from' | 'to' | null>(null);
   const [saving, setSaving] = useState(false);
@@ -74,7 +76,7 @@ export default function QuickAdd() {
     Promise.all([quickAddDefaults(), categoryNames()]).then(([d, n]) => {
       setDefaults(d);
       setNames(n);
-      const account = d.accounts.find((b) => b.account.id === d.accountId) ?? null;
+      const account = d.accounts.find((b) => b.account.id === (params.account ?? d.accountId)) ?? d.accounts.find((b) => b.account.id === d.accountId) ?? null;
       setFrom(account);
       setTo(d.accounts.find((b) => b.account.id !== account?.account.id && b.account.type === 'cash') ?? d.accounts.find((b) => b.account.id !== account?.account.id) ?? null);
       setCategory(d.suggestions.debit[0] ?? null);

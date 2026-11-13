@@ -8,6 +8,7 @@ import { SetupCard } from '@/components/setup-card';
 import { TransactionItem } from '@/components/transaction-item';
 import { Avatar, useMe } from '@/components/avatar';
 import { ErrorText, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
+import { gapIsDue } from '@/lib/cards';
 import { ensureDefaultCategories } from '@/lib/categories';
 import { currentMonth, incomeThisMonth, monthOverview, type BudgetLine } from '@/lib/budgets';
 import { hasImportedInbox } from '@/lib/capture';
@@ -90,7 +91,7 @@ export default function Home() {
 
   const smsReady = !isSmsReaderAvailable || (hasSmsPermission() && data.imported);
   const now = new Date();
-  const flagged = data.balances.filter((b) => b.reconciliation?.flagged).length;
+  const flagged = data.balances.filter((b) => gapIsDue(b)).length;
 
   return (
     <View style={styles.screen}>

@@ -30,6 +30,8 @@ export interface Reconciliation {
    * gap was the same as before the change, up to the latest anchor.
    */
   windowStart: string | null;
+  /** When the latest gap first showed: the first anchor with it, after windowStart. Null when not flagged. */
+  gapSince: string | null;
 }
 
 /** ₹1. Banks round some charges, so smaller gaps are not worth a review item. */
@@ -63,13 +65,16 @@ export function reconcile(
   const latest = checks[checks.length - 1]!;
   const flagged = Math.abs(latest.gap) > RECONCILE_TOLERANCE;
   let windowStart: string | null = null;
+  let gapSince: string | null = null;
   if (flagged) {
+    gapSince = checks[0]!.anchor.observedAt;
     for (let i = checks.length - 2; i >= 0; i--) {
       if (Math.abs(checks[i]!.gap - latest.gap) > RECONCILE_TOLERANCE) {
         windowStart = checks[i]!.anchor.observedAt;
+        gapSince = checks[i + 1]!.anchor.observedAt;
         break;
       }
     }
   }
-  return { latest, flagged, windowStart };
+  return { latest, flagged, windowStart, gapSince };
 }

@@ -1,6 +1,6 @@
 # 0024: True credit card balances
 
-Status: proposed, for Deva to agree before any code.
+Status: agreed by Deva on 2026-11-13. Built in two steps; see "Build" at the end.
 
 Raised by Deva on 2026-11-13, after decision 0023. A card's balance today is only the sum of the entries the app saw. Bank SMS carry the account balance, so a bank account corrects itself (LED-7); card SMS don't carry the amount owed, so a missed spend stays missed. Deva's example: 5 card spends, 3 recorded, so the card shows −₹992. The bill is ₹3,102. Once the bill payment becomes a transfer to the card (decision 0023), the card shows **+₹2,110** when it is really at ₹0. Card statement PDFs are often hard to get, so the fix can't depend on them.
 
@@ -52,3 +52,13 @@ Ships as an OTA plus `npx supabase db push` (db push first). No native change.
 - Billing cycle, due dates and minimum due reminders. The statement SMS makes them possible later.
 - Reward points and cashback.
 - Reading card statement PDFs (CAP-5 already accepts them when the user has one; those rows are anchors too).
+
+## Build
+
+**Step 1 (this change):**
+- `credit_limit_paise` on accounts (migration `20261127000000_card_credit_limit`), set from the card page ("Set credit limit"). A first limit turns the card's SMS from the last 45 days into balance checks; changing it works those checks out again.
+- Card SMS with an available limit add a balance check (`balance_anchors`, balance = available − limit) as bank SMS do.
+- Review shows a card's gap once it is 3 days old, with "Add the missing entries" (quick add opens on the card and the time), "Record as unrecorded card spending", "Only adjust the balance", and, when the card owes less than recorded, "My credit limit went up to ₹X". Banks get the same first three choices.
+- A card above ₹0 with no balance checks shows in Review with the same choices plus "The card really is in credit".
+
+**Step 2 (later):** statement SMS as balance checks, a shared limit across cards (`limit_shared_with`), and suggesting the limit from a set balance.

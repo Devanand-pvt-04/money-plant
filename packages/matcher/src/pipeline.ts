@@ -239,11 +239,12 @@ export async function ingestSms(ctx: PipelineContext, capture: SmsCapture): Prom
     }
   }
 
-  if (parsed.balance !== null && account.type === 'bank') {
-    await store.addAnchor({ id: newId(), accountId: account.id, balance: parsed.balance, observedAt: capture.receivedAt, sourceId: source.id });
+  const reported = reportedBalance(account, parsed);
+  if (reported !== null) {
+    await store.addAnchor({ id: newId(), accountId: account.id, balance: reported, observedAt: capture.receivedAt, sourceId: source.id });
     const ref = await store.getBalanceRef(account.id);
     if (!ref || (ref.kind === 'anchor' && Date.parse(capture.receivedAt) < Date.parse(ref.at))) {
-      await store.setBalanceRef(account.id, { kind: 'anchor', balance: parsed.balance, at: capture.receivedAt });
+      await store.setBalanceRef(account.id, { kind: 'anchor', balance: reported, at: capture.receivedAt });
     }
   }
   await rebaseOpening(store, account.id);
@@ -783,6 +784,23 @@ function findPaidCardLeg(recent: readonly LedgerTransaction[], c: { account: Led
     ),
     c.at,
   );
+}
+
+/**
+ * The balance an SMS reports for its account (LED-7): a bank's available
+ * balance, or for a credit card with a known limit, what it owes: the limit
+ * minus the available limit, as a negative balance (decision 0024).
+ */
+export function reportedBalance(account: LedgerAccount, parsed: Pick<ParsedTransaction, 'balance' | 'availableLimit'>): Paise | null {
+  if (account.type === 'bank') return parsed.balance;
+  if (account.type === 'credit_card') return cardBalance(account.creditLimit ?? null, parsed.availableLimit);
+  return null;
+}
+
+/** A card's balance from its limit and the available limit an SMS printed; positive when the card is in credit. */
+export function cardBalance(creditLimit: Paise | null, availableLimit: Paise | null): Paise | null {
+  if (creditLimit === null || availableLimit === null || creditLimit <= 0) return null;
+  return (availableLimit - creditLimit) as Paise;
 }
 
 /** Checks a transaction against the ledger rules before it is saved or synced. */
