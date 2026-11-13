@@ -171,7 +171,7 @@ Decision 0026. What two people owe each other is a list of `shared_items`, one r
 - **Changes.** Only the creator changes an item. After each sync and capture, `reconcileItems` brings each link back in step: a removed item or a declined share takes its part back out of the entry (an entry made only for it goes); a new amount takes the old one out and links the new one to the same entry.
 - **Balance.** The shared rows give one number for both phones (`sharedBalance`). The person page compares it with what this user's links carry and says when part of it isn't linked yet.
 - **People not on Money Plant** get the same items, one-sided on the creator's phone. Items with their email reach them when they become friends.
-- **Groups** come in step 4: `group_ref` ties the shares of one group bill together, settled person by person.
+- **Several people** (step 4): a bill split with several people is one share each, tied by `group_ref`, equal (`splitEqually`) or by amount, and settled person by person. Named groups come later.
 - **Contacts.** With the contacts permission (expo-contacts), the phone matches payees to contacts: by a 10-digit mobile number in the UPI ID (98xxxxxx10@ybl), then by fuzzy name match against the SMS or notification payee name. A match links the person account to the contact on the phone only. The contact list is never synced or uploaded.
 - **Finding friends on the app** is by email invite for now. Shared groups between app users come after the friends release.
 - **Paying (IOU-3)** opens a `upi://pay` link to the person's UPI ID in the user's own UPI app. The reminder message (IOU-5) carries a "pay me" link with the user's own UPI ID.

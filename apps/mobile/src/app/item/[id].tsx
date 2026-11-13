@@ -7,6 +7,7 @@ import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount, formatDate } from '@/components/format';
 import { FormScroll } from '@/components/keyboard';
 import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, makeStyles, useColors } from '@/components/ui';
+import { ItemRow } from '@/components/people-rows';
 import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import {
   answerItem,
@@ -15,6 +16,7 @@ import {
   getItem,
   itemTitle,
   linkEntry,
+  sameBill,
   recordEntry,
   statusText,
   unlinkEntry,
@@ -32,9 +34,10 @@ export default function ItemDetail() {
   const load = useCallback(async () => {
     const view = await getItem(id);
     const candidates = view && view.status === 'needs_link' ? await candidatesFor(id).catch(() => []) : [];
-    return { view, candidates };
+    const bill = view ? await sameBill(view) : [];
+    return { view, candidates, bill };
   }, [id]);
-  const { data } = useLedger(load, { view: null as ItemView | null, candidates: [] as LedgerTransaction[] });
+  const { data } = useLedger(load, { view: null as ItemView | null, candidates: [] as LedgerTransaction[], bill: [] as ItemView[] });
   const [accounts, setAccounts] = useState<AccountBalance[]>([]);
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState('');
@@ -169,6 +172,18 @@ export default function ItemDetail() {
               </Chips>
             </>
           )}
+        </>
+      )}
+
+      {data.bill.length > 0 && (
+        <>
+          <SectionTitle>Same bill</SectionTitle>
+          <Card>
+            {data.bill.map((v, i) => (
+              <ItemRow key={v.id} view={{ ...v, reason: v.personName }} first={i === 0} />
+            ))}
+          </Card>
+          {view.mine && <Text style={styles.hint}>Each person settles their own share. Changing one share doesn't change the others.</Text>}
         </>
       )}
 
