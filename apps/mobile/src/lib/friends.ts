@@ -1,7 +1,11 @@
 import * as Crypto from 'expo-crypto';
 import { notifyLedgerChange } from './events';
-import { allVpas } from '@money-plant/matcher';
-import { createPerson, extraVpasOf, listPeople, MAX_EXTRA_VPAS, personRef, updatePerson, type Person } from './people';
+import { identifierClashes, mergeIdentifiers, normaliseIdentifier, type Identifier } from '@money-plant/matcher';
+import { eq } from 'drizzle-orm';
+import { accounts } from '@money-plant/db-schema';
+import { getDb } from './db';
+import { addIdentifiers, friendsIdentifiers, identifiedPeople, syncFriendIdentifiers } from './identity';
+import { createPerson, updatePerson } from './people';
 import { getMe, isVpa, type Me } from './me';
 import { supabase } from './supabase';
 
@@ -30,6 +34,8 @@ export interface FriendLink {
   /** Their other UPI IDs (decision 0021). */
   extraVpas: string[];
   phone: string | null;
+  /** Their user id, once they are on Money Plant. */
+  userId: string | null;
   state: LinkState;
   /** True when this user sent the request or the invite. */
   mine: boolean;
@@ -111,6 +117,7 @@ function toLink(row: RemoteLink, myId: string): FriendLink {
     vpa: mine ? row.friend_vpa : row.requester_vpa,
     extraVpas: (mine ? row.friend_extra_vpas : row.requester_extra_vpas) ?? [],
     phone: (mine ? row.friend_phone : row.requester_phone) ?? null,
+    userId: mine ? row.friend_user_id : row.user_id,
     state: row.accepted_at ? 'friends' : mine ? 'waiting_for_them' : 'waiting_for_you',
     mine,
   };
@@ -169,50 +176,55 @@ export async function syncFriendLinks(): Promise<void> {
       if (error) throw error;
     }
   }
+  const accepted = rows.filter((r) => r.accepted_at).map((r) => toLink(r, me.id)).filter((l) => l.email);
+  // Decision 0025: each friend's own profile, the identifiers they share.
+  const profiles = await friendsIdentifiers(accepted.map((l) => l.userId).filter((u): u is string => u !== null)).catch(() => null);
   let changed = false;
-  for (const link of rows.filter((r) => r.accepted_at).map((r) => toLink(r, me.id))) {
-    if (!link.email) continue;
-    changed = (await ensurePerson(link)) || changed;
+  for (const link of accepted) {
+    changed = (await ensurePerson(link, profiles ? (profiles.get(link.userId ?? '') ?? []) : null)) || changed;
   }
   if (changed) notifyLedgerChange();
 }
 
 /**
- * Makes sure an accepted friend is a person with their email and UPI IDs.
- * Their main UPI ID becomes the person's main one when the person has none;
- * the rest become other UPI IDs (decision 0021). A UPI ID already on someone
- * else is left out, so a clash never stops sync.
+ * Makes sure an accepted friend is one person with their email, and that the
+ * person carries what the friend shares about themselves (decision 0025).
+ * Someone added earlier without an email who has one of the friend's UPI IDs,
+ * numbers or accounts is that friend, so they get the email instead of a
+ * second person being made. An identifier already on someone else is left
+ * out, so a clash never stops sync; People then asks "Same person?".
+ * `profile` is null when the profiles couldn't be read; the link's own UPI
+ * IDs and phone are used then, and nothing is removed.
  */
-async function ensurePerson(link: FriendLink): Promise<boolean> {
-  const linkVpas = allVpas({ vpa: link.vpa && isVpa(link.vpa) ? link.vpa : null, extraVpas: link.extraVpas.filter(isVpa) });
-  const people = await listPeople();
-  const takenBy = (except: string | null) => new Set(people.filter((p) => p.account.id !== except).flatMap((p) => allVpas(personRef(p))));
-  const byEmail = people.find((p) => p.account.email === link.email);
-  if (byEmail) return addVpas(byEmail, link, linkVpas, takenBy(byEmail.account.id), people);
-  // The same person added earlier by UPI ID only: give them the email.
-  const byVpa = people.find((p) => !p.account.email && allVpas(personRef(p)).some((v) => linkVpas.includes(v)));
-  if (byVpa) return addVpas(byVpa, link, linkVpas, takenBy(byVpa.account.id), people);
-  const free = linkVpas.filter((v) => !takenBy(null).has(v));
-  await createPerson({
-    name: link.name ?? link.email.split('@')[0] ?? link.email,
-    vpa: free[0] ?? null,
-    email: link.email,
-    extraVpas: free.slice(1, 1 + MAX_EXTRA_VPAS),
-    phone: link.phone && !people.some((p) => p.account.phone === link.phone) ? link.phone : null,
-  });
-  return true;
-}
-
-async function addVpas(person: Person, link: FriendLink, linkVpas: readonly string[], taken: ReadonlySet<string>, people: readonly Person[]): Promise<boolean> {
-  const have = allVpas(personRef(person));
-  const fresh = linkVpas.filter((v) => !have.includes(v) && !taken.has(v));
-  const phone =
-    !person.account.phone && link.phone && !people.some((p) => p.account.phone === link.phone) ? link.phone : person.account.phone;
-  if (fresh.length === 0 && person.account.email === link.email && phone === person.account.phone) return false;
-  const vpa = person.account.vpa ?? fresh.shift() ?? null;
-  const extras = [...extraVpasOf(person.account), ...fresh].slice(0, MAX_EXTRA_VPAS);
-  await updatePerson(person.account.id, { name: person.account.name, vpa, email: link.email, extraVpas: extras, phone });
-  return true;
+async function ensurePerson(link: FriendLink, profile: Identifier[] | null): Promise<boolean> {
+  const fromLink = [
+    link.vpa ? normaliseIdentifier('upi', link.vpa) : null,
+    ...link.extraVpas.map((v) => normaliseIdentifier('upi', v)),
+    link.phone ? normaliseIdentifier('phone', link.phone) : null,
+  ].filter((i): i is Identifier => i !== null).map((i) => ({ ...i, source: 'friend' as const }));
+  const ids = mergeIdentifiers(profile ?? [], fromLink);
+  const people = await identifiedPeople();
+  let changed = false;
+  let person = people.find((p) => p.email === link.email);
+  if (!person) {
+    const same = people.filter((p) => !p.email && identifierClashes([p], null, ids).length > 0);
+    if (same.length === 1) {
+      const account = (await getDb()).select().from(accounts).where(eq(accounts.id, same[0]!.id)).get();
+      await updatePerson(same[0]!.id, { name: same[0]!.name, vpa: account?.vpa ?? null, email: link.email });
+      person = same[0]!;
+    } else {
+      const pay = link.vpa ? normaliseIdentifier('upi', link.vpa) : null;
+      const free = pay && identifierClashes(people, null, [pay]).length === 0 ? pay.value : null;
+      const id = await createPerson({ name: link.name ?? link.email.split('@')[0] ?? link.email, vpa: free, email: link.email });
+      person = { id, name: link.name ?? link.email, email: link.email, identifiers: [] };
+    }
+    changed = true;
+  }
+  if (profile !== null) return (await syncFriendIdentifiers(person.id, ids)) || changed;
+  const known = person.identifiers;
+  const fresh = ids.filter((i) => !known.some((o) => o.kind === i.kind && o.value === i.value));
+  const skipped = await addIdentifiers(person.id, fresh, 'friend');
+  return changed || fresh.length > skipped.length;
 }
 
 /** The link with a person, by their email, if any. */

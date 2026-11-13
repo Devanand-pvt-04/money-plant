@@ -494,6 +494,29 @@ export const splitGroups = sqliteTable('split_groups', {
   rev: integer('rev').notNull().default(0),
 });
 
+/**
+ * Decision 0025: what the user knows about each of their people (UPI IDs, phone,
+ * bank accounts, payee names). Synced. Ids are derived from the identifier, so
+ * every phone writes the same row for the same UPI ID.
+ */
+export const personIdentifiers = sqliteTable(
+  'person_identifiers',
+  {
+    id: text('id').primaryKey(),
+    personAccountId: text('person_account_id').notNull(),
+    kind: text('kind', { enum: ['upi', 'phone', 'bank_account', 'payee_name'] }).notNull(),
+    value: text('value').notNull(),
+    label: text('label'),
+    source: text('source', { enum: ['typed', 'learned', 'friend', 'contact'] }).notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('person_identifiers_person_idx').on(table.personAccountId), index('person_identifiers_dirty_idx').on(table.dirty)],
+);
+
 /** Local only, never synced: which phone contact a person account is (SPL-4). */
 export const personContacts = sqliteTable('person_contacts', {
   personAccountId: text('person_account_id').primaryKey(),
@@ -504,6 +527,7 @@ export type LocalAccount = typeof accounts.$inferSelect;
 export type LocalIou = typeof ious.$inferSelect;
 export type LocalIouPayment = typeof iouPayments.$inferSelect;
 export type LocalSplitGroup = typeof splitGroups.$inferSelect;
+export type LocalPersonIdentifier = typeof personIdentifiers.$inferSelect;
 export type LocalRecurring = typeof recurring.$inferSelect;
 export type LocalDeposit = typeof deposits.$inferSelect;
 export type LocalHolding = typeof holdings.$inferSelect;
@@ -887,4 +911,20 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   ALTER TABLE accounts ADD COLUMN bill_due_on TEXT;
   ALTER TABLE accounts ADD COLUMN bill_total_paise INTEGER;
   ALTER TABLE accounts ADD COLUMN bill_minimum_paise INTEGER;`,
+  // Who a person is (decision 0025).
+  `CREATE TABLE person_identifiers (
+    id TEXT PRIMARY KEY NOT NULL,
+    person_account_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    label TEXT,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX person_identifiers_person_idx ON person_identifiers (person_account_id);
+  CREATE INDEX person_identifiers_dirty_idx ON person_identifiers (dirty);`,
 ];

@@ -14,7 +14,8 @@ import { getMe, splitVpas } from '@/lib/me';
 import { markInvited } from '@/lib/setup';
 import { listIous, type IouView } from '@/lib/ious';
 import { mergePeople } from '@/lib/merge-people';
-import { createPerson, extraVpasOf, getPerson, listPeople, personInUse, removalBlocker, removePerson, SamePersonError, updatePerson, type Person } from '@/lib/people';
+import { removeIdentifier } from '@/lib/identity';
+import { createPerson, extraVpasOf, formatBankAccount, getPerson, phoneOf, listPeople, personInUse, removalBlocker, removePerson, SamePersonError, updatePerson, type Person } from '@/lib/people';
 import { today } from '@/lib/recurring';
 import { useLedger } from '@/lib/use-ledger';
 
@@ -36,6 +37,7 @@ export default function PersonDetail() {
   const [vpa, setVpa] = useState('');
   const [extras, setExtras] = useState('');
   const [phone, setPhone] = useState('');
+  const [bankAccounts, setBankAccounts] = useState('');
   const [email, setEmail] = useState('');
   const [contact, setContact] = useState<{ id: string; name: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -47,6 +49,7 @@ export default function PersonDetail() {
   const doubtful = useDoubtfulPeople();
   const [savingDoubt, setSavingDoubt] = useState(false);
   const savedEmail = data.person?.account.email ?? null;
+  const names = data.person?.identifiers.filter((i) => i.kind === 'payee_name') ?? [];
 
   useEffect(() => {
     if (!savedEmail) return setLink(undefined);
@@ -119,8 +122,9 @@ export default function PersonDetail() {
     const { account, contactId } = data.person;
     setName(account.name);
     setVpa(account.vpa ?? '');
-    setExtras(extraVpasOf(account).join(', '));
-    setPhone(account.phone ?? '');
+    setExtras(extraVpasOf(data.person).join(', '));
+    setPhone(phoneOf(data.person) ?? '');
+    setBankAccounts(data.person.identifiers.filter((i) => i.kind === 'bank_account').map(formatBankAccount).join(', '));
     setEmail(account.email ?? '');
     if (contactId) contactById(contactId).then((c) => setContact(c ?? { id: contactId, name: 'A contact' }));
     setLoaded(true);
@@ -130,7 +134,7 @@ export default function PersonDetail() {
     setSaving(true);
     setError(null);
     try {
-      const input = { name, vpa, email, extraVpas: splitVpas(extras), phone, contactId: contact?.id ?? null };
+      const input = { name, vpa, email, extraVpas: splitVpas(extras), phone, bankAccounts, contactId: contact?.id ?? null };
       if (isNew) {
         const created = await createPerson(input);
         router.replace(`/person/${created}`);
@@ -244,6 +248,19 @@ export default function PersonDetail() {
       <Text style={styles.hint}>Only for recognising their payments. Separate them with commas. Added on their own when you tag a payment from a new UPI ID.</Text>
       <Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="98765 43210" />
       <Text style={styles.hint}>Recognises their payments from UPI IDs made from this number, like 98765…@ybl, in any app.</Text>
+      <Field label="Bank accounts" value={bankAccounts} onChangeText={setBankAccounts} autoCapitalize="characters" placeholder="HDFC 1234, SBI 5678" />
+      <Text style={styles.hint}>The bank and the last 4 digits are enough. Recognises their IMPS and NEFT transfers and statement rows.</Text>
+      {names.length > 0 && (
+        <>
+          <Text style={styles.label}>Names their bank shows</Text>
+          <Chips>
+            {names.map((n) => (
+              <Chip key={n.id} label={`${n.value.toUpperCase()}  ×`} selected={false} onPress={() => void removeIdentifier(n.id)} />
+            ))}
+          </Chips>
+          <Text style={styles.hint}>Learned when you tag their payments. Tap one to forget it.</Text>
+        </>
+      )}
       <Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="ravi@gmail.com" />
       <Text style={styles.hint}>If they use Money Plant with this email, they see your IOUs with them and can confirm them.</Text>
       {savedEmail && link !== undefined && (

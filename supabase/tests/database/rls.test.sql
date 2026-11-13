@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(55);
+select plan(60);
 
 -- ---- Structure ----
 
@@ -96,6 +96,10 @@ insert into deposits (id, account_id, kind, amount_paise, rate_bp, start_date, m
 insert into holdings (id, account_id, scheme, units_e4, cost_paise, as_of) values
   ('a6000000-0000-4000-8000-000000000008', 'a0000000-0000-4000-8000-000000000001', 'Index fund', 1234560, 5000000, current_date);
 insert into ai_jobs (id, kind) values ('a6000000-0000-4000-8000-000000000009', 'month_review');
+-- Who a person is (decision 0025): what she knows about Bala, and her own profile.
+insert into person_identifiers (id, person_account_id, kind, value, source) values
+  ('a6000000-0000-4000-8000-000000000011', 'a0000000-0000-4000-8000-000000000003', 'upi', 'bala@okaxis', 'typed');
+insert into my_identifiers (id, kind, value) values ('a6000000-0000-4000-8000-000000000012', 'upi', 'asha@okicici');
 
 select is((select count(*)::int from accounts), 3, 'Asha reads her own accounts');
 select is(
@@ -147,6 +151,14 @@ select is((select count(*)::int from deposits), 0, 'Bala reads none of Asha''s d
 select is((select count(*)::int from holdings), 0, 'Bala reads none of Asha''s holdings');
 select is((select count(*)::int from ai_jobs), 0, 'Bala reads none of Asha''s AI jobs');
 select is((select count(*)::int from ai_usage), 0, 'Bala reads none of Asha''s AI usage');
+select is((select count(*)::int from person_identifiers), 0, 'Bala reads none of what Asha knows about her people');
+select is((select count(*)::int from my_identifiers), 0, 'Bala, not her friend, reads none of Asha''s profile');
+update person_identifiers set value = 'hacked@ybl' where id = 'a6000000-0000-4000-8000-000000000011';
+update my_identifiers set value = 'hacked@ybl' where id = 'a6000000-0000-4000-8000-000000000012';
+select throws_ok(
+  $$insert into person_identifiers (id, person_account_id, kind, value, source) values
+    ('b6000000-0000-4000-8000-000000000011', 'a0000000-0000-4000-8000-000000000003', 'upi', 'planted@ybl', 'typed')$$,
+  '42501', null, 'Bala cannot add an identifier to Asha''s person');
 
 update account_types set name = 'hacked' where id = 'a6000000-0000-4000-8000-000000000001';
 update balance_anchors set balance_paise = 1 where id = 'a6000000-0000-4000-8000-000000000002';
@@ -251,6 +263,16 @@ select is(
     (select units_e4 from holdings where id = 'a6000000-0000-4000-8000-000000000008')
   ],
   array[90000, 500000, 64900, 10000000, 1234560]::bigint[], 'Bala''s updates left Asha''s anchor, budget, recurring payment, deposit and holding as they were');
+
+select pg_temp.act_as('aaaaaaaa-0000-4000-8000-000000000001', 'asha@example.com');
+select is(
+  (select value from person_identifiers where id = 'a6000000-0000-4000-8000-000000000011') || ' ' ||
+  (select value from my_identifiers where id = 'a6000000-0000-4000-8000-000000000012'),
+  'bala@okaxis asha@okicici', 'Bala''s updates left Asha''s identifiers as they were');
+select throws_ok(
+  $$insert into person_identifiers (id, person_account_id, kind, value, source) values
+    ('a6000000-0000-4000-8000-000000000013', 'a0000000-0000-4000-8000-000000000001', 'upi', 'bank@ybl', 'typed')$$,
+  '42501', null, 'identifiers go only on people, not on a bank account');
 
 select * from finish();
 rollback;

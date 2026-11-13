@@ -1,4 +1,5 @@
 import * as Crypto from 'expo-crypto';
+import { selfCheck } from './identity';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { addDays, paise, startOfDate, type Paise } from '@money-plant/core';
 import { balanceAnchors } from '@money-plant/db-schema';
@@ -76,7 +77,7 @@ export interface StatementImportResult {
  */
 export async function importStatement(rows: readonly ParsedStatementRow[], accountId: string): Promise<StatementImportResult> {
   const store = await SqliteLedgerStore.open();
-  const ctx = { store, newId: () => Crypto.randomUUID(), categorise: await pipelineCategoriser() };
+  const ctx = { store, newId: () => Crypto.randomUUID(), categorise: await pipelineCategoriser(), isSelf: await selfCheck() };
   const claimed = new Set<string>();
   const seen = new Map<string, number>();
   const result: StatementImportResult = { matched: 0, transfers: 0, added: 0, skipped: 0 };

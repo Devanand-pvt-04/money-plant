@@ -19,6 +19,7 @@ import {
   fromRemoteRecurring,
   fromRemoteRule,
   fromRemoteSplitGroup,
+  fromRemotePersonIdentifier,
   fromRemoteTransaction,
   iouPayments,
   ious,
@@ -28,6 +29,7 @@ import {
   rules,
   sources,
   splitGroups,
+  personIdentifiers,
   toRemoteAccount,
   toRemoteAccountType,
   toRemoteAnchor,
@@ -39,6 +41,7 @@ import {
   toRemoteRecurring,
   toRemoteRule,
   toRemoteSplitGroup,
+  toRemotePersonIdentifier,
   toTransactionPush,
   transactions,
   type RemoteAccount,
@@ -52,6 +55,7 @@ import {
   type RemoteRecurring,
   type RemoteRule,
   type RemoteSplitGroup,
+  type RemotePersonIdentifier,
   type RemoteTransaction,
 } from '@money-plant/db-schema';
 import { ensureDefaultCategories } from './categories';
@@ -61,6 +65,8 @@ import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
 import { supabase } from './supabase';
 import { wipeLocal } from './wipe';
+import { loadMyIdentifiers } from './identity';
+import { migrateAliases } from './people';
 
 const ACCOUNTS_CURSOR = 'sync.accounts.cursor';
 const TRANSACTIONS_CURSOR = 'sync.transactions.cursor';
@@ -72,6 +78,7 @@ const RECURRING_CURSOR = 'sync.recurring.cursor';
 const DEPOSITS_CURSOR = 'sync.deposits.cursor';
 const HOLDINGS_CURSOR = 'sync.holdings.cursor';
 const SPLIT_GROUPS_CURSOR = 'sync.split_groups.cursor';
+const PERSON_IDENTIFIERS_CURSOR = 'sync.person_identifiers.cursor';
 const IOUS_CURSOR = 'sync.ious.cursor';
 const IOU_PAYMENTS_CURSOR = 'sync.iou_payments.cursor';
 /** When this phone last emptied itself after Clear my data (ACC-7), as the server's timestamp. */
@@ -247,6 +254,13 @@ async function pushHoldings(): Promise<number> {
   const db = await getDb();
   return pushSimple('holdings', db.select().from(holdings).where(eq(holdings.dirty, 1)).all(), toRemoteHolding, (row) =>
     db.update(holdings).set({ dirty: 0 }).where(and(eq(holdings.id, row.id), eq(holdings.rev, row.rev))).run(),
+  );
+}
+
+async function pushPersonIdentifiers(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('person_identifiers', db.select().from(personIdentifiers).where(eq(personIdentifiers.dirty, 1)).all(), toRemotePersonIdentifier, (row) =>
+    db.update(personIdentifiers).set({ dirty: 0 }).where(and(eq(personIdentifiers.id, row.id), eq(personIdentifiers.rev, row.rev))).run(),
   );
 }
 
@@ -450,6 +464,18 @@ async function pullHoldings(): Promise<number> {
   });
 }
 
+async function pullPersonIdentifiers(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemotePersonIdentifier>('person_identifiers', '*', PERSON_IDENTIFIERS_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: personIdentifiers.dirty }).from(personIdentifiers).where(eq(personIdentifiers.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemotePersonIdentifier(row);
+      db.insert(personIdentifiers).values(incoming).onConflictDoUpdate({ target: personIdentifiers.id, set: incoming }).run();
+    }
+  });
+}
+
 async function pullSplitGroups(): Promise<number> {
   const db = await getDb();
   return pullTable<RemoteSplitGroup>('split_groups', '*', SPLIT_GROUPS_CURSOR, async (rows) => {
@@ -603,6 +629,7 @@ export function syncNow(): Promise<SyncResult> {
         (await pushRecurring()) +
         (await pushDeposits()) +
         (await pushHoldings()) +
+        (await pushPersonIdentifiers()) +
         (await pushSplitGroups()) +
         (await pushIous(me)) +
         (await pushIouPayments(me));
@@ -616,12 +643,16 @@ export function syncNow(): Promise<SyncResult> {
         (await pullRecurring()) +
         (await pullDeposits()) +
         (await pullHoldings()) +
+        (await pullPersonIdentifiers()) +
         (await pullSplitGroups()) +
         (await pullIous(me)) +
         (await dropHiddenShares(me)) +
         (await pullIouPayments());
       // ACC-9: friends' links become person accounts. Best effort: a failure here never stops the ledger sync.
       await syncFriendLinks().catch(reportBackground('friend-links'));
+      // Decision 0025: payee names kept on this phone become identifiers once, and the user's own profile is cached for capture.
+      await migrateAliases().catch(reportBackground('aliases'));
+      await loadMyIdentifiers(me).catch(reportBackground('my-identifiers'));
       // Screens out of view reload on their next focus only after a change, so say when one came in.
       if (pulled > 0) notifyLedgerChange();
       return { pushed, pulled };

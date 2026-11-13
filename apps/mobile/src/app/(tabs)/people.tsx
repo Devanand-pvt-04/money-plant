@@ -34,7 +34,7 @@ function personNote(person: Person, ious: readonly IouView[], day: string): stri
   return due ? `${lead} · ${due}` : lead;
 }
 
-const REASONS: Record<DuplicateSuggestion['reason'], string> = { email: 'same email', vpa: 'same UPI ID', phone: 'same phone number', name: 'same name' };
+const REASONS: Record<DuplicateSuggestion['reason'], string> = { email: 'same email', vpa: 'same UPI ID', phone: 'same phone number', account: 'same bank account', name: 'same name' };
 
 export default function People() {
   return PEOPLE_PAUSED ? <Paused /> : <PeopleTab />;
