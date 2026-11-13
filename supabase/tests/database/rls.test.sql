@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(60);
+select plan(62);
 
 -- ---- Structure ----
 
@@ -100,6 +100,11 @@ insert into ai_jobs (id, kind) values ('a6000000-0000-4000-8000-000000000009', '
 insert into person_identifiers (id, person_account_id, kind, value, source) values
   ('a6000000-0000-4000-8000-000000000011', 'a0000000-0000-4000-8000-000000000003', 'upi', 'bala@okaxis', 'typed');
 insert into my_identifiers (id, kind, value) values ('a6000000-0000-4000-8000-000000000012', 'upi', 'asha@okicici');
+-- Shared items (decision 0026): a one-sided loan to Bala, linked to her entry.
+insert into shared_items (id, kind, flow, amount_paise, occurred_on) values
+  ('a6000000-0000-4000-8000-000000000014', 'loan', 'to_them', 50000, current_date);
+insert into item_links (id, item_id, person_account_id, transaction_id) values
+  ('a6000000-0000-4000-8000-000000000015', 'a6000000-0000-4000-8000-000000000014', 'a0000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000001');
 
 select is((select count(*)::int from accounts), 3, 'Asha reads her own accounts');
 select is(
@@ -153,6 +158,8 @@ select is((select count(*)::int from ai_jobs), 0, 'Bala reads none of Asha''s AI
 select is((select count(*)::int from ai_usage), 0, 'Bala reads none of Asha''s AI usage');
 select is((select count(*)::int from person_identifiers), 0, 'Bala reads none of what Asha knows about her people');
 select is((select count(*)::int from my_identifiers), 0, 'Bala, not her friend, reads none of Asha''s profile');
+select is((select count(*)::int from shared_items), 0, 'Bala reads none of Asha''s items not shared with him');
+select is((select count(*)::int from item_links), 0, 'Bala reads none of Asha''s links to her ledger');
 update person_identifiers set value = 'hacked@ybl' where id = 'a6000000-0000-4000-8000-000000000011';
 update my_identifiers set value = 'hacked@ybl' where id = 'a6000000-0000-4000-8000-000000000012';
 select throws_ok(
