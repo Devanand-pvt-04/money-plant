@@ -7,10 +7,11 @@ import { BudgetSheet } from '@/components/budget-sheet';
 import { formatDate, formatMonth, formatAmount as rupees } from '@/components/format';
 import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon } from '@/components/sheet';
-import { ProgressBar, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
+import { ProgressBar, SectionTitle, radius, useColors, makeStyles, MoneyCard } from '@/components/ui';
 import { aiReviewFor, type AiReview } from '@/lib/ai-review';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { acceptSuggestion, ignoreSuggestion, lastMonth, monthReview, type MonthReview, type ReviewOverspend, type ReviewSuggestion } from '@/lib/review';
+import { useIsAdmin } from '@/lib/admin';
 import { useLedger } from '@/lib/use-ledger';
 
 const monthName = (month: MonthKey) => formatMonth(month).split(' ')[0]!;
@@ -193,6 +194,7 @@ function causeFor(ai: AiReview, category: string): string | null {
 function AiWriteUp({ ai }: { ai: AiReview }) {
   const colors = useColors();
   const styles = useStyles();
+  const admin = useIsAdmin();
   if (ai.status === 'off') return null;
   return (
     <View style={styles.ai}>
@@ -201,7 +203,7 @@ function AiWriteUp({ ai }: { ai: AiReview }) {
         <Text style={styles.aiLabelText}>AI write-up</Text>
       </View>
       {ai.status === 'done' && <Text style={styles.aiText}>{ai.writeUp.summary}</Text>}
-      {ai.status === 'waiting' && <Text style={styles.meta}>Being written on Deva's PC. It appears here once the PC is on; the numbers below are already final.</Text>}
+      {ai.status === 'waiting' && <Text style={styles.meta}>Being written on {admin ? 'your' : "Deva's"} PC. It appears here once the PC is on; the numbers below are already final.</Text>}
       {ai.status === 'failed' && <Text style={styles.meta}>The AI couldn't write this month's review. The numbers below are complete.</Text>}
     </View>
   );
@@ -213,13 +215,13 @@ function Headline({ review }: { review: MonthReview }) {
   const kept = review.income - review.spent;
   const status = review.budget === null ? 'ok' : review.inBudgets > review.budget ? 'over' : 'ok';
   return (
-    <View style={styles.hero}>
-      <Text style={styles.meta}>{review.budget === null ? 'You spent' : 'Spent in your budgets'}</Text>
+    <MoneyCard>
+      <Text style={styles.heroMuted}>{review.budget === null ? 'You spent' : 'Spent in your budgets'}</Text>
       <View style={styles.big}>
-        <Text style={[styles.bigAmount, status === 'over' && { color: colors.danger }]}>{rupees(review.budget === null ? review.spent : review.inBudgets)}</Text>
-        {review.budget !== null && <Text style={styles.meta}>of {rupees(review.budget)}</Text>}
+        <Text style={[styles.bigAmount, status === 'over' && { color: colors.heroDanger }]}>{rupees(review.budget === null ? review.spent : review.inBudgets)}</Text>
+        {review.budget !== null && <Text style={styles.heroMuted}>of {rupees(review.budget)}</Text>}
       </View>
-      {review.budget !== null && <ProgressBar value={review.inBudgets / review.budget} status={status} />}
+      {review.budget !== null && <ProgressBar value={review.inBudgets / review.budget} status={status} onHero />}
       {review.budget !== null && (
         <Text style={styles.heroNote}>
           {review.inBudgets > review.budget
@@ -233,7 +235,7 @@ function Headline({ review }: { review: MonthReview }) {
         <Stat label="Spent" amount={review.spent} />
         <Stat label={kept >= 0 ? 'Kept' : 'Spent more than came in'} amount={Math.abs(kept) as Paise} tone={kept >= 0 ? 'good' : 'bad'} />
       </View>
-    </View>
+    </MoneyCard>
   );
 }
 
@@ -245,7 +247,7 @@ function Stat({ label, amount, tone }: { label: string; amount: Paise; tone?: 'g
       <Text style={styles.statLabel} numberOfLines={2}>
         {label}
       </Text>
-      <Text style={[styles.statAmount, tone === 'good' && { color: colors.primary }, tone === 'bad' && { color: colors.danger }]}>{rupees(amount)}</Text>
+      <Text style={[styles.statAmount, tone === 'good' && { color: colors.heroAccent }, tone === 'bad' && { color: colors.heroDanger }]}>{rupees(amount)}</Text>
     </View>
   );
 }
@@ -356,14 +358,14 @@ const useStyles = makeStyles((colors) => ({
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.3 },
   month: { fontSize: 16, fontWeight: '600', color: colors.text, minWidth: 140, textAlign: 'center' },
-  hero: { padding: 16, borderRadius: 20, backgroundColor: colors.subtle, gap: 10 },
-  heroNote: { fontSize: 14, color: colors.text, lineHeight: 20 },
+  heroMuted: { fontSize: 13, color: colors.heroMuted },
+  heroNote: { fontSize: 14, color: colors.heroText, lineHeight: 20 },
   big: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
-  bigAmount: { fontSize: 28, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
+  bigAmount: { fontSize: 32, fontWeight: '700', color: colors.heroText, letterSpacing: -1, fontVariant: ['tabular-nums'] },
   stats: { flexDirection: 'row', gap: 10, marginTop: 4 },
   stat: { flex: 1, minWidth: 0, gap: 2 },
-  statLabel: { fontSize: 12, color: colors.muted },
-  statAmount: { fontSize: 16, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
+  statLabel: { fontSize: 12, color: colors.heroMuted },
+  statAmount: { fontSize: 16, fontWeight: '700', color: colors.heroText, fontVariant: ['tabular-nums'] },
   card: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 8 },
   pressed: { opacity: 0.85 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },

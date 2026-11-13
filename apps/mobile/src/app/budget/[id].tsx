@@ -8,7 +8,7 @@ import { BudgetSheet } from '@/components/budget-sheet';
 import { categoryStyle } from '@/components/category-style';
 import { formatDate, formatMonth, formatAmount as rupees } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
-import { ProgressBar, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
+import { ProgressBar, SectionTitle, radius, useColors, makeStyles, MoneyCard } from '@/components/ui';
 import { categoryBreakdown, currentMonth, daysLeft, monthOverview, setBudget, type BudgetLine, type CategoryBreakdown } from '@/lib/budgets';
 import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { requestNotificationPermission } from '@/lib/notifications';
@@ -115,14 +115,14 @@ export default function CategoryMonth() {
         </View>
       </View>
 
-      <View style={styles.hero}>
+      <MoneyCard>
         <Text style={styles.heroText}>
-          <Text style={styles.big}>{rupees(shown)}</Text>
-          {line?.limit != null ? <Text style={styles.meta}> of {rupees(line.limit)} this month</Text> : <Text style={styles.meta}>{income ? ' came in' : ' this month'}</Text>}
+          <Text style={styles.heroBig}>{rupees(shown)}</Text>
+          {line?.limit != null ? <Text style={styles.heroMeta}> of {rupees(line.limit)} this month</Text> : <Text style={styles.heroMeta}>{income ? ' came in' : ' this month'}</Text>}
         </Text>
-        {line?.limit != null && <ProgressBar value={line.spent / line.limit} status={line.pace?.status} color={overall ? undefined : style.color} marker={data.elapsed} />}
-        {line?.limit != null && <Text style={styles.meta}>{paceText(line, left)}</Text>}
-      </View>
+        {line?.limit != null && <ProgressBar value={line.spent / line.limit} status={line.pace?.status} marker={data.elapsed} onHero />}
+        {line?.limit != null && <Text style={styles.heroMeta}>{paceText(line, left)}</Text>}
+      </MoneyCard>
 
       {overall && (
         <Text style={styles.meta}>
@@ -286,6 +286,8 @@ function Row({ label, amount, onPress }: { label: string; amount: number; onPres
 }
 
 const useStyles = makeStyles((colors) => ({
+  heroBig: { fontSize: 32, fontWeight: '700', color: colors.heroText, letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  heroMeta: { fontSize: 13, color: colors.heroMuted, lineHeight: 19 },
   container: { paddingHorizontal: 20, paddingBottom: 48, gap: 10 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   overallIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
@@ -293,7 +295,7 @@ const useStyles = makeStyles((colors) => ({
   title: { fontSize: 22, fontWeight: '700', color: colors.text },
   meta: { fontSize: 13, color: colors.muted, lineHeight: 19 },
   hero: { padding: 16, borderRadius: 20, backgroundColor: colors.subtle, gap: 10, marginTop: 4 },
-  heroText: { color: colors.text },
+  heroText: { color: colors.heroText },
   big: { fontSize: 28, fontWeight: '700', color: colors.text, fontVariant: ['tabular-nums'] },
   panel: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
   budgetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingHorizontal: 16, paddingVertical: 12 },

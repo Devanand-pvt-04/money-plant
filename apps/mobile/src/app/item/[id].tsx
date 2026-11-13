@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import Feather from '@expo/vector-icons/Feather';
 import { currencyInfo, formatMoney, paise, parseMoney } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount, formatDate } from '@/components/format';
 import { FormScroll } from '@/components/keyboard';
-import { Button, Card, Chip, Chips, ErrorText, Field, Initial, SectionTitle, makeStyles, useColors } from '@/components/ui';
+import { Button, Card, Chip, Chips, ErrorText, Field, Initial, MoneyCard, SectionTitle, makeStyles, useColors } from '@/components/ui';
+import { LinkRow } from '@/components/option-row';
+import { Sheet } from '@/components/sheet';
 import { ItemRow } from '@/components/people-rows';
 import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import {
@@ -55,9 +58,21 @@ export default function ItemDetail() {
   useEffect(() => {
     listAccountBalances().then((all) => setAccounts(all.filter((b) => b.account.type !== 'loan')));
   }, []);
+  const mine = view?.mine ?? false;
   useEffect(() => {
-    navigation.setOptions({ title: view ? view.personName : '' });
-  }, [navigation, view]);
+    navigation.setOptions({
+      title: view ? view.personName : '',
+      // Decision 0028: changing an item opens a sheet from the pencil; only its creator can.
+      headerRight: mine
+        ? () => (
+            <Pressable accessibilityRole="button" accessibilityLabel="Change" hitSlop={8} onPress={() => startEditRef.current()} style={styles.headerButton}>
+              <Feather name="edit-2" size={18} color={colors.text} />
+            </Pressable>
+          )
+        : undefined,
+    });
+  }, [navigation, view, mine, colors, styles]);
+  const startEditRef = useRef(() => {});
 
   if (!view) return null;
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
@@ -88,6 +103,7 @@ export default function ItemDetail() {
     setReason(view!.reason ?? '');
     setEditing(true);
   }
+  startEditRef.current = startEdit;
 
   async function saveEdit() {
     const typed = parseMoney(amount, view!.currency);
@@ -111,15 +127,33 @@ export default function ItemDetail() {
 
   return (
     <FormScroll contentContainerStyle={styles.container}>
-      <View style={styles.hero}>
-        <Initial name={view.personName} size={56} />
-        <Text style={styles.title}>{itemTitle(view)}</Text>
-        <Text style={[styles.heroAmount, view.status !== 'declined' && { color: owedToMe ? colors.primary : colors.text }]}>{formatAmount(view.amount, view.currency)}</Text>
-        <Text style={styles.meta}>
-          {[view.reason, formatDate(`${view.occurredOn}T12:00:00`)].filter(Boolean).join(' · ')}
+      <MoneyCard>
+        <View style={styles.heroTop}>
+          <Initial name={view.personName} size={44} />
+          <View style={styles.grow}>
+            <Text style={styles.heroLabel}>{itemTitle(view)}</Text>
+            <Text style={styles.heroMeta}>{[view.reason, formatDate(`${view.occurredOn}T12:00:00`)].filter(Boolean).join(' · ')}</Text>
+          </View>
+        </View>
+        <Text style={[styles.heroAmount, view.status !== 'declined' && owedToMe && { color: colors.heroAccent }, view.status === 'declined' && { color: colors.heroMuted }]}>
+          {formatAmount(view.amount, view.currency)}
         </Text>
-        <Text style={[styles.status, view.status === 'declined' && { color: colors.danger }]}>{statusText(view)}</Text>
-      </View>
+        <Text style={[styles.heroStatus, view.status === 'declined' && { color: colors.heroDanger }]}>{statusText(view)}</Text>
+        {canSettle && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push(`/settle?person=${view.personId}&item=${view.id}`)}
+            style={({ pressed }) => [styles.heroButton, pressed && styles.pressedFade]}
+          >
+            <Text style={styles.heroButtonText}>Settle up</Text>
+          </Pressable>
+        )}
+      </MoneyCard>
+      {canSettle && (
+        <Text style={styles.hint}>
+          {owedToMe ? `Settle up when ${view.personName} pays you back, or you call it even.` : `Settle up when you pay ${view.personName} back, or you call it even.`}
+        </Text>
+      )}
 
       {view.status === 'needs_answer' && (
         <Card style={styles.card}>
@@ -199,51 +233,40 @@ export default function ItemDetail() {
         </>
       )}
 
-      {canSettle && (
-        <View style={styles.actions}>
-          <Button title="Settle up" onPress={() => router.push(`/settle?person=${view.personId}&item=${view.id}`)} />
-          <Text style={styles.hint}>
-            {owedToMe ? `When ${view.personName} pays you back, or you call it even.` : `When you pay ${view.personName} back, or you call it even.`}
-          </Text>
-        </View>
-      )}
-
       {view.transactionId && !view.settledOutside && (
-        <View style={styles.actions}>
-          <Button title="Open your entry" variant="secondary" onPress={() => router.push(`/transaction/${view.transactionId}`)} />
-          {!paidByThem && (
-            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => run(() => unlinkEntry(view.id))}>
-              <Text style={styles.link}>That's not the right entry</Text>
-            </Pressable>
-          )}
-        </View>
+        <Card>
+          <LinkRow first icon="file-text" title="Open your entry" meta="The payment this is tied to" onPress={() => router.push(`/transaction/${view.transactionId}`)} />
+        </Card>
+      )}
+      {view.transactionId && !view.settledOutside && !paidByThem && (
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => run(() => unlinkEntry(view.id))} style={styles.quiet}>
+          <Text style={styles.link}>That's not the right entry</Text>
+        </Pressable>
       )}
 
-      {view.mine && !editing && (
-        <View style={styles.actions}>
-          <Button title="Change" variant="secondary" onPress={startEdit} />
-          <Button title="Remove" variant="secondary" onPress={confirmDelete} />
-          {!view.oneSided && <Text style={styles.hint}>Only you can change it. A new amount asks {view.personName} again.</Text>}
-          {view.oneSided && (
-            <Text style={styles.hint}>
-              {view.sharedWith ? `Shared with ${view.sharedWith} once they're your friend on Money Plant.` : `Only on your phone. Add ${view.personName}'s email to share it.`}
-            </Text>
-          )}
-        </View>
+      {view.mine && (
+        <Text style={styles.hint}>
+          {!view.oneSided
+            ? `Only you can change it, from the pencil. A new amount asks ${view.personName} again.`
+            : view.sharedWith
+              ? `Shared with ${view.sharedWith} once they're your friend on Money Plant.`
+              : `Only on your phone. Add ${view.personName}'s email to share it.`}
+        </Text>
       )}
-      {editing && (
-        <>
-          <Field label={`Amount (${currencyInfo(view.currency).symbol.trim()})`} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
-          <Field label="What for" value={reason} onChangeText={setReason} maxLength={120} />
-          <View style={styles.actions}>
-            <Button title="Save" onPress={saveEdit} loading={busy} />
-            <Button title="Cancel" variant="secondary" onPress={() => setEditing(false)} />
-          </View>
-        </>
-      )}
+      <Sheet visible={editing} onClose={() => setEditing(false)} title="Change">
+        <Field label={`Amount (${currencyInfo(view.currency).symbol.trim()})`} value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+        <Field label="What for" value={reason} onChangeText={setReason} maxLength={120} />
+        {error && <ErrorText>{error}</ErrorText>}
+        <Button title="Save" onPress={saveEdit} loading={busy} />
+      </Sheet>
       {!view.mine && <Text style={styles.hint}>{view.personName} added this. Only they can change it.</Text>}
 
-      {error && <ErrorText>{error}</ErrorText>}
+      {error && !editing && <ErrorText>{error}</ErrorText>}
+      {view.mine && (
+        <Pressable accessibilityRole="button" onPress={confirmDelete} style={styles.remove}>
+          <Text style={styles.removeText}>Remove</Text>
+        </Pressable>
+      )}
 
       <CategoryPicker
         visible={pickingCategory}
@@ -259,12 +282,20 @@ export default function ItemDetail() {
 }
 
 const useStyles = makeStyles((colors) => ({
-  container: { paddingHorizontal: 20, paddingBottom: 48, gap: 8 },
-  hero: { alignItems: 'center', gap: 4, paddingVertical: 12 },
-  title: { fontSize: 15, color: colors.secondary, marginTop: 8, textAlign: 'center' },
-  heroAmount: { fontSize: 36, fontWeight: '700', color: colors.text, letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  container: { padding: 16, paddingBottom: 48, gap: 8 },
+  headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  heroLabel: { fontSize: 15, fontWeight: '600', color: colors.heroText },
+  heroMeta: { fontSize: 12, color: colors.heroMuted, marginTop: 2 },
+  heroAmount: { fontSize: 36, fontWeight: '700', color: colors.heroText, letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  heroStatus: { fontSize: 13, fontWeight: '600', color: colors.heroMuted, marginTop: -8 },
+  heroButton: { alignItems: 'center', justifyContent: 'center', minHeight: 46, borderRadius: 14, backgroundColor: colors.heroAccent },
+  heroButtonText: { fontSize: 15, fontWeight: '700', color: colors.hero },
+  pressedFade: { opacity: 0.7 },
+  quiet: { alignSelf: 'center', paddingVertical: 6 },
+  remove: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, marginTop: 8 },
+  removeText: { fontSize: 14, fontWeight: '600', color: colors.danger },
   meta: { fontSize: 13, color: colors.muted },
-  status: { fontSize: 13, fontWeight: '600', color: colors.secondary, marginTop: 4 },
   card: { padding: 16, gap: 12 },
   body: { fontSize: 14, lineHeight: 20, color: colors.text },
   row: { flexDirection: 'row', gap: 10 },

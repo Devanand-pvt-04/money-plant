@@ -12,6 +12,7 @@ import { signOut } from '@/lib/session';
 import { fetchLatestUpdate, restartToUpdate, runningVersion, updatesOn, type UpdateCheck } from '@/lib/updates';
 import { setThemePreference, useThemePreference, type ThemePreference } from '@/lib/theme';
 import { setRoundSummaries, useRoundSummaries } from '@/lib/rounding';
+import { useIsAdmin } from '@/lib/admin';
 
 const THEMES: { key: ThemePreference; label: string }[] = [
   { key: 'system', label: 'Phone' },
@@ -27,6 +28,7 @@ export default function Settings() {
   const theme = useThemePreference();
   const rounded = useRoundSummaries();
   const lock = useLockSetting();
+  const admin = useIsAdmin();
   const [hidden, setHidden] = useState<boolean | null>(null);
   const [ai, setAi] = useState<boolean | null>(null);
   useEffect(() => {
@@ -109,7 +111,7 @@ export default function Settings() {
           <Feather name="cpu" size={18} color={colors.muted} />
           <View style={styles.grow}>
             <Text style={styles.name}>AI suggestions</Text>
-            <Text style={styles.meta}>Categories for unknown shops, from a model on Deva's PC</Text>
+            <Text style={styles.meta}>Categories for unknown shops, from a model on {admin ? 'your' : "Deva's"} PC</Text>
           </View>
           <Switch
             value={ai === true}
@@ -134,7 +136,7 @@ export default function Settings() {
       <Card>
         <Link icon="download" title="Export, clear or delete" href="/data" first />
         <Link icon="heart" title="Health" href="/health" />
-        <Link icon="activity" title="Speed log" href="/speed" />
+        {admin && <Link icon="activity" title="Speed log" href="/speed" />}
       </Card>
 
       <SectionTitle>Version</SectionTitle>
