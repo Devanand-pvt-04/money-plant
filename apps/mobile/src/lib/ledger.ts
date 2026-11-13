@@ -371,7 +371,12 @@ export interface SenderStats {
 }
 
 /** CAP-8: how well each bank's messages are read. */
-export async function captureStats(): Promise<{ senders: SenderStats[]; failures: { fingerprint: string; sender: string; receivedAt: string; rawText: string | null; reason: string | null }[] }> {
+export async function captureStats(): Promise<{
+  senders: SenderStats[];
+  failures: { fingerprint: string; sender: string; receivedAt: string; rawText: string | null; reason: string | null }[];
+  /** When the newest message the app looked at arrived, or null when none has. */
+  lastReceivedAt: string | null;
+}> {
   const db = await getDb();
   const senders = db
     .select({
@@ -392,5 +397,6 @@ export async function captureStats(): Promise<{ senders: SenderStats[]; failures
     .orderBy(desc(captureLog.receivedAt))
     .limit(50)
     .all();
-  return { senders, failures };
+  const last = db.select({ at: sql<string | null>`max(${captureLog.receivedAt})` }).from(captureLog).get();
+  return { senders, failures, lastReceivedAt: last?.at ?? null };
 }
