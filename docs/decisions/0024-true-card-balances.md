@@ -22,12 +22,12 @@ Three sources, used in this order of trust. Each one becomes a balance anchor on
 
 ## What happens to a gap
 
-The gap between the true amount owed and the recorded one is spending (or a fee) the app didn't see. In Deva's example it is ₹2,110. It is never hidden in the opening balance by default, because that would leave it out of budgets.
+The gap between the true amount owed and the recorded one is spending (or a fee) the app didn't see. In Deva's example it is ₹2,110. The app never picks a fix by itself: the user chooses each time (Deva, 2026-11-13). Until they do, the gap stays in Review and the card shows the true amount owed with "₹2,110 not yet explained" under it.
 
 The review item ("₹2,110 of spending on ICICI Card ••7002 wasn't recorded, between 26 Oct and 13 Nov") offers:
 
 1. **Add the missing entries**, when the user knows them. Quick add opens with the card and the date range filled in; the gap shrinks as entries are added.
-2. **Record it as unrecorded card spending.** One expense entry on the card, uncategorised, dated in the gap window, with a "balance check" source. It counts in budgets and can be categorised or split later. **Recommended default.**
+2. **Record it as unrecorded card spending.** One expense entry on the card, uncategorised, dated in the gap window, with a "balance check" source. It counts in budgets and can be categorised or split later.
 3. **Adjust the balance only.** The opening balance moves; no spending is added. For things that aren't spending (a limit change, an old balance from before the app).
 
 Bank accounts keep their current fix ("trust the bank's balance") and gain options 1 and 2, so both behave the same.

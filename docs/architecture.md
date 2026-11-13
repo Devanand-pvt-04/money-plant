@@ -216,7 +216,7 @@ The matcher runs these rules in order and stops at the first that fits. The thre
 | Recurring match | Debit to a recurring payee within 3 days of next_due and within 10% of the amount | Mark that occurrence paid; move next_due forward |
 | None | Anything else | New transaction |
 
-**Reconciliation.** Each balance anchor (a balance seen in an SMS or statement) is compared with the ledger's computed balance at that moment. A gap of more than ₹1 creates a review item. The item shows the time window where an entry is probably missing or wrong, and offers to add the missing entries, to record one "unrecorded spending" entry in that window (the default for cards), or to adjust the balance only. Card anchors need the card's credit limit (`accounts.credit_limit_paise`); a gap younger than 3 days waits, since pending authorisations hold limit too, and a gap that appears at once and stays is asked about as a limit change first (decision 0024).
+**Reconciliation.** Each balance anchor (a balance seen in an SMS or statement) is compared with the ledger's computed balance at that moment. A gap of more than ₹1 creates a review item. The item shows the time window where an entry is probably missing or wrong, and offers to add the missing entries, to record one "unrecorded spending" entry in that window, or to adjust the balance only. The user always chooses; nothing is fixed automatically. Card anchors need the card's credit limit (`accounts.credit_limit_paise`); a gap younger than 3 days waits, since pending authorisations hold limit too, and a gap that appears at once and stays is asked about as a limit change first (decision 0024).
 
 ## Sync design
 
