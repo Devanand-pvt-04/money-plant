@@ -9,3 +9,4 @@ export * from './iou-views';
 export * from './split-views';
 export * from './people';
 export * from './identity';
+export * from './shared-items';
