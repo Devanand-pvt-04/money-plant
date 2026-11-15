@@ -1,60 +1,68 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { currencyInfo, dateKey, dateOf, formatMoney, paise, parseMoney, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Feather from '@expo/vector-icons/Feather';
+import { dateKey, dateOf, paise, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
+import { accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
-import { DateField } from '@/components/date-fields';
-import { formatAmount, formatDate } from '@/components/format';
-import { FormScroll } from '@/components/keyboard';
-import { PersonPicker } from '@/components/person-picker';
-import { Button, Chip, Chips, ErrorText, Field, makeStyles } from '@/components/ui';
+import { pickDate } from '@/components/date-fields';
+import { formatAmount, formatDate, formatDay } from '@/components/format';
+import { KeyboardGap, useKeyboard } from '@/components/keyboard';
+import { Keypad, fromMinor, keypadDisplay, toMinor } from '@/components/keypad';
+import { MoneySideSheet, type MoneySide } from '@/components/money-side-sheet';
+import { PeopleSheet } from '@/components/people-sheet';
+import { Button, ErrorText, Initial, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { homeCurrency } from '@/lib/home-currency';
-import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
+import { getTransaction } from '@/lib/ledger';
 import { isVpa } from '@/lib/me';
 import { createPerson, findPersonForPayee, listPeople, SamePersonError, type Person } from '@/lib/people';
-import { createItem, entriesFitting, type EntrySide, type ItemFlow, type ItemKind } from '@/lib/shared';
+import { createItem, entriesFitting, listItems, type EntrySide, type ItemFlow, type ItemKind } from '@/lib/shared';
 
-interface Choice {
-  kind: ItemKind;
-  flow: ItemFlow;
-  label: string;
+type FeatherName = ComponentProps<typeof Feather>['name'];
+
+/** The four things that happen with someone, from the user's side (decision 0030). */
+type Action = 'lend' | 'borrow' | 'back' | 'paidForMe';
+
+const ACTIONS: Record<Action, { label: string; icon: FeatherName }> = {
+  lend: { label: 'I lent', icon: 'arrow-up-right' },
+  borrow: { label: 'I borrowed', icon: 'arrow-down-left' },
+  back: { label: 'Paid back', icon: 'rotate-ccw' },
+  paidForMe: { label: 'Paid for me', icon: 'shopping-bag' },
+};
+
+function itemOf(action: Action, backFlow: ItemFlow): { kind: ItemKind; flow: ItemFlow } {
+  if (action === 'lend') return { kind: 'loan', flow: 'to_them' };
+  if (action === 'borrow') return { kind: 'loan', flow: 'to_me' };
+  if (action === 'paidForMe') return { kind: 'share', flow: 'to_me' };
+  return { kind: 'repayment', flow: backFlow };
 }
 
-/** From the user's side: what happened between them and the other person (decision 0026). */
-const MONEY_OUT: Choice[] = [
-  { kind: 'share', flow: 'to_them', label: 'They owe a share' },
-  { kind: 'loan', flow: 'to_them', label: 'I lent it' },
-  { kind: 'repayment', flow: 'to_them', label: 'I paid them back' },
-];
-const MONEY_IN: Choice[] = [
-  { kind: 'loan', flow: 'to_me', label: 'I borrowed it' },
-  { kind: 'repayment', flow: 'to_me', label: 'They paid me back' },
-];
-const ALL: Choice[] = [
-  { kind: 'share', flow: 'to_them', label: 'I paid, they owe a share' },
-  { kind: 'share', flow: 'to_me', label: 'They paid, I owe a share' },
-  { kind: 'loan', flow: 'to_them', label: 'I lent money' },
-  { kind: 'loan', flow: 'to_me', label: 'I borrowed money' },
-  { kind: 'repayment', flow: 'to_me', label: 'They paid me back' },
-  { kind: 'repayment', flow: 'to_them', label: 'I paid them back' },
-];
+/** How the person's balance moves, per unit: above zero means they owe the user more. */
+function direction(action: Action, backFlow: ItemFlow): 1 | -1 {
+  if (action === 'lend') return 1;
+  if (action === 'back') return backFlow === 'to_them' ? 1 : -1;
+  return -1;
+}
 
-const sameChoice = (a: Pick<Choice, 'kind' | 'flow'>, b: Pick<Choice, 'kind' | 'flow'>) => a.kind === b.kind && a.flow === b.flow;
-
-type Side = { type: 'entry'; id: string } | { type: 'account'; id: string } | { type: 'later' };
+const firstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 /**
- * A loan, a repayment, or a share someone else paid. `?from=<entry id>` starts
- * from one of the user's entries (I lent it, Paid me back), `?person=<id>`
- * from a person. A bill the user paid goes to the split screen (decision 0027).
+ * A loan, a repayment, or a share someone else paid (decision 0030): pick the
+ * person from recent avatars, one of four round actions, type the amount on
+ * the keypad. `?from=<entry id>` starts from one of the user's entries (I lent
+ * it, Paid me back), `?person=<id>` from a person. A bill the user paid goes
+ * to the split screen (decision 0027).
  */
 export default function NewItem() {
+  const colors = useColors();
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
+  const typing = useKeyboard().height > 0;
   const params = useLocalSearchParams<{ from?: string; person?: string; kind?: string; flow?: string }>();
   const [people, setPeople] = useState<Person[]>([]);
-  const [accounts, setAccounts] = useState<AccountBalance[]>([]);
-  // Several people only for a bill the user paid (step 4); the first is the one for everything else.
+  const [recent, setRecent] = useState<Map<string, string>>(new Map());
   const [personId, setPersonIdState] = useState<string | null>(params.person ?? null);
   // The entry's payee when they aren't one of the user's people yet: created only on save.
   const [draft, setDraft] = useState<{ name: string; vpa: string | null } | null>(null);
@@ -64,17 +72,20 @@ export default function NewItem() {
     if (id) setDraftSelected(false);
   };
   const [fromTx, setFromTx] = useState<{ tx: LedgerTransaction; own: Paise; currency: CurrencyCode } | null>(null);
-  const [choice, setChoice] = useState<Pick<Choice, 'kind' | 'flow'>>({
-    kind: params.kind === 'repayment' || (params.kind === 'share' && params.flow === 'to_me') ? params.kind : 'loan',
-    flow: params.flow === 'to_me' ? 'to_me' : 'to_them',
-  });
-  const [amount, setAmount] = useState('');
-  const [reason, setReason] = useState('');
+  const [action, setAction] = useState<Action>(() =>
+    params.kind === 'repayment' ? 'back' : params.kind === 'share' && params.flow === 'to_me' ? 'paidForMe' : params.flow === 'to_me' ? 'borrow' : 'lend',
+  );
+  // For a repayment: who paid whom. Left unset until the user or the balance says.
+  const [backFlow, setBackFlow] = useState<ItemFlow | null>(params.kind === 'repayment' && (params.flow === 'to_me' || params.flow === 'to_them') ? params.flow : null);
+  const [text, setText] = useState('');
+  const [reason, setReason] = useState<string | null>(null);
   const [occurredOn, setOccurredOn] = useState<DateKey>(() => dateKey(new Date()));
   const [category, setCategory] = useState<{ id: string; name: string } | null>(null);
-  const [pickingCategory, setPickingCategory] = useState(false);
   const [candidates, setCandidates] = useState<LedgerTransaction[]>([]);
-  const [side, setSide] = useState<Side>({ type: 'later' });
+  const [side, setSide] = useState<MoneySide>({ type: 'later' });
+  const [sideName, setSideName] = useState<string | null>(null);
+  const [sideAccountCurrency, setSideAccountCurrency] = useState<CurrencyCode | null>(null);
+  const [picking, setPicking] = useState<'people' | 'side' | 'category' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -88,8 +99,10 @@ export default function NewItem() {
 
   useEffect(() => {
     (async () => {
-      setAccounts((await listAccountBalances()).filter((b) => b.account.type !== 'loan'));
       await reloadPeople();
+      const latest = new Map<string, string>();
+      for (const v of await listItems()) if (v.personId && (latest.get(v.personId) ?? '') < v.occurredOn) latest.set(v.personId, v.occurredOn);
+      setRecent(latest);
       if (!params.from) return;
       const row = await getTransaction(params.from);
       const own = row?.legs[0];
@@ -97,20 +110,17 @@ export default function NewItem() {
       setFromTx({ tx: row.tx, own: own.amount, currency: own.currency });
       setSide({ type: 'entry', id: row.tx.id });
       const out = own.amount < 0;
-      const wanted = params.kind === 'loan' || params.kind === 'repayment' || params.kind === 'share' ? params.kind : out ? 'loan' : 'repayment';
-      const next = { kind: !out && wanted === 'share' ? 'repayment' : wanted, flow: out ? 'to_them' : 'to_me' } as const;
-      setChoice(next);
-      // A share is usually half; a loan or repayment is the whole payment.
-      const start = next.kind === 'share' ? Math.round(Math.abs(own.amount) / 2) : Math.abs(own.amount);
-      setAmount(formatMoney(paise(start), own.currency, { symbol: false }).replace(/,/g, ''));
+      // Money out of the user's account: they lent it or paid back. Money in: they borrowed or were paid back.
+      setAction(params.kind === 'repayment' ? 'back' : out ? 'lend' : 'borrow');
+      setBackFlow(out ? 'to_them' : 'to_me');
+      setText(fromMinor(Math.abs(own.amount), own.currency));
       setOccurredOn(dateOf(row.tx.occurredAt));
       if (!params.person && row.tx.counterparty) {
         const smsVpa = row.tx.sources.find((s) => s.kind === 'sms')?.parsedFields.vpa;
         const payee = { name: row.tx.counterparty, vpa: typeof smsVpa === 'string' && isVpa(smsVpa) ? smsVpa : null };
         const found = await findPersonForPayee(payee);
         if (found) setPersonId(found);
-        // The payee of a shared bill is the shop, not the person.
-        else if (next.kind !== 'share') {
+        else {
           setDraft(payee);
           setDraftSelected(true);
         }
@@ -118,44 +128,52 @@ export default function NewItem() {
     })();
   }, [params.from, params.person, params.kind, reloadPeople]);
 
-  const currency = fromTx?.currency ?? (side.type === 'account' ? accounts.find((b) => b.account.id === side.id)?.currency : undefined) ?? homeCurrency();
-  const typed = parseMoney(amount, currency);
-  const parsed = typed === null ? null : paise(typed);
-  const choices = fromTx ? (fromTx.own < 0 ? MONEY_OUT : MONEY_IN) : ALL;
-  const paidByThem = choice.kind === 'share' && choice.flow === 'to_me';
-  const wholeEntry = fromTx !== null && choice.kind !== 'share';
+  const person = people.find((p) => p.account.id === personId) ?? null;
+  const name = person?.account.name ?? (draft && draftSelected ? draft.name : null);
+  const currency = fromTx?.currency ?? (side.type === 'account' ? sideAccountCurrency : null) ?? homeCurrency();
+  const before = person?.balances.find((b) => b.currency === currency)?.amount ?? 0;
+  // Who paid whom, when the user hasn't said: whoever owes is the one paying back.
+  const flowBack: ItemFlow = backFlow ?? (before < 0 ? 'to_them' : 'to_me');
+  const { kind, flow } = itemOf(action, flowBack);
+  const amount = toMinor(text, currency);
+  const paidByThem = action === 'paidForMe';
+  const outstanding = action === 'back' ? (flowBack === 'to_me' ? before : -before) : 0;
 
-  function pick(next: Choice) {
-    if (next.kind === 'share' && next.flow === 'to_them') return router.replace(splitHref);
-    setChoice(next);
-    if (fromTx) {
-      const whole = Math.abs(fromTx.own);
-      const start = next.kind === 'share' ? Math.round(whole / 2) : whole;
-      setAmount(formatMoney(paise(start), fromTx.currency, { symbol: false }).replace(/,/g, ''));
-    } else if (side.type === 'entry') setSide({ type: 'later' });
-  }
+  // From an entry only the actions its direction allows; a bill the user paid opens Split.
+  const actions: Action[] = fromTx ? (fromTx.own < 0 ? ['lend', 'back'] : ['borrow', 'back']) : ['lend', 'borrow', 'back', 'paidForMe'];
 
   // Offer the entries that are probably the user's side of it.
   useEffect(() => {
-    if (fromTx || paidByThem || parsed === null || parsed <= 0) return setCandidates([]);
+    if (fromTx || paidByThem || amount <= 0) return setCandidates([]);
     let live = true;
-    entriesFitting({ kind: choice.kind, flow: choice.flow, amount: parsed, occurredOn, personId }).then((found) => live && setCandidates(found.slice(0, 4)));
+    entriesFitting({ kind, flow, amount: paise(amount), occurredOn, personId }).then((found) => live && setCandidates(found.slice(0, 4)));
     return () => {
       live = false;
     };
-  }, [fromTx, paidByThem, parsed, choice.kind, choice.flow, occurredOn, personId]);
+  }, [fromTx, paidByThem, amount, kind, flow, occurredOn, personId]);
 
-  const sideFor = useMemo((): EntrySide => {
+  // A picked entry stops fitting once the amount, action or date changes.
+  useEffect(() => {
+    if (!fromTx && side.type === 'entry' && !candidates.some((tx) => tx.id === side.id)) setSide({ type: 'later' });
+  }, [fromTx, side, candidates]);
+
+  const strip = useMemo(() => {
+    const byRecent = [...people].sort((a, b) => (recent.get(b.account.id) ?? '').localeCompare(recent.get(a.account.id) ?? ''));
+    const top = byRecent.slice(0, 8);
+    if (person && !top.includes(person)) top.unshift(person);
+    return top;
+  }, [people, recent, person]);
+
+  const sideFor = (): EntrySide => {
     if (paidByThem) return category ? { categoryId: category.id } : null;
     if (side.type === 'entry') return { transactionId: side.id };
     if (side.type === 'account') return { accountId: side.id, occurredAt: new Date(`${occurredOn}T12:00:00`).toISOString() };
     return null;
-  }, [paidByThem, category, side, occurredOn]);
+  };
 
   async function save() {
     if (!personId && !(draft && draftSelected)) return setError('Pick who it is with');
-    if (parsed === null || parsed <= 0) return setError('Enter the amount as a number above zero');
-    if (fromTx && parsed > Math.abs(fromTx.own)) return setError(`This entry is ${formatAmount(Math.abs(fromTx.own), fromTx.currency)}; a share can't be more`);
+    if (amount <= 0) return setError('Type the amount');
     if (paidByThem && !category) return setError('Pick what it was for, so it counts in your spending');
     setSaving(true);
     try {
@@ -173,7 +191,7 @@ export default function NewItem() {
         setPersonId(who);
         await reloadPeople();
       }
-      const id = await createItem({ personId: who, kind: choice.kind, flow: choice.flow, amount: parsed, occurredOn, reason: reason.trim() || null }, sideFor);
+      const id = await createItem({ personId: who, kind, flow, amount: paise(amount), occurredOn, reason: reason?.trim() || null }, sideFor());
       router.replace(`/item/${id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -181,134 +199,294 @@ export default function NewItem() {
     }
   }
 
-  const sideLabel =
-    choice.kind === 'share'
-      ? 'You paid with'
-      : choice.flow === 'to_them'
-        ? 'The money went out from'
-        : 'The money came into';
+  // The Save button says where the two of you will stand (decision 0030).
+  const short = name ? firstName(name) : null;
+  const after = before + direction(action, flowBack) * amount;
+  const saveTitle =
+    amount <= 0 || !short
+      ? 'Save'
+      : after > 0
+        ? `Save: ${short} will owe you ${formatAmount(after, currency)}`
+        : after < 0
+          ? `Save: you'll owe ${short} ${formatAmount(-after, currency)}`
+          : "Save: you're all square";
+  const beforeText =
+    amount > 0 && short && before !== 0
+      ? before > 0
+        ? `${short} owed you ${formatAmount(before, currency)} before this`
+        : `You owed ${short} ${formatAmount(-before, currency)} before this`
+      : null;
+
+  const who = short ?? 'They';
+  const meaning: Record<Action, string> = {
+    lend: `You gave ${short ?? 'them'} money; it comes back to you`,
+    borrow: `${who} gave you money; you'll pay it back`,
+    back: flowBack === 'to_me' ? `${who} paid you back` : `You paid ${short ?? 'them'} back`,
+    paidForMe: `${who} paid; your share counts as your spending`,
+  };
+
+  const out = kind === 'share' ? false : flow === 'to_them';
+  const sideChip = fromTx
+    ? { icon: 'link' as FeatherName, label: `Entry: ${fromTx.tx.counterparty ?? 'payment'}` }
+    : side.type === 'later'
+      ? { icon: 'message-square' as FeatherName, label: 'Comes by SMS' }
+      : side.type === 'entry'
+        ? { icon: 'link' as FeatherName, label: `Entry: ${candidates.find((tx) => tx.id === side.id)?.counterparty ?? 'payment'}` }
+        : { icon: 'briefcase' as FeatherName, label: `${out ? 'From' : 'Into'} ${sideName ?? 'account'}` };
+
+  const chip = (props: { icon: FeatherName; label: string; onPress?: () => void; muted?: boolean; on?: boolean; a11y?: string }) => (
+    <Pressable
+      key={props.label}
+      accessibilityRole="button"
+      accessibilityLabel={props.a11y ?? props.label}
+      disabled={!props.onPress}
+      onPress={props.onPress}
+      style={({ pressed }) => [styles.chip, props.on && styles.chipOn, pressed && styles.pressed]}
+    >
+      <Feather name={props.icon} size={13} color={props.on ? colors.primary : colors.muted} />
+      <Text style={[styles.chipText, props.muted && styles.chipMuted, props.on && styles.chipTextOn]} numberOfLines={1}>
+        {props.label}
+      </Text>
+    </Pressable>
+  );
 
   return (
-    <FormScroll contentContainerStyle={styles.container}>
-      <Text style={styles.label}>With</Text>
-      <PersonPicker
-        people={people}
-        selected={personId ? [personId] : []}
-        onToggle={(id) => setPersonId(id === personId ? null : id)}
-        onCreated={(id) => reloadPeople().then(() => setPersonId(id))}
-        draft={
-          draft
-            ? {
-                name: draft.name,
-                selected: draftSelected && !personId,
-                onToggle: () => {
-                  setDraftSelected(!(draftSelected && !personId));
-                  setPersonIdState(null);
-                },
-              }
-            : null
-        }
-      />
+    <View style={[styles.screen, { paddingBottom: insets.bottom + 12 }]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip} keyboardShouldPersistTaps="handled">
+        <Pressable accessibilityRole="button" accessibilityLabel="Search people" onPress={() => setPicking('people')} style={styles.face}>
+          <View style={styles.search}>
+            <Feather name="search" size={19} color={colors.muted} />
+          </View>
+          <Text style={styles.faceName}>Search</Text>
+        </Pressable>
+        {draft && (
+          <Pressable
+            accessibilityRole="radio"
+            accessibilityState={{ selected: draftSelected && !personId }}
+            onPress={() => {
+              setDraftSelected(!(draftSelected && !personId));
+              setPersonIdState(null);
+            }}
+            style={styles.face}
+          >
+            <View style={[styles.ring, draftSelected && !personId && styles.ringOn]}>
+              <Initial name={draft.name} size={46} />
+            </View>
+            <Text style={[styles.faceName, draftSelected && !personId && styles.faceNameOn]} numberOfLines={1}>
+              {firstName(draft.name)}
+            </Text>
+            <Text style={styles.faceNew}>New</Text>
+          </Pressable>
+        )}
+        {strip.map((p) => {
+          const on = p.account.id === personId;
+          return (
+            <Pressable key={p.account.id} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setPersonId(on ? null : p.account.id)} style={styles.face}>
+              <View style={[styles.ring, on && styles.ringOn]}>
+                <Initial name={p.account.name} size={46} />
+              </View>
+              <Text style={[styles.faceName, on && styles.faceNameOn]} numberOfLines={1}>
+                {firstName(p.account.name)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
-      <Text style={styles.label}>What happened</Text>
-      <Chips>
-        {choices.map((c) => (
-          <Chip key={`${c.kind}:${c.flow}`} label={c.label} selected={sameChoice(c, choice)} onPress={() => pick(c)} />
-        ))}
-      </Chips>
-      <Text style={styles.hint}>
-        {choice.kind === 'share'
-          ? choice.flow === 'to_them'
-            ? 'Their share comes off your spending and shows as owed to you. Your bank balance stays what the bank says.'
-            : 'Your share counts as your spending and shows as what you owe. No money moves in your accounts until you pay them back.'
-          : 'Money moved between you, so it is linked to the payment in your account.'}
-      </Text>
-
-      <Field
-        label={`${choice.kind === 'share' ? (choice.flow === 'to_them' ? 'Their share' : 'Your share') : 'Amount'} (${currencyInfo(currency).symbol.trim()})`}
-        value={amount}
-        onChangeText={setAmount}
-        keyboardType="decimal-pad"
-        editable={!wholeEntry}
-      />
-      {fromTx && choice.kind === 'share' && <Text style={styles.hint}>Of {formatAmount(Math.abs(fromTx.own), fromTx.currency)} you paid.</Text>}
-      <Field label="What for" value={reason} onChangeText={setReason} placeholder={choice.kind === 'share' ? 'Dinner at Anna’s' : 'Concert tickets'} maxLength={120} />
-      {fromTx ? (
-        <Field label="When" value={formatDate(fromTx.tx.occurredAt)} editable={false} />
-      ) : (
-        <DateField label="When" value={occurredOn} onChange={(key) => key && setOccurredOn(key)} style={styles.date} />
-      )}
-
-      {paidByThem ? (
-        <>
-          <Text style={styles.label}>Your spending on</Text>
-          <Chips>
-            <Chip label={category ? category.name : 'Pick a category'} selected={category !== null} onPress={() => setPickingCategory(true)} />
-          </Chips>
-        </>
-      ) : fromTx ? (
-        <>
-          <Text style={styles.label}>{sideLabel}</Text>
-          <Text style={styles.value}>
-            The entry for {fromTx.tx.counterparty ?? 'this payment'} on {formatDate(fromTx.tx.occurredAt)}
-          </Text>
-        </>
-      ) : (
-        <>
-          <Text style={styles.label}>{sideLabel}</Text>
-          <Chips>
-            {candidates.map((tx) => (
-              <Chip
-                key={tx.id}
-                label={`Entry: ${tx.counterparty ?? 'payment'}, ${formatDate(tx.occurredAt)}`}
-                selected={side.type === 'entry' && side.id === tx.id}
-                onPress={() => setSide({ type: 'entry', id: tx.id })}
-              />
-            ))}
-            {choice.kind !== 'share' &&
-              accounts.map((b) => (
-                <Chip
-                  key={b.account.id}
-                  label={b.account.name}
-                  selected={side.type === 'account' && side.id === b.account.id}
-                  onPress={() => setSide({ type: 'account', id: b.account.id })}
-                />
-              ))}
-            <Chip label="Link later" selected={side.type === 'later'} onPress={() => setSide({ type: 'later' })} />
-          </Chips>
-          <Text style={styles.hint}>
-            {candidates.length > 0
-              ? 'Pick the entry if it is already in your ledger, so it is not counted twice.'
-              : choice.kind === 'share'
-                ? 'When the payment shows up from your bank, link it from here or from the entry.'
-                : 'Picking an account adds the payment to your ledger. If it will come in by SMS, link it later instead.'}
-          </Text>
-        </>
-      )}
-
-      {error && <ErrorText>{error}</ErrorText>}
       <View style={styles.actions}>
-        <Button title="Save" onPress={save} loading={saving} />
+        {actions.map((a) => {
+          const on = a === action;
+          return (
+            <Pressable
+              key={a}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on }}
+              onPress={() => {
+                setAction(a);
+                setError(null);
+              }}
+              style={styles.action}
+            >
+              <View style={[styles.actionIcon, on && styles.actionIconOn]}>
+                <Feather name={ACTIONS[a].icon} size={20} color={on ? colors.primary : colors.text} />
+              </View>
+              <Text style={[styles.actionLabel, on && styles.actionLabelOn]} numberOfLines={1}>
+                {ACTIONS[a].label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
+      {action === 'back' && !fromTx ? (
+        <View style={styles.segment}>
+          {(['to_me', 'to_them'] as const).map((f) => (
+            <Pressable key={f} accessibilityRole="radio" accessibilityState={{ selected: flowBack === f }} onPress={() => setBackFlow(f)} style={[styles.segmentItem, flowBack === f && styles.segmentOn]}>
+              <Text style={[styles.segmentText, flowBack === f && styles.segmentTextOn]}>{f === 'to_me' ? 'They paid me' : 'I paid them'}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.meaning}>{meaning[action]}</Text>
+      )}
+      {!fromTx && (
+        <Pressable accessibilityRole="link" onPress={() => router.replace(splitHref)} hitSlop={6}>
+          <Text style={styles.splitLink}>Split a bill you paid</Text>
+        </Pressable>
+      )}
+
+      <View style={styles.amountBox}>
+        <Text accessibilityLiveRegion="polite" style={[styles.amount, amount === 0 && styles.amountEmpty]} numberOfLines={1} adjustsFontSizeToFit>
+          {keypadDisplay(text, currency)}
+        </Text>
+        {fromTx && <Text style={styles.hint}>The whole entry from {formatDate(fromTx.tx.occurredAt)}</Text>}
+        {reason !== null && (
+          <TextInput
+            value={reason}
+            onChangeText={setReason}
+            placeholder={paidByThem ? 'Dinner at Anna’s' : 'Concert tickets'}
+            placeholderTextColor={colors.placeholder}
+            style={styles.noteInput}
+            maxLength={120}
+            autoFocus
+            returnKeyType="done"
+            onBlur={() => !reason.trim() && setReason(null)}
+          />
+        )}
+      </View>
+
+      <View style={styles.chips}>
+        {action === 'back' && outstanding > 0 && amount !== outstanding && !fromTx &&
+          chip({ icon: 'check-circle', label: `All of it, ${formatAmount(outstanding, currency)}`, on: true, onPress: () => setText(fromMinor(outstanding, currency)) })}
+        {reason === null && chip({ icon: 'align-left', label: 'What for', muted: true, onPress: () => setReason('') })}
+        {chip({ icon: 'calendar', label: formatDay(new Date(`${occurredOn}T12:00:00`).toISOString()), a11y: 'When', onPress: fromTx ? undefined : () => pickDate(occurredOn, setOccurredOn) })}
+        {paidByThem
+          ? chip({ icon: 'tag', label: category ? category.name : 'Your spending on…', muted: !category, onPress: () => setPicking('category') })
+          : chip({ ...sideChip, onPress: fromTx ? undefined : () => setPicking('side') })}
+      </View>
+      {!fromTx && !paidByThem && candidates.length > 0 && side.type === 'later' && (
+        <Text style={styles.found}>An entry in your ledger fits. Tap “Comes by SMS” to link it.</Text>
+      )}
+
+      {!typing && !fromTx && <Keypad currency={currency} onChange={setText} keyHeight={52} />}
+
+      <View style={styles.save}>
+        {error && <ErrorText>{error}</ErrorText>}
+        <Button title={saveTitle} onPress={save} loading={saving} />
+        {beforeText && <Text style={styles.before}>{beforeText}</Text>}
+      </View>
+      <KeyboardGap />
+
+      <PeopleSheet
+        visible={picking === 'people'}
+        onClose={() => setPicking(null)}
+        people={people}
+        recent={recent}
+        selected={personId ? [personId] : []}
+        onToggle={(id) => {
+          setPersonId(id === personId ? null : id);
+          setPicking(null);
+        }}
+        onCreated={(id) =>
+          reloadPeople().then(() => {
+            setPersonId(id);
+            setPicking(null);
+          })
+        }
+      />
+      <MoneySideSheet
+        visible={picking === 'side'}
+        title={out ? 'Where did the money go out from?' : 'Where did the money come in?'}
+        subtitle={out ? 'From one of your accounts' : 'Into one of your accounts'}
+        candidates={candidates}
+        amountLabel={formatAmount(amount, currency)}
+        selected={side}
+        onPick={(next, account) => {
+          setSide(next);
+          setSideName(account ? accountLabel(account.account) : null);
+          setSideAccountCurrency(account ? account.account.currency : null);
+          setPicking(null);
+        }}
+        onClose={() => setPicking(null)}
+      />
       <CategoryPicker
-        visible={pickingCategory}
+        visible={picking === 'category'}
         flow="expense"
         onPick={(node) => {
           setCategory({ id: node.id, name: node.name });
-          setPickingCategory(false);
+          setPicking(null);
         }}
-        onClose={() => setPickingCategory(false)}
+        onClose={() => setPicking(null)}
       />
-    </FormScroll>
+    </View>
   );
 }
 
 const useStyles = makeStyles((colors) => ({
-  container: { paddingHorizontal: 20, paddingBottom: 48 },
-  label: { fontSize: 13, color: colors.muted, marginBottom: 6, marginTop: 16 },
-  value: { fontSize: 15, color: colors.text },
-  date: { marginTop: 16 },
-  hint: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 17 },
-  actions: { marginTop: 24, gap: 10 },
+  screen: { flex: 1, backgroundColor: colors.background },
+  strip: { gap: 12, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
+  face: { width: 58, alignItems: 'center', gap: 5 },
+  search: { width: 50, height: 50, borderRadius: 25, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  ring: { padding: 2, borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
+  ringOn: { borderColor: colors.primary },
+  faceName: { fontSize: 12, color: colors.muted, maxWidth: 58 },
+  faceNameOn: { color: colors.text, fontWeight: '600' },
+  faceNew: { fontSize: 10, color: colors.primary, marginTop: -4 },
+  actions: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 8, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.divider },
+  action: { flex: 1, alignItems: 'center', gap: 6 },
+  actionIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionIconOn: { borderColor: colors.primary, borderWidth: 1.5, backgroundColor: colors.primarySurface },
+  actionLabel: { fontSize: 12, color: colors.muted },
+  actionLabelOn: { color: colors.primary, fontWeight: '600' },
+  meaning: { fontSize: 13, color: colors.muted, textAlign: 'center', paddingHorizontal: 24, marginTop: 12, minHeight: 38, paddingTop: 8 },
+  segment: { alignSelf: 'center', flexDirection: 'row', backgroundColor: colors.subtle, borderRadius: radius.pill, padding: 3, marginTop: 12 },
+  segmentItem: { minHeight: 34, paddingHorizontal: 16, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  segmentOn: { backgroundColor: colors.ink },
+  segmentText: { fontSize: 13, fontWeight: '600', color: colors.muted },
+  segmentTextOn: { color: colors.onInk },
+  splitLink: { fontSize: 12, color: colors.primary, textAlign: 'center', marginTop: 4 },
+  amountBox: { flex: 1, minHeight: 80, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 8 },
+  amount: { fontSize: 48, fontWeight: '700', letterSpacing: -1.5, color: colors.text, ...figures },
+  amountEmpty: { color: colors.placeholder },
+  hint: { fontSize: 12, color: colors.muted },
+  noteInput: {
+    minWidth: 220,
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: radius.pill,
+    backgroundColor: colors.subtle,
+    fontSize: 14,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, paddingHorizontal: 16 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 34,
+    maxWidth: 220,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  chipOn: { borderColor: colors.primary, backgroundColor: colors.primarySurface },
+  chipText: { fontSize: 13, color: colors.text, flexShrink: 1 },
+  chipMuted: { color: colors.muted },
+  chipTextOn: { color: colors.primary, fontWeight: '600' },
+  pressed: { opacity: 0.7 },
+  found: { fontSize: 12, color: colors.primary, textAlign: 'center', marginTop: 8, paddingHorizontal: 24 },
+  save: { paddingHorizontal: 16, paddingTop: 8, gap: 6 },
+  before: { fontSize: 12, color: colors.muted, textAlign: 'center' },
 }));

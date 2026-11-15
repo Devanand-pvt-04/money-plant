@@ -41,6 +41,11 @@ export function pickDateTime(iso: string, onChange: (iso: string) => void) {
   openPicker(new Date(iso), true, (d) => onChange(new Date(Math.min(d.getTime(), Date.now())).toISOString()), { max: new Date() });
 }
 
+/** Opens the date picker for a calendar date; future days are refused. */
+export function pickDate(key: DateKey, onChange: (key: DateKey) => void) {
+  openPicker(fromKey(key), false, (d) => onChange(dateKey(d)), { max: new Date() });
+}
+
 /** "Today, 9:05 am". */
 export function formatWhen(iso: string): string {
   return `${formatDay(iso)}, ${formatTime(iso)}`;
