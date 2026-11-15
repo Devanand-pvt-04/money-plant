@@ -147,7 +147,7 @@ Splits are personal in the MVP: they live in the payer's ledger, so friends don'
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| SPL-1 | One "with someone" flow covers splits, loans, repayments and someone else paying (decision 0026). Any existing entry can be split or linked; it keeps its sources and its bank leg, and only its category part moves to the person | Must |
+| SPL-1 | One "with someone" flow covers splits, loans, repayments and someone else paying (decision 0026; the screen is decision 0030). Any existing entry can be split or linked; it keeps its sources and its bank leg, and only its category part moves to the person | Must |
 | SPL-2 | Record a split that someone else paid, as money the user owes | Must |
 | SPL-3 | Split one bill with several people on its own screen: equally, by amounts, by percent, by shares (units) or equally with adjustments (decision 0027). The user has a row too and keeps any odd paise; a bar says whether it adds up. One share per person, settled person by person through IOU-3, IOU-4 and IOU-6 (decision 0026, step 4). Named groups (a trip, flatmates) come later | Should |
 | SPL-4 | Match payees to the phone's contacts by the phone number in a UPI ID or by payee name. Contacts are matched on the phone and never uploaded | Should |

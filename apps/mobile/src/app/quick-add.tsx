@@ -3,44 +3,18 @@ import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { currencyInfo, formatMoney, paise, parseMoney, type CurrencyCode } from '@money-plant/core';
+import { formatMoney, paise, parseMoney, type CurrencyCode } from '@money-plant/core';
 import { AccountPicker, accountIcon, accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatWhen, pickDateTime } from '@/components/date-fields';
-import { formatWholeRupees } from '@/components/format';
 import { KeyboardGap, useKeyboard } from '@/components/keyboard';
+import { Keypad, keypadDisplay as display, toMinor } from '@/components/keypad';
 import { CategoryIcon } from '@/components/sheet';
 import { Button, radius, useColors, makeStyles } from '@/components/ui';
 import { categoryNames, type CategoryNode } from '@/lib/categories';
 import { addManualEntry, addManualTransfer } from '@/lib/entries';
 import type { AccountBalance } from '@/lib/ledger';
 import { quickAddDefaults, rememberAccount, type QuickAddDefaults } from '@/lib/quick-add';
-
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'] as const;
-const MAX_RUPEE_DIGITS = 9;
-
-/** "1250.5" typed on the keypad as integer minor units of `currency`, without floating point. */
-function toMinor(text: string, currency: CurrencyCode): number {
-  const { decimals } = currencyInfo(currency);
-  const [whole = '', fraction = ''] = text.split('.');
-  return Number(whole || '0') * 10 ** decimals + Number(fraction.padEnd(decimals, '0').slice(0, decimals) || '0');
-}
-
-/** The amount as typed, grouped for its currency: "₹1,250.5", "$1,250.5". */
-function display(text: string, currency: CurrencyCode): string {
-  const [whole = '', fraction] = text.split('.');
-  const shown = formatWholeRupees(Number(whole || '0') * 10 ** currencyInfo(currency).decimals, currency);
-  return fraction === undefined ? shown : `${shown}.${fraction}`;
-}
-
-function press(text: string, key: (typeof KEYS)[number], decimals: number): string {
-  if (key === 'del') return text.slice(0, -1);
-  const [rupees = '', fraction] = text.split('.');
-  if (key === '.') return fraction !== undefined || decimals === 0 ? text : `${rupees || '0'}.`;
-  if (fraction !== undefined) return fraction.length >= decimals ? text : text + key;
-  if (rupees === '0') return key;
-  return rupees.length >= MAX_RUPEE_DIGITS ? text : text + key;
-}
 
 type Mode = 'debit' | 'credit' | 'transfer';
 const MODE_LABELS: Record<Mode, string> = { debit: 'Spent', credit: 'Received', transfer: 'Transfer' };
@@ -272,22 +246,7 @@ export default function QuickAdd() {
         {transfer && whenTile}
       </View>
 
-      {!typing && (
-      <View style={styles.keys}>
-        {KEYS.map((k) => (
-          <Pressable
-            key={k}
-            accessibilityRole="button"
-            accessibilityLabel={k === 'del' ? 'Delete digit' : k === '.' ? 'Decimal point' : k}
-            onPress={() => setText((t) => press(t, k, currencyInfo(currency).decimals))}
-            onLongPress={k === 'del' ? () => setText('') : undefined}
-            style={({ pressed }) => [styles.key, pressed && styles.keyPressed]}
-          >
-            {k === 'del' ? <Feather name="delete" size={22} color={colors.text} /> : <Text style={styles.keyText}>{k}</Text>}
-          </Pressable>
-        ))}
-      </View>
-      )}
+      {!typing && <Keypad currency={currency} onChange={setText} />}
 
       <View style={styles.save}>
         <Button title={amount > 0 ? `Save ${display(text, currency)}` : 'Save'} onPress={save} disabled={!ready} loading={saving} />
@@ -378,9 +337,5 @@ const useStyles = makeStyles((colors) => ({
   tileText: { flex: 1, gap: 1 },
   tileLabel: { fontSize: 11, color: colors.muted },
   tileValue: { fontSize: 14, fontWeight: '600', color: colors.text },
-  keys: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, paddingTop: 8 },
-  key: { width: '33.33%', height: 58, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
-  keyPressed: { backgroundColor: colors.pressed },
-  keyText: { fontSize: 26, fontWeight: '500', color: colors.text },
   save: { paddingHorizontal: 16, paddingTop: 8 },
 }));
