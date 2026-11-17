@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
+import * as Updates from 'expo-updates';
 import { selfCheck } from './identity';
-import { and, asc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import { addDays, addMonthsToDate, convertOn, dateKey, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey } from '@money-plant/core';
 import { accounts, captureLog, pendingNotifications, sources, transactions } from '@money-plant/db-schema';
 import { digitsMatch, ingestNotification, ingestSms, type IngestResult, type PipelineContext } from '@money-plant/matcher';
@@ -59,8 +60,15 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function context(): Promise<PipelineContext> {
-  return { store: await SqliteLedgerStore.open(), newId: () => Crypto.randomUUID(), categorise: await pipelineCategoriser(), isSelf: await selfCheck() };
+  return scanContext ?? { store: await SqliteLedgerStore.open(), newId: () => Crypto.randomUUID(), categorise: await pipelineCategoriser(), isSelf: await selfCheck() };
 }
+
+/**
+ * During an inbox scan, one context serves every message: building it reads
+ * the rules, categories and the whole merchant cache, which a scan of
+ * thousands of messages would otherwise do once per message.
+ */
+let scanContext: PipelineContext | null = null;
 
 async function fingerprintOf(...parts: (string | number)[]): Promise<string> {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, parts.join('|'));
@@ -267,13 +275,16 @@ async function replaySender(sender: string): Promise<number> {
 setSenderReplay(replaySender);
 
 /**
- * Messages still waiting for an account: read them again before every inbox
- * scan, as the app may now tell their account (the bank got its own rules,
+ * Messages still waiting for an account: read them again before an inbox
+ * scan when the app may now tell their account (the bank got its own rules,
  * like PNB, or the user added an account with those digits). Ones it still
  * can't place keep waiting.
  */
 async function readWaitingSenders(): Promise<number> {
   const db = await getDb();
+  // Only worth it when something that places a message changed since the last read.
+  const state = await waitingState(db);
+  if ((await kvGet(WAITING_STATE_KEY)) === state) return 0;
   const senders = db
     .selectDistinct({ sender: captureLog.sender })
     .from(captureLog)
@@ -282,7 +293,26 @@ async function readWaitingSenders(): Promise<number> {
     .map((row) => row.sender);
   let read = 0;
   for (const sender of senders) read += await replaySender(sender);
+  await kvSet(WAITING_STATE_KEY, state);
   return read;
+}
+
+const WAITING_STATE_KEY = 'capture.waiting.state';
+
+/**
+ * What decides whether a waiting message can be placed: the app's code (an
+ * update can bring a bank's own rules), the user's accounts with their last
+ * digits, and the senders they linked or ignored. Kept as a digest.
+ */
+async function waitingState(db: Awaited<ReturnType<typeof getDb>>): Promise<string> {
+  const owned = db
+    .select({ id: accounts.id, type: accounts.type, institution: accounts.institution, last4: accounts.last4, deletedAt: accounts.deletedAt })
+    .from(accounts)
+    .where(notInArray(accounts.type, ['category', 'person', 'exchange', 'settled']))
+    .orderBy(asc(accounts.id))
+    .all();
+  const parts = [Updates.updateId ?? 'built-in', JSON.stringify(await senderChoices()), JSON.stringify(owned)];
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, parts.join('|'));
 }
 
 export function captureSms(message: SmsMessage): Promise<IngestResult | null> {
@@ -346,24 +376,29 @@ function runImport(
     let since = from(stored === null ? null : Number(stored));
     let newest = stored === null ? 0 : Number(stored);
     const progress: ImportProgress = { read: 0, created: 0, merged: 0 };
-    for (let done = false; !done; ) {
-      const page = await readInbox(since, BANK_SENDER_TOKENS, PAGE_SIZE);
-      for (const message of page) {
-        if (until !== null && message.receivedAt > until) {
-          done = true;
-          break;
+    scanContext = await context();
+    try {
+      for (let done = false; !done; ) {
+        const page = await readInbox(since, BANK_SENDER_TOKENS, PAGE_SIZE);
+        for (const message of page) {
+          if (until !== null && message.receivedAt > until) {
+            done = true;
+            break;
+          }
+          const outcome = await captureSms(message);
+          progress.read++;
+          if (outcome?.outcome === 'created') progress.created++;
+          if (outcome?.outcome === 'attached' || outcome?.outcome === 'transfer') progress.merged++;
+          since = Math.max(since, message.receivedAt);
+          newest = Math.max(newest, message.receivedAt);
         }
-        const outcome = await captureSms(message);
-        progress.read++;
-        if (outcome?.outcome === 'created') progress.created++;
-        if (outcome?.outcome === 'attached' || outcome?.outcome === 'transfer') progress.merged++;
-        since = Math.max(since, message.receivedAt);
-        newest = Math.max(newest, message.receivedAt);
+        // The catch-up cursor only moves forward; a range in the past leaves it where it was.
+        if (newest > 0) await kvSet(INBOX_CURSOR_KEY, String(newest));
+        onProgress?.({ ...progress });
+        if (page.length < PAGE_SIZE) done = true;
       }
-      // The catch-up cursor only moves forward; a range in the past leaves it where it was.
-      if (newest > 0) await kvSet(INBOX_CURSOR_KEY, String(newest));
-      onProgress?.({ ...progress });
-      if (page.length < PAGE_SIZE) done = true;
+    } finally {
+      scanContext = null;
     }
     // After the first import, catch-up starts where the picked range ends, even when it found nothing.
     if (stored === null) await kvSet(INBOX_CURSOR_KEY, String(Math.max(newest, Math.min(until ?? Date.now(), Date.now()))));

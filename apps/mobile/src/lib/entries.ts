@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { DEFAULT_CURRENCY, currencyInfo, paise, type CurrencyCode, type Paise } from '@money-plant/core';
-import { normaliseMerchant, ruleFromEntry, ruleMatches, type RuleMatch } from '@money-plant/categoriser';
+import { normaliseMerchant, ruleFromEntry, ruleMatches, widenedPattern, type Rule, type RuleMatch } from '@money-plant/categoriser';
 import { accounts, transactions } from '@money-plant/db-schema';
 import { rebaseOpening, type LedgerTransaction, type UserSetField } from '@money-plant/matcher';
 import { entryFeatures, ownedAccountIds, recategoriseHistory, toInput } from './categories';
@@ -9,7 +9,8 @@ import { getDb } from './db';
 import { derivedId } from './ids';
 import { notifyLedgerChange } from './events';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
-import { countRuleOutcome, createRule, learnPatterns, listRules, updateRule } from './rules-store';
+import { kvGet, kvSet } from './kv';
+import { countRuleOutcome, createRule, deleteRule, getRule, learnPatterns, listRules, updateRule } from './rules-store';
 import { supabase } from './supabase';
 
 /** Review reasons that are about the category, so picking or accepting one settles them. */
@@ -111,6 +112,46 @@ export async function addRule(match: RuleMatch, categoryId: string): Promise<num
 export async function acceptPattern(ruleId: string, autoConfirm: boolean): Promise<number> {
   await updateRule(ruleId, { status: 'active', autoConfirm });
   return recategoriseHistory({ uncategorisedOnly: true });
+}
+
+/**
+ * Decision 0033: the user accepts a widening. The pattern they already have
+ * takes the wider amounts and hours (keeping its note, its confirm setting and
+ * its history), and the proposal goes. Its corrections so far no longer count
+ * toward offering to pause it.
+ */
+export async function acceptWidening(proposalId: string): Promise<number> {
+  const proposal = await getRule(proposalId);
+  if (!proposal) throw new Error('This suggestion is gone');
+  const target = widenedPattern(proposal, await listRules());
+  if (!target) {
+    // The pattern it widened was removed meanwhile: it becomes a pattern of its own.
+    await updateRule(proposalId, { status: 'active' });
+  } else {
+    await updateRule(target.id, { match: proposal.match });
+    await deleteRule(proposalId);
+    await kvSet(KEPT_KEY(target.id), String(target.misses));
+  }
+  return recategoriseHistory({ uncategorisedOnly: true });
+}
+
+const KEPT_KEY = (ruleId: string) => `patterns.keptAt.${ruleId}`;
+
+/** How many corrections a pattern had when the user last chose to keep it as it is (decision 0033). */
+export async function keptAtMisses(ruleId: string): Promise<number | null> {
+  const saved = await kvGet(KEPT_KEY(ruleId));
+  return saved !== null && /^\d+$/.test(saved) ? Number(saved) : null;
+}
+
+/** Decision 0033: a pattern the user keeps correcting stops guessing until they turn it on again in Rules. */
+export async function pausePattern(ruleId: string): Promise<void> {
+  await updateRule(ruleId, { status: 'paused' });
+}
+
+/** Decision 0033: the user keeps a much-corrected pattern; asked again only after 3 more corrections. */
+export async function keepPattern(rule: Pick<Rule, 'id' | 'misses'>): Promise<void> {
+  await kvSet(KEPT_KEY(rule.id), String(rule.misses));
+  notifyLedgerChange();
 }
 
 export async function declinePattern(ruleId: string): Promise<void> {

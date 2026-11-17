@@ -1,6 +1,10 @@
 import { formatRupees, paise, type Paise } from '@money-plant/core';
 import type { Direction, PatternMatch, PayeeKind, Rule } from './rules';
 
+/** A pattern rule (CAT-8), as opposed to a payee rule. */
+type PatternRule = Rule & { match: PatternMatch };
+const isPattern = (rule: Rule): rule is PatternRule => rule.match.kind === 'pattern';
+
 /** One entry the user categorised by hand, with the features patterns learn from (CAT-8). */
 export interface Correction {
   transactionId: string;
@@ -19,6 +23,12 @@ export interface PatternProposal {
   categoryId: string;
   /** The corrections that agree, newest first. */
   transactionIds: string[];
+  /**
+   * Decision 0033: the pattern this one widens, when the corrections sit just
+   * outside a pattern the user already has (a new price, a later time). The
+   * proposal's match covers both.
+   */
+  replaces?: string;
 }
 
 export const LEARN_WINDOW_DAYS = 30;
@@ -34,9 +44,13 @@ const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 /**
  * Looks for 3 or more corrections to the same category in the last 30 days that
  * share direction, account and payee kind, with amounts in one ±25% band and
- * times in one 2-hour window. Skips anything an existing pattern (in any
- * status, including declined) already covers, so a declined idea is not
- * offered again. Returns at most one proposal per category.
+ * times in one 2-hour window. Returns at most one proposal per category.
+ *
+ * Decision 0033: when the corrections sit near a pattern the user already has
+ * for that category (a new price, a later time), the proposal widens that
+ * pattern instead of starting a second one. A pattern already proposed, or one
+ * that already covers the corrections, means no proposal. A declined idea is
+ * not offered again until 3 corrections fall outside what was declined.
  */
 export function proposePatterns(corrections: readonly Correction[], existing: readonly Rule[], now: Date): PatternProposal[] {
   const since = now.getTime() - LEARN_WINDOW_DAYS * DAY;
@@ -46,6 +60,7 @@ export function proposePatterns(corrections: readonly Correction[], existing: re
     const key = [c.categoryId, c.direction, c.accountId, c.payeeKind].join('|');
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
+  const patterns = existing.filter(isPattern);
 
   const proposals: PatternProposal[] = [];
   for (const group of groups.values()) {
@@ -53,19 +68,115 @@ export function proposePatterns(corrections: readonly Correction[], existing: re
     const cluster = largestCluster(group);
     if (cluster.length < LEARN_MIN_CORRECTIONS) continue;
     const first = cluster[0]!;
-    const match = patternFor(cluster);
-    const covered = existing.some(
-      (rule) => rule.match.kind === 'pattern' && rule.categoryId === first.categoryId && overlaps(rule.match, match),
-    );
-    if (covered) continue;
     if (proposals.some((p) => p.categoryId === first.categoryId)) continue;
-    proposals.push({
-      match,
-      categoryId: first.categoryId,
-      transactionIds: [...cluster].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt)).map((c) => c.transactionId),
-    });
+    const match = patternFor(cluster);
+    const mine = patterns.filter((rule) => rule.categoryId === first.categoryId);
+    // Only new behaviour counts: a pattern is left alone until 3 corrections fall outside it.
+    const settled = (rule: PatternRule) => cluster.filter((c) => !correctionMatches(rule.match, c)).length < LEARN_MIN_CORRECTIONS;
+    if (mine.some((rule) => rule.status === 'proposed' && overlaps(rule.match, match))) continue;
+    if (mine.some((rule) => rule.status === 'declined' && overlaps(rule.match, match) && settled(rule))) continue;
+    const own = mine.filter((rule) => rule.status === 'active' || rule.status === 'paused');
+    const near = own.find((rule) => sameScope(rule.match, match) && isNear(rule.match, match));
+    if (near) {
+      if (settled(near)) continue;
+      const widened = union(near.match, match);
+      if (mine.some((rule) => rule.status === 'declined' && contains(rule.match, widened))) continue;
+      proposals.push({ match: widened, categoryId: first.categoryId, transactionIds: newestFirst(cluster), replaces: near.id });
+      continue;
+    }
+    if (own.some((rule) => overlaps(rule.match, match))) continue;
+    proposals.push({ match, categoryId: first.categoryId, transactionIds: newestFirst(cluster) });
   }
   return proposals;
+}
+
+const newestFirst = (cluster: readonly Correction[]) =>
+  [...cluster].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt)).map((c) => c.transactionId);
+
+/** Whether a correction is one the pattern would have placed. */
+function correctionMatches(match: PatternMatch, c: Correction): boolean {
+  return (
+    match.direction === c.direction &&
+    c.amount >= match.minAmount &&
+    c.amount <= match.maxAmount &&
+    c.minuteOfDay >= match.startMinute &&
+    c.minuteOfDay < match.endMinute &&
+    match.weekdays.includes(c.weekday) &&
+    (match.accountId === null || match.accountId === c.accountId) &&
+    (match.payeeKind === null || match.payeeKind === c.payeeKind)
+  );
+}
+
+/** Same direction, account and payee kind, on some of the same days: one habit, so one pattern. */
+function sameScope(a: PatternMatch, b: PatternMatch): boolean {
+  return a.direction === b.direction && a.accountId === b.accountId && a.payeeKind === b.payeeKind && a.weekdays.some((d) => b.weekdays.includes(d));
+}
+
+/** How far outside a pattern new behaviour may sit and still widen it: a quarter of its top amount, an hour either side. */
+const NEAR_AMOUNT = 0.25;
+const NEAR_MINUTES = 60;
+
+function isNear(existing: PatternMatch, next: PatternMatch): boolean {
+  const slack = Math.ceil(existing.maxAmount * NEAR_AMOUNT);
+  return (
+    next.minAmount <= existing.maxAmount + slack &&
+    next.maxAmount >= existing.minAmount - slack &&
+    next.startMinute <= existing.endMinute + NEAR_MINUTES &&
+    next.endMinute >= existing.startMinute - NEAR_MINUTES
+  );
+}
+
+/** One pattern covering both: the wider amounts, hours and days. */
+function union(a: PatternMatch, b: PatternMatch): PatternMatch {
+  const days = new Set([...a.weekdays, ...b.weekdays]);
+  return {
+    ...a,
+    minAmount: paise(Math.min(a.minAmount, b.minAmount)),
+    maxAmount: paise(Math.max(a.maxAmount, b.maxAmount)),
+    startMinute: Math.min(a.startMinute, b.startMinute),
+    endMinute: Math.max(a.endMinute, b.endMinute),
+    weekdays: EVERY_DAY.filter((d) => days.has(d)),
+  };
+}
+
+/** Whether `outer` places everything `inner` does. */
+function contains(outer: PatternMatch, inner: PatternMatch): boolean {
+  return (
+    sameScope(outer, inner) &&
+    outer.minAmount <= inner.minAmount &&
+    outer.maxAmount >= inner.maxAmount &&
+    outer.startMinute <= inner.startMinute &&
+    outer.endMinute >= inner.endMinute &&
+    inner.weekdays.every((d) => outer.weekdays.includes(d))
+  );
+}
+
+/**
+ * Decision 0033: the pattern a proposal would widen, if it is one: the user's
+ * own pattern for that category that the proposal covers completely.
+ */
+export function widenedPattern(proposal: Rule, rules: readonly Rule[]): PatternRule | null {
+  if (!isPattern(proposal)) return null;
+  return (
+    rules
+      .filter(isPattern)
+      .find((rule) => rule.id !== proposal.id && rule.categoryId === proposal.categoryId && (rule.status === 'active' || rule.status === 'paused') && contains(proposal.match, rule.match)) ??
+    null
+  );
+}
+
+export const PAUSE_MIN_MISSES = 3;
+
+/**
+ * Decision 0033: an active pattern the user keeps correcting is offered for
+ * pausing: at least 3 corrections, more than it got right. `keptAtMisses` is
+ * the corrections count when the user last chose to keep it; it is asked
+ * again only after 3 more.
+ */
+export function shouldOfferPause(rule: Rule, keptAtMisses: number | null): boolean {
+  if (!isPattern(rule) || rule.status !== 'active') return false;
+  if (rule.misses < PAUSE_MIN_MISSES || rule.misses <= rule.hits) return false;
+  return keptAtMisses === null || rule.misses >= keptAtMisses + PAUSE_MIN_MISSES;
 }
 
 /** The biggest set of corrections that fits one time window and one amount band. */

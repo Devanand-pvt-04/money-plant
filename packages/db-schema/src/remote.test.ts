@@ -12,6 +12,8 @@ import {
   toRemoteRule,
   fromRemoteAccount,
   fromRemoteTransaction,
+  isLater,
+  newSince,
   nextCursor,
   toRemoteAccount,
   toTransactionPush,
@@ -59,6 +61,22 @@ describe('account mapping', () => {
       opening_balance_paise: '900' as unknown as number,
     });
     expect(local.openingBalancePaise).toBe(900);
+  });
+});
+
+describe('newSince', () => {
+  it('does not count rows at the cursor, which every pull brings again', () => {
+    const cursor = '2026-10-21T11:00:00.1234+00:00';
+    const rows = [{ updated_at: cursor }, { updated_at: '2026-10-21T11:00:00.12345+00:00' }, { updated_at: '2026-10-21T11:00:01+00:00' }];
+    expect(newSince(rows, cursor)).toBe(2);
+    expect(newSince([{ updated_at: cursor }], cursor)).toBe(0);
+    expect(newSince(rows, null)).toBe(3);
+  });
+
+  it('tells apart times in the same millisecond', () => {
+    expect(isLater('2026-10-21T11:00:00.123456+00:00', '2026-10-21T11:00:00.1234+00:00')).toBe(true);
+    expect(isLater('2026-10-21T11:00:00.1234+00:00', '2026-10-21T11:00:00.123456+00:00')).toBe(false);
+    expect(nextCursor([{ updated_at: '2026-10-21T11:00:00.1234+00:00' }, { updated_at: '2026-10-21T11:00:00.123456+00:00' }], null)).toBe('2026-10-21T11:00:00.123456+00:00');
   });
 });
 

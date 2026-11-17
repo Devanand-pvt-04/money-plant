@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
-import { describePattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
+import { describePattern, shouldOfferPause, widenedPattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { SwipeRow } from '@/components/swipe-row';
 import { Button, Initial, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
@@ -12,9 +12,9 @@ import { formatDate, formatDay, formatTime, formatAmount, reviewTime } from '@/c
 import { displayAmount, transactionTitle } from '@/components/transaction-item';
 import { whyLabel } from '@/components/why';
 import { useCategoryChange } from '@/components/use-category-change';
-import { QuestionsPanel, questionCount, type Proposal } from '@/components/review-rows';
+import { QuestionsPanel, questionCount, type PauseOffer, type Proposal } from '@/components/review-rows';
 import { categoryNames } from '@/lib/categories';
-import { confirmEntries, confirmEntry } from '@/lib/entries';
+import { confirmEntries, confirmEntry, keptAtMisses } from '@/lib/entries';
 import { deleteTransaction, listAccountBalances, listTransactions, splitTransfer, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { itemGuesses, linkEntry, type ItemGuess } from '@/lib/shared';
 import { listRecurring } from '@/lib/recurring';
@@ -34,17 +34,28 @@ async function load() {
     captureQuestions(),
   ]);
   const accountName = new Map(balances.map((b) => [b.account.id, b.account.name]));
-  const proposals = rules
+  const describe = (match: PatternMatch) => describePattern(match, match.accountId ? (accountName.get(match.accountId) ?? null) : null);
+  const proposals: Proposal[] = rules
     .filter((r): r is Rule & { match: PatternMatch } => r.status === 'proposed' && r.match.kind === 'pattern')
-    .map((rule) => ({
-      rule,
-      text: describePattern(rule.match, rule.match.accountId ? (accountName.get(rule.match.accountId) ?? null) : null),
-      category: names.get(rule.categoryId) ?? 'a category',
-    }));
+    .map((rule) => {
+      // Decision 0033: a proposal that covers a pattern the user has widens it.
+      const widened = widenedPattern(rule, rules);
+      return {
+        rule,
+        text: describe(rule.match),
+        category: names.get(rule.categoryId) ?? 'a category',
+        widens: widened ? { id: widened.id, text: describe(widened.match) } : null,
+      };
+    });
+  const pauses: PauseOffer[] = [];
+  for (const rule of rules) {
+    if (rule.match.kind !== 'pattern' || !shouldOfferPause(rule, await keptAtMisses(rule.id))) continue;
+    pauses.push({ rule, text: describe(rule.match), category: names.get(rule.categoryId) ?? 'a category' });
+  }
   const suggested = recurring.filter((r) => r.status === 'proposed');
   const guesses = await itemGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, ItemGuess>());
   const inCredit = await cardsInCredit(balances).catch(() => [] as CardInCredit[]);
-  return { pending, gaps: balances.filter((b) => gapIsDue(b)), inCredit, proposals, suggested, guesses, questions };
+  return { pending, gaps: balances.filter((b) => gapIsDue(b)), inCredit, proposals, pauses, suggested, guesses, questions };
 }
 
 /** The question for an entry that is probably the user's side of an item (decision 0026). */
@@ -129,6 +140,7 @@ export default function Review() {
       gaps: [] as AccountBalance[],
       inCredit: [] as CardInCredit[],
       proposals: [] as Proposal[],
+      pauses: [] as PauseOffer[],
       suggested: [] as RecurringPayment[],
       guesses: new Map<string, ItemGuess>(),
       questions: { senders: [] } as CaptureQuestions,

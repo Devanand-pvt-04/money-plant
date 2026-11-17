@@ -12,10 +12,13 @@ import {
   normaliseMerchant,
   parentKey,
   proposePatterns,
+  shouldOfferPause,
+  widenedPattern,
   ruleFromEntry,
   shareableVpa,
   type CategoriseInput,
   type Correction,
+  type PatternMatch,
   type Rule,
   type UserCategory,
 } from './index';
@@ -231,6 +234,87 @@ describe('proposePatterns (CAT-8)', () => {
     const [proposal] = proposePatterns(corrections, [], now);
     const declined = rule({ status: 'declined', match: proposal!.match, categoryId: proposal!.categoryId });
     expect(proposePatterns(corrections, [declined], now)).toEqual([]);
+  });
+
+  it('offers a declined idea again once 3 corrections fall outside it', () => {
+    const declined = rule({ status: 'declined', match: proposePatterns([correction(0), correction(1), correction(2)], [], now)[0]!.match, categoryId: 'cat:transport.bus' });
+    const later = [3, 4, 5].map((i) => correction(i, { amount: paise(2700) }));
+    expect(proposePatterns(later, [declined], now)).toHaveLength(1);
+  });
+});
+
+describe('widening patterns (decision 0033)', () => {
+  const now = new Date('2026-10-22T12:00:00.000Z');
+  // Breakfast: ₹30 to ₹50, weekdays 9 to 10 am.
+  const breakfast: PatternMatch = {
+    kind: 'pattern',
+    direction: 'debit',
+    minAmount: paise(3000),
+    maxAmount: paise(5000),
+    startMinute: 9 * 60,
+    endMinute: 10 * 60,
+    weekdays: [1, 2, 3, 4, 5],
+    accountId: 'hdfc',
+    payeeKind: 'business',
+  };
+  const existing = rule({ id: 'breakfast', status: 'active', match: breakfast, categoryId: 'cat:food.breakfast' });
+  const correction = (i: number, over: Partial<Correction> = {}): Correction => ({
+    transactionId: `t${i}`,
+    categoryId: 'cat:food.breakfast',
+    direction: 'debit',
+    amount: paise(4000),
+    accountId: 'hdfc',
+    payeeKind: 'business',
+    minuteOfDay: 9 * 60 + 30,
+    weekday: 1 + (i % 5),
+    occurredAt: `2026-10-${String(10 + i).padStart(2, '0')}T03:00:00.000Z`,
+    ...over,
+  });
+
+  it('widens the amounts when the price goes up', () => {
+    const [proposal] = proposePatterns([0, 1, 2].map((i) => correction(i, { amount: paise(6000) })), [existing], now);
+    expect(proposal).toMatchObject({ replaces: 'breakfast', categoryId: 'cat:food.breakfast' });
+    expect(proposal!.match).toMatchObject({ minAmount: 3000, startMinute: 540, endMinute: 600 });
+    expect(proposal!.match.maxAmount).toBeGreaterThanOrEqual(6000);
+  });
+
+  it('widens the hours when the time moves later', () => {
+    const [proposal] = proposePatterns([0, 1, 2].map((i) => correction(i, { minuteOfDay: 10 * 60 + 15 })), [existing], now);
+    expect(proposal).toMatchObject({ replaces: 'breakfast' });
+    expect(proposal!.match).toMatchObject({ minAmount: 3000, maxAmount: 5000, startMinute: 540, endMinute: 660 });
+  });
+
+  it('leaves the pattern alone for fewer than 3 corrections outside it', () => {
+    const corrections = [correction(0), correction(1), correction(2, { amount: paise(6000) })];
+    expect(proposePatterns(corrections, [existing], now)).toEqual([]);
+  });
+
+  it('starts a separate pattern for a far-off habit', () => {
+    const [proposal] = proposePatterns([0, 1, 2].map((i) => correction(i, { minuteOfDay: 20 * 60, amount: paise(30000) })), [existing], now);
+    expect(proposal).toBeDefined();
+    expect(proposal!.replaces).toBeUndefined();
+  });
+
+  it('does not offer a widening the user declined', () => {
+    const corrections = [0, 1, 2].map((i) => correction(i, { amount: paise(6000) }));
+    const [proposal] = proposePatterns(corrections, [existing], now);
+    const declined = rule({ id: 'no', status: 'declined', match: proposal!.match, categoryId: 'cat:food.breakfast' });
+    expect(proposePatterns(corrections, [existing, declined], now)).toEqual([]);
+  });
+
+  it('finds the pattern a proposal widens', () => {
+    const [proposal] = proposePatterns([0, 1, 2].map((i) => correction(i, { amount: paise(6000) })), [existing], now);
+    const proposed = rule({ id: 'p', status: 'proposed', match: proposal!.match, categoryId: 'cat:food.breakfast' });
+    expect(widenedPattern(proposed, [existing, proposed])?.id).toBe('breakfast');
+    expect(widenedPattern(existing, [existing])).toBeNull();
+  });
+
+  it('offers to pause a pattern corrected more than it was right', () => {
+    expect(shouldOfferPause({ ...existing, hits: 1, misses: 3 }, null)).toBe(true);
+    expect(shouldOfferPause({ ...existing, hits: 5, misses: 3 }, null)).toBe(false);
+    expect(shouldOfferPause({ ...existing, hits: 1, misses: 4 }, 3)).toBe(false);
+    expect(shouldOfferPause({ ...existing, hits: 1, misses: 6 }, 3)).toBe(true);
+    expect(shouldOfferPause({ ...existing, status: 'paused', hits: 0, misses: 9 }, null)).toBe(false);
   });
 });
 

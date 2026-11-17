@@ -663,9 +663,29 @@ export function fromRemoteItemLink(row: RemoteItemLink): LocalItemLink {
 export function nextCursor(rows: readonly { updated_at: string }[], previous: string | null): string | null {
   let cursor = previous;
   for (const row of rows) {
-    if (cursor === null || Date.parse(row.updated_at) > Date.parse(cursor)) cursor = row.updated_at;
+    if (cursor === null || isLater(row.updated_at, cursor)) cursor = row.updated_at;
   }
   return cursor;
+}
+
+/**
+ * Whether server timestamp `a` is after `b`. Postgres keeps microseconds,
+ * which Date.parse drops, so two times in the same millisecond are told
+ * apart by their text (same zone, trailing zeros trimmed, so text order is
+ * time order).
+ */
+export function isLater(a: string, b: string): boolean {
+  const ms = Date.parse(a) - Date.parse(b);
+  return ms > 0 || (ms === 0 && a > b);
+}
+
+/**
+ * Rows a pull brought that the phone hadn't seen: newer than the cursor. A
+ * pull asks for rows at the cursor too (rows written together share a
+ * time), so those come back every time and are not news.
+ */
+export function newSince(rows: readonly { updated_at: string }[], cursor: string | null): number {
+  return cursor === null ? rows.length : rows.filter((row) => isLater(row.updated_at, cursor)).length;
 }
 
 export interface RemoteDeposit {

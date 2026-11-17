@@ -97,7 +97,7 @@ export function activeChips(f: ActivityFilters): { label: string; clear: Partial
 }
 
 /** HOME-2: the filter sheet. Changes apply when the user taps Show. */
-export function FilterSheet(props: { visible: boolean; value: ActivityFilters; count: (f: ActivityFilters) => number; onApply: (f: ActivityFilters) => void; onClose: () => void }) {
+export function FilterSheet(props: { visible: boolean; value: ActivityFilters; count: (f: ActivityFilters) => number | null; onApply: (f: ActivityFilters) => void; onClose: () => void }) {
   const colors = useColors();
   const styles = useStyles();
   const [f, setF] = useState<ActivityFilters>(props.value);
@@ -120,6 +120,7 @@ export function FilterSheet(props: { visible: boolean; value: ActivityFilters; c
     return parsed !== null && parsed > 0 ? paise(parsed) : null;
   };
   const next = { ...f, min: amount(min), max: amount(max) };
+  const shown = props.count(next);
 
   return (
     <Sheet visible={props.visible} onClose={props.onClose} tall>
@@ -191,7 +192,7 @@ export function FilterSheet(props: { visible: boolean; value: ActivityFilters; c
           <Switch value={f.reviewOnly} onValueChange={(reviewOnly) => set({ reviewOnly })} />
         </View>
       </FormScroll>
-      <Button title={`Show ${props.count(next)} entries`} onPress={() => props.onApply(next)} />
+      <Button title={shown === null ? 'Show entries' : `Show ${shown} entries`} onPress={() => props.onApply(next)} />
 
       <AccountPicker
         visible={picking === 'account'}
