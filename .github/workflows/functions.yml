@@ -1,0 +1,96 @@
+name: Edge functions
+
+# Deploys supabase/functions to the hosted project, the same as
+# `npx supabase functions deploy <name>` from a PC. It runs:
+# - by itself after a merge to main that changes a function: only the
+#   functions whose folder changed, or all of them when supabase/config.toml,
+#   a shared folder (one starting with _) or this file changed;
+# - before every OTA update (ota-update.yml calls it), so the phones never get
+#   code that calls a function the server doesn't have yet;
+# - by hand from Actions → Edge functions → Run workflow, for one function or all.
+# Function secrets (AI worker token and the like) stay in the Supabase
+# dashboard; this only uploads code. Needs the repository secret
+# SUPABASE_ACCESS_TOKEN (docs/setup.md, section 4).
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/functions/**', 'supabase/config.toml', '.github/workflows/functions.yml']
+  workflow_dispatch:
+    inputs:
+      function:
+        description: One function's folder name, or leave empty for all
+        type: string
+        required: false
+  workflow_call:
+    secrets:
+      SUPABASE_ACCESS_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # One deploy at a time, never cancelled halfway.
+    concurrency:
+      group: supabase-functions
+      cancel-in-progress: false
+    env:
+      PROJECT_REF: dywcmxixmzeqhzifuhwm
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - name: Check the secret is set
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::Add the repository secret SUPABASE_ACCESS_TOKEN (docs/setup.md, section 4)."
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # Which functions to deploy, one folder name per line. Inputs go through env, never into the script text.
+      - name: Pick functions
+        id: pick
+        env:
+          ASKED: ${{ inputs.function }}
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          all=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d ! -name '_*' -printf '%f\n' | sort)
+          if [ "$EVENT" = "workflow_dispatch" ] && [ -n "$ASKED" ]; then
+            if ! printf '%s\n' "$all" | grep -qxF -- "$ASKED"; then
+              echo "::error::No function named '$ASKED'. Functions: $(echo $all)"
+              exit 1
+            fi
+            names="$ASKED"
+          elif [ "$EVENT" = "push" ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BEFORE" HEAD)
+            if printf '%s\n' "$changed" | grep -qE '^(supabase/config\.toml|supabase/functions/_[^/]*/|\.github/workflows/functions\.yml)'; then
+              names="$all"
+            else
+              names=$(printf '%s\n' "$changed" | sed -nE 's#^supabase/functions/([^_/][^/]*)/.*#\1#p' | sort -u | grep -xF -f <(printf '%s\n' "$all") || true)
+            fi
+          else
+            names="$all"
+          fi
+          echo "Deploying: $(echo $names)"
+          { echo 'names<<EOF'; printf '%s\n' "$names"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
+      - uses: supabase/setup-cli@v1
+        if: steps.pick.outputs.names != ''
+        with:
+          # Same pinned version as CI.
+          version: 3.0.0
+      # Each function's settings (verify_jwt) come from supabase/config.toml.
+      - name: Deploy
+        if: steps.pick.outputs.names != ''
+        env:
+          NAMES: ${{ steps.pick.outputs.names }}
+        run: |
+          printf '%s\n' "$NAMES" | while read -r name; do
+            [ -z "$name" ] && continue
+            echo "::group::$name"
+            supabase functions deploy "$name" --project-ref "$PROJECT_REF"
+            echo "::endgroup::"
+          done
