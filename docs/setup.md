@@ -53,6 +53,8 @@ In the [Supabase dashboard](https://supabase.com/dashboard/project/dywcmxixmzeqh
    - `SUPABASE_DB_PASSWORD`: the database password (Project Settings → Database; reset it there if you don't have it).
 
    To run it by hand: **Actions → Database migrations → Run workflow**. From a PC it is still `npx supabase login`, `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`, `npx supabase db push`.
+
+   **Edge functions deploy from GitHub too.** The **Edge functions** action deploys each function in `supabase/functions` whose folder changed, after every merge to main and again before every OTA update. It needs only `SUPABASE_ACCESS_TOKEN`. Function secrets (such as `AI_WORKER_TOKEN`) still live in the Supabase dashboard; the action uploads code only. To deploy by hand: **Actions → Edge functions → Run workflow**, with a function name or empty for all, or `npx supabase functions deploy <name>` from a PC.
 2. **Authentication → Sign In / Providers → Email**: make sure Email is enabled.
 3. **Set up a free SMTP sender.** Supabase only lets you edit email templates once custom SMTP is on, and its built-in sender allows just a few emails an hour. Gmail is free and needs no domain:
    1. Turn on 2-Step Verification for the Google account at [myaccount.google.com/security](https://myaccount.google.com/security).

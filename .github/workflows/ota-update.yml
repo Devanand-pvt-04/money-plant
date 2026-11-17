@@ -8,8 +8,9 @@ name: OTA update
 #   moved app.json's version: that needs a new build.
 # - By hand: Actions → OTA update → Run workflow, for either channel.
 # Needs the EXPO_TOKEN repository secret (docs/setup.md, section 11).
-# Database migrations are applied first (migrate.yml), so an update never
-# reaches the phones before the server changes it needs.
+# Database migrations (migrate.yml) and changed edge functions (functions.yml)
+# go first, so an update never reaches the phones before the server changes it
+# needs.
 # Updates only reach builds whose app.json version matches the commit's.
 
 on:
@@ -44,8 +45,12 @@ jobs:
     uses: ./.github/workflows/migrate.yml
     secrets: inherit
 
+  functions:
+    uses: ./.github/workflows/functions.yml
+    secrets: inherit
+
   publish:
-    needs: migrate
+    needs: [migrate, functions]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
