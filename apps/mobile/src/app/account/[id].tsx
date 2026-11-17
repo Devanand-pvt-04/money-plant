@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Alert, FlatList, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { formatMoney, formatRupees, isBalanceScheme, monthOf, paise, SCHEMES, startOfDate, type Paise, type SchemeKind } from '@money-plant/core';
+import { formatMoney, formatRupees, isBalanceScheme, monthOf, paise, SCHEMES, startOfDate, type Paise, type SchemeKind, type SipOrder } from '@money-plant/core';
 import type { LocalDeposit, LocalHolding } from '@money-plant/db-schema';
 import { accountLabel } from '@/components/account-picker';
 import { LineChart } from '@/components/line-chart';
@@ -301,6 +301,38 @@ const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const shortDate = (key: string) => `${Number(key.slice(8, 10))} ${SHORT_MONTHS[Number(key.slice(5, 7)) - 1]}`;
 const fmtNav = (e4: number) => `₹${(e4 / 10_000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 
+const STEPS = ['Paid', 'In progress', 'Allotted'] as const;
+
+/**
+ * Decision 0031: where a SIP payment's order stands. Paid and in progress
+ * until AMFI publishes the NAV of its day, then units at that NAV.
+ */
+function OrderStatus({ order }: { order: SipOrder }) {
+  const colors = useColors();
+  const styles = useStyles();
+  const reached = order.stage === 'in_progress' ? 1 : 2;
+  const units = `${(order.unitsE4 / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 3 })} units`;
+  const detail =
+    order.stage === 'allotted'
+      ? `${units} at ${fmtNav(order.navE4!)}, the NAV of ${shortDate(order.navDate)}`
+      : order.stage === 'estimated'
+        ? `About ${units}, estimated: the NAV of ${shortDate(order.navDate)} didn't arrive`
+        : `Units at the NAV of ${shortDate(order.navDate)}, once it's out`;
+  return (
+    <View style={styles.orderStatus}>
+      <View style={styles.orderSteps}>
+        {STEPS.map((step, i) => (
+          <View key={step} style={styles.orderStep}>
+            <View style={[styles.orderDot, { backgroundColor: i <= reached ? colors.primary : colors.divider }]} />
+            <Text style={[styles.orderStepText, i === reached && { color: colors.text, fontWeight: '600' }]}>{step}</Text>
+          </View>
+        ))}
+      </View>
+      <Text style={styles.meta}>{detail}</Text>
+    </View>
+  );
+}
+
 /** NW-3 (decision 0015): value and gain, 12 months of value against money put in, the numbers, the SIP and the history. */
 function FundView({ balance: item, fund, page, footer }: { balance: AccountBalance; fund: NonNullable<Fund>; page: FundPage; footer: React.ReactElement }) {
   const colors = useColors();
@@ -397,11 +429,15 @@ function FundView({ balance: item, fund, page, footer }: { balance: AccountBalan
             <Text style={styles.historyTitle}>
               {row.label} · {shortDate(row.date)}
             </Text>
-            <Text style={styles.meta}>
-              {row.estimated
-                ? 'Units estimated until your next CAS'
-                : `${(Math.abs(row.unitsE4!) / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${row.navE4 ? ` at ${fmtNav(row.navE4)}` : ''}`}
-            </Text>
+            {row.order ? (
+              <OrderStatus order={row.order} />
+            ) : (
+              <Text style={styles.meta}>
+                {row.estimated
+                  ? 'Units estimated until your next CAS'
+                  : `${(Math.abs(row.unitsE4!) / 10_000).toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${row.navE4 ? ` at ${fmtNav(row.navE4)}` : ''}`}
+              </Text>
+            )}
           </View>
           {row.amount !== null && <Text style={styles.historyAmount}>{formatAmount(row.amount, 'INR')}</Text>}
         </View>
@@ -504,8 +540,9 @@ function FundCard({ fund, balance }: { fund: NonNullable<Fund>; balance: Paise }
         {holding.sipPaise ? ` · SIP ${formatRupees(paise(holding.sipPaise))} around the ${ordinal(holding.sipDay ?? 1)}` : ''}
       </Text>
       {value.estimatedUnitsE4 > 0 && (
-        <Text style={styles.note}>About {fmtUnits(value.estimatedUnitsE4)} more units bought since, estimated from the NAV around each payment.</Text>
+        <Text style={styles.note}>{fmtUnits(value.estimatedUnitsE4)} more units bought since, at the NAV of each payment's day.</Text>
       )}
+      {value.pendingPaise > 0 && <Text style={styles.note}>{formatRupees(value.pendingPaise)} waiting for its NAV, counted at what you paid.</Text>}
       <Text style={styles.note}>{holding.folio ? `Folio ${holding.folio}. ` : ''}Import a newer CAS to update the units.</Text>
     </View>
   );
@@ -640,6 +677,11 @@ const useStyles = makeStyles((colors) => ({
   sip: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   sipTitle: { fontSize: 14, fontWeight: '600', color: colors.text },
   historyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  orderStatus: { gap: 4, marginTop: 2 },
+  orderSteps: { flexDirection: 'row', gap: 10 },
+  orderStep: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  orderDot: { width: 6, height: 6, borderRadius: 3 },
+  orderStepText: { fontSize: 12, color: colors.muted },
   historyDivided: { borderTopWidth: 1, borderTopColor: colors.divider },
   historyTitle: { fontSize: 14, fontWeight: '500', color: colors.text },
   historyAmount: { fontSize: 14, fontWeight: '600', color: colors.text, ...figures },

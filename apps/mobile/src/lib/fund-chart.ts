@@ -13,6 +13,7 @@ import {
   type FundChartPoint,
   type MonthKey,
   type Paise,
+  type SipOrder,
 } from '@money-plant/core';
 import { fundTransactions, navHistory, postings, transactions, type LocalHolding } from '@money-plant/db-schema';
 import { getDb } from './db';
@@ -65,6 +66,8 @@ export interface FundHistoryRow {
   navE4: number | null;
   /** Paid after the statement: units are estimated until the next CAS. */
   estimated: boolean;
+  /** Paid in after the statement: where its order stands (decision 0031). */
+  order?: SipOrder;
 }
 
 export interface FundPage {
@@ -128,8 +131,12 @@ export async function fundPage(accountId: string, balance: Paise): Promise<FundP
     });
   }
   for (const flow of flows) {
-    if (flow.on <= holding.asOf) continue;
-    history.push({ date: flow.on, label: flow.amount > 0 ? 'Paid in' : 'Taken out', amount: paise(Math.abs(flow.amount)), unitsE4: null, navE4: null, estimated: true });
+    if (flow.on <= holding.asOf || flow.amount > 0) continue;
+    history.push({ date: flow.on, label: 'Taken out', amount: paise(Math.abs(flow.amount)), unitsE4: null, navE4: null, estimated: true });
+  }
+  // Decision 0031: each payment in is an order, paid, in progress or allotted.
+  for (const order of value?.orders ?? []) {
+    history.push({ date: order.on, label: 'Paid in', amount: order.amount, unitsE4: order.unitsE4 || null, navE4: order.navE4, estimated: order.stage !== 'allotted', order });
   }
   history.sort((a, b) => b.date.localeCompare(a.date));
   return { chart: shown, hasStatementHistory: stored.length > 0, history };

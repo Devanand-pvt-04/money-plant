@@ -13,6 +13,10 @@ import {
   holdingValue,
   shortSchemeName,
   sipFundFor,
+  firstWeekday,
+  learnNavLag,
+  navFrom,
+  DEFAULT_NAV_LAG,
   FLOW_DAYS_AFTER,
   FLOW_DAYS_BEFORE,
   type CasStatement,
@@ -21,9 +25,11 @@ import {
   type DematStatement,
   type DateKey,
   type FlowCandidate,
+  type NavLag,
+  type NavPoint,
   type Paise,
 } from '@money-plant/core';
-import { accounts, fundTransactions, holdings, navs, postings, transactions, type LocalHolding } from '@money-plant/db-schema';
+import { accounts, fundTransactions, holdings, navAfter, navs, postings, transactions, type LocalHolding } from '@money-plant/db-schema';
 import type { LedgerPosting, LedgerTransaction } from '@money-plant/matcher';
 import { rebaseOpening } from '@money-plant/matcher';
 import { getDb } from './db';
@@ -38,6 +44,12 @@ const now = () => new Date().toISOString();
 const today = () => dateKey(new Date());
 const NAV_FETCHED_KEY = 'funds.nav.fetched';
 const NAV_EVERY_MS = 6 * 60 * 60_000;
+const ORDERS_FETCHED_KEY = 'funds.nav_after.fetched';
+const ORDERS_EVERY_MS = 3 * 60 * 60_000;
+/** Decision 0031: the NAV day each fund prices a SIP debit at, learned from its CAS. */
+const lagKey = (accountId: string) => `funds.nav_lag.${accountId}`;
+/** The key a holding's NAVs are kept under: its AMFI code, or its ISIN. */
+const schemeKey = (h: { amfiCode: string | null; isin: string | null }) => h.amfiCode ?? h.isin;
 
 /** NW-3, NW-5: reads a CAS PDF through the parse-cas edge function: funds from CAMS or KFinTech, or a demat statement from NSDL or CDSL. */
 export async function readCas(file: PdfFile, password: string): Promise<CasStatement | DematStatement> {
@@ -211,6 +223,31 @@ export async function importCas(statement: CasStatement): Promise<CasImportResul
     }
   }
 
+  // Decision 0031: which day's NAV each fund gave its SIPs, from the purchases matched to payments into it.
+  for (const item of items) {
+    const accountId = accountOf.get(item.key)!;
+    const purchases = item.flows.filter((f) => f.direction === 'in').map((f) => ({ date: f.date, amount: f.amount }));
+    if (purchases.length === 0) continue;
+    const dates = purchases.map((p) => p.date).sort();
+    const payments = db
+      .select({ occurredAt: transactions.occurredAt, amount: postings.amountPaise })
+      .from(postings)
+      .innerJoin(transactions, eq(transactions.id, postings.transactionId))
+      .where(
+        and(
+          isNull(transactions.deletedAt),
+          eq(postings.accountId, accountId),
+          gte(transactions.occurredAt, startOfDate(addDays(dates[0]!, -FLOW_DAYS_BEFORE)).toISOString()),
+          lt(transactions.occurredAt, startOfDate(addDays(dates[dates.length - 1]!, 1)).toISOString()),
+        ),
+      )
+      .all()
+      .filter((row) => row.amount > 0)
+      .map((row) => ({ on: dateOf(row.occurredAt), amount: paise(row.amount) }));
+    const lag = learnNavLag(purchases, payments);
+    if (lag !== null) await kvSet(lagKey(accountId), String(lag));
+  }
+
   // The balance on the statement's end date is the cost of the units held then.
   for (const item of items) {
     const accountId = accountOf.get(item.key)!;
@@ -277,7 +314,87 @@ export async function fundValues(balances: ReadonlyMap<string, Paise>): Promise<
   const latest = await latestNavs();
   const list = await listHoldings();
   const flows = await flowsSince(list);
-  return new Map(list.map((holding) => [holding.accountId, holdingValue(holding, latest, flows.get(holding.accountId) ?? [], balances.get(holding.accountId))]));
+  const published = await publishedNavs();
+  const on = today();
+  const out = new Map<string, FundValue>();
+  for (const holding of list) {
+    const key = schemeKey(holding);
+    const orders = { lag: await navLag(holding.accountId), published: (key && published.get(key)) || new Map<string, NavPoint>(), today: on };
+    out.set(holding.accountId, holdingValue(holding, latest, flows.get(holding.accountId) ?? [], balances.get(holding.accountId), orders));
+  }
+  return out;
+}
+
+/** Decision 0031: the day a fund prices SIP debits at, as learned from its CAS, or the next business day. */
+export async function navLag(accountId: string): Promise<NavLag> {
+  const saved = await kvGet(lagKey(accountId));
+  return saved === '0' ? 0 : saved === '1' ? 1 : DEFAULT_NAV_LAG;
+}
+
+/** The NAVs SIP orders were allotted at, by scheme key, then by the day asked about. */
+async function publishedNavs(): Promise<Map<string, Map<string, NavPoint>>> {
+  const db = await getDb();
+  const out = new Map<string, Map<string, NavPoint>>();
+  for (const row of db.select().from(navAfter).all()) {
+    const days = out.get(row.amfiCode) ?? new Map<string, NavPoint>();
+    days.set(row.fromDate, { navE4: row.navE4, date: row.date as DateKey });
+    out.set(row.amfiCode, days);
+  }
+  return out;
+}
+
+/**
+ * Decision 0031: asks nav-history for the NAV each SIP order waits for, once
+ * the day it expects has come, at most every 3 hours while any order waits.
+ * AMFI publishes a day's NAVs late that evening, so an order usually completes
+ * that night or the next morning. Returns true when an order got its NAV.
+ */
+export async function fetchOrderNavs(): Promise<boolean> {
+  const list = (await listHoldings()).filter((h) => schemeKey(h) !== null);
+  if (list.length === 0) return false;
+  const db = await getDb();
+  const have = new Set(db.select().from(navAfter).all().map((row) => `${row.amfiCode}|${row.fromDate}`));
+  const flows = await flowsSince(list);
+  const on = today();
+  const wanted: { holding: LocalHolding; from: DateKey }[] = [];
+  for (const holding of list) {
+    const lag = await navLag(holding.accountId);
+    for (const flow of flows.get(holding.accountId) ?? []) {
+      if (flow.on <= holding.asOf || flow.amount <= 0) continue;
+      const from = navFrom(flow.on, lag);
+      if (firstWeekday(from) > on || have.has(`${schemeKey(holding)}|${from}`)) continue;
+      wanted.push({ holding, from });
+    }
+  }
+  if (wanted.length === 0) return false;
+  const fetched = await kvGet(ORDERS_FETCHED_KEY);
+  if (fetched && Date.now() - Date.parse(fetched) < ORDERS_EVERY_MS) return false;
+
+  const days = [...new Set(wanted.map((w) => w.from))].sort().slice(-12);
+  const holdingsAsked = [...new Set(wanted.filter((w) => days.includes(w.from)).map((w) => w.holding))];
+  const codes = [...new Set(holdingsAsked.map((h) => h.amfiCode).filter((c): c is string => !!c))];
+  const isins = [...new Set(holdingsAsked.filter((h) => !h.amfiCode && h.isin).map((h) => h.isin!))];
+  const { data, error } = await supabase.functions.invoke<{ navs: { code: string; isins: string[]; nav: string; date: string; after?: string }[] }>('nav-history', {
+    body: { codes, isins, after: days },
+  });
+  if (error || !data) return false;
+  await kvSet(ORDERS_FETCHED_KEY, new Date().toISOString());
+  let added = 0;
+  db.transaction((t) => {
+    for (const row of data.navs) {
+      const navE4 = scaleDecimal(row.nav, 4);
+      if (navE4 === null || navE4 <= 0 || !row.after || !/^\d{4}-\d{2}-\d{2}$/.test(row.date) || !/^\d{4}-\d{2}-\d{2}$/.test(row.after) || row.date < row.after) continue;
+      for (const h of holdingsAsked) {
+        if (h.amfiCode !== row.code && !(h.isin && row.isins.includes(h.isin))) continue;
+        t.insert(navAfter)
+          .values({ amfiCode: schemeKey(h)!, fromDate: row.after, navE4, date: row.date })
+          .onConflictDoUpdate({ target: [navAfter.amfiCode, navAfter.fromDate], set: { navE4, date: row.date } })
+          .run();
+        added++;
+      }
+    }
+  });
+  return added > 0;
 }
 
 /**
@@ -321,6 +438,7 @@ export async function requestNavs(codes: string[], isins: string[]): Promise<boo
  *   amount, become transfers into that fund: one per fund a month, the fund
  *   whose SIP day is nearest when two share an amount.
  * - Today's NAVs are fetched once a day.
+ * - SIP orders get the NAV of their day once AMFI publishes it (decision 0031).
  * Returns the number of entries changed.
  */
 export async function refreshFunds(): Promise<number> {
@@ -353,7 +471,9 @@ export async function refreshFunds(): Promise<number> {
   }
 
   await fetchNavs(await listHoldings()).catch(() => {});
-  if (changed > 0) notifyLedgerChange();
+  // Decision 0031: SIP orders waiting for their NAV.
+  const allotted = await fetchOrderNavs().catch(() => false);
+  if (changed > 0 || allotted) notifyLedgerChange();
   return changed;
 }
 

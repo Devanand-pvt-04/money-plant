@@ -11,6 +11,12 @@
 // with a NAV is skipped. When a scheme is missing on a month's last weekday (a
 // holiday), the day before is tried, up to four days back. NAVs go back as
 // strings so the phone can scale them without floats.
+//
+// Decision 0031: `after` asks, for SIP orders, for the first NAV published on
+// or after each given day. A day whose report lists no scheme at all is a
+// holiday and is skipped, up to a week on; a day that lists others but not
+// the scheme, or today before the NAVs are out, gives nothing yet, so the
+// phone asks again later instead of taking a wrong day.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 
@@ -47,19 +53,30 @@ function candidates(month: string): Date[] {
 
 const amfiDate = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')}-${MONTH_NAMES[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
 
-/** Every scheme's NAV on one day, kept only for the schemes asked about. */
-async function navsOn(day: Date, wanted: (nav: Nav) => boolean): Promise<Nav[]> {
+/** Every scheme's NAV on one day, kept only for the schemes asked about; `listed` is false when the day has no NAVs at all. */
+async function report(day: Date, wanted: (nav: Nav) => boolean): Promise<{ listed: boolean; navs: Nav[] }> {
   const date = amfiDate(day);
   const response = await fetch(`${REPORT_URL}?frmdt=${date}&todt=${date}`, { signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`status ${response.status}`);
   const text = await response.text();
   const out: Nav[] = [];
+  let listed = false;
+  const iso = day.toISOString().slice(0, 10);
   for (const line of text.split(/\r?\n/)) {
     const nav = parseLine(line);
-    if (nav && wanted(nav)) out.push(nav);
+    // Only NAVs of that very day count, so a report that repeats an earlier NAV never passes for it.
+    if (!nav || nav.date !== iso) continue;
+    listed = true;
+    if (wanted(nav)) out.push(nav);
   }
-  return out;
+  return { listed, navs: out };
 }
+
+async function navsOn(day: Date, wanted: (nav: Nav) => boolean): Promise<Nav[]> {
+  return (await report(day, wanted)).navs;
+}
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -68,7 +85,7 @@ Deno.serve(async (request) => {
   const { data: auth, error: authError } = await admin.auth.getUser(token);
   if (authError || !auth.user) return json({ error: 'unauthorised' }, 401);
 
-  let body: { codes?: unknown; isins?: unknown; months?: unknown };
+  let body: { codes?: unknown; isins?: unknown; months?: unknown; after?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -81,9 +98,37 @@ Deno.serve(async (request) => {
   // Only past months: this month's NAV comes from nav-prices.
   const thisMonth = new Date().toISOString().slice(0, 7);
   const months = list(body.months, /^\d{4}-(0[1-9]|1[0-2])$/, 12).filter((m) => m < thisMonth);
-  if ((!codes.size && !isins.size) || months.length === 0) return json({ navs: [] });
+  // Today in India, where AMFI publishes; nothing later can have a NAV yet.
+  const today = isoDay(new Date(Date.now() + 330 * 60_000));
+  const after = list(body.after, /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, 12).filter((d) => d <= today);
+  if ((!codes.size && !isins.size) || (months.length === 0 && after.length === 0)) return json({ navs: [] });
 
   const asked = (nav: Nav) => codes.has(nav.code) || nav.isins.some((isin) => isins.has(isin));
+
+  // Each day's report is fetched once, however many orders wait on it.
+  const days = new Map<string, Promise<{ listed: boolean; navs: Nav[] }>>();
+  const day = (key: string) => {
+    if (!days.has(key)) days.set(key, report(new Date(`${key}T00:00:00Z`), asked));
+    return days.get(key)!;
+  };
+  const firstAfter = async (from: string) => {
+    let date = new Date(`${from}T00:00:00Z`);
+    for (let i = 0; i < 8 && isoDay(date) <= today; i++, date = new Date(date.getTime() + 86_400_000)) {
+      let found: { listed: boolean; navs: Nav[] };
+      try {
+        found = await day(isoDay(date));
+      } catch (error) {
+        console.error('nav-history fetch failed', isoDay(date), (error as Error).message);
+        return [];
+      }
+      // Today with nothing listed yet: the NAVs aren't out, so wait.
+      if (!found.listed && isoDay(date) === today) return [];
+      if (found.listed) return found.navs.map((nav) => ({ ...nav, after: from }));
+    }
+    return [];
+  };
+  const orders = (await Promise.all(after.map(firstAfter))).flat();
+  if (months.length === 0) return json({ navs: orders });
   const total = codes.size + isins.size;
   const results = await Promise.all(
     months.map(async (month) => {
@@ -102,5 +147,5 @@ Deno.serve(async (request) => {
       return [...found.values()].map((nav) => ({ ...nav, month }));
     }),
   );
-  return json({ navs: results.flat() });
+  return json({ navs: [...results.flat(), ...orders] });
 });

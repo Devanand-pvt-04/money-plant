@@ -375,6 +375,25 @@ export const navHistory = sqliteTable(
 );
 
 /**
+ * Local only, never synced (NW-3, decision 0031): for a SIP order, the first
+ * NAV AMFI published for a scheme on or after a day. Past NAVs never change,
+ * so each pair is asked for once, after that NAV is out.
+ */
+export const navAfter = sqliteTable(
+  'nav_after',
+  {
+    /** The holding's AMFI code, or its ISIN when the statement gave no code. */
+    amfiCode: text('amfi_code').notNull(),
+    /** The day asked about, "2026-11-16". */
+    fromDate: text('from_date').notNull(),
+    navE4: integer('nav_e4').notNull(),
+    /** The NAV's own date: the first day on or after from_date that has one. */
+    date: text('date').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.amfiCode, table.fromDate] })],
+);
+
+/**
  * Local only, never synced (NW-3, decision 0015): the purchases, redemptions
  * and charges a CAS listed for each fund, kept as the statement wrote them, for
  * the fund's chart and history. Replaced on each import; another phone fills
@@ -962,4 +981,12 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
   CREATE INDEX item_links_dirty_idx ON item_links (dirty);`,
   // Decision 0027: a repayment settled another way.
   `ALTER TABLE shared_items ADD COLUMN settled_outside INTEGER NOT NULL DEFAULT 0;`,
+  // Decision 0031: the NAV each SIP order was allotted at.
+  `CREATE TABLE nav_after (
+    amfi_code TEXT NOT NULL,
+    from_date TEXT NOT NULL,
+    nav_e4 INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    PRIMARY KEY (amfi_code, from_date)
+  );`,
 ];

@@ -85,7 +85,7 @@ const holding = (overrides: Partial<HoldingRow> = {}): HoldingRow => ({
 
 describe('holdingValue', () => {
   it('values the units at the statement NAV when nothing newer is known', () => {
-    expect(holdingValue(holding(), new Map(), [], paise(700_000))).toEqual({ value: 800_000, gain: 100_000, navE4: 800_000, navDate: '2026-10-31', estimatedUnitsE4: 0 });
+    expect(holdingValue(holding(), new Map(), [], paise(700_000))).toEqual({ value: 800_000, gain: 100_000, navE4: 800_000, navDate: '2026-10-31', estimatedUnitsE4: 0, pendingPaise: 0, orders: [] });
   });
 
   it('prefers a newer AMFI NAV, by code or ISIN, but not an older one', () => {
@@ -109,6 +109,20 @@ describe('holdingValue', () => {
   it('ignores flows on or before the statement, and counts money taken out as it is', () => {
     const v = holdingValue(holding(), new Map(), [{ on: '2026-10-31', amount: paise(500_000) }, { on: '2026-11-02', amount: paise(-100_000) }], paise(600_000));
     expect(v).toMatchObject({ estimatedUnitsE4: 0, value: 700_000, gain: 100_000 });
+  });
+
+  it('counts a SIP waiting for its NAV at cost, then as units at that NAV (decision 0031)', () => {
+    const latest = new Map([['122639', { navE4: 1_000_000, date: '2026-11-13' }]]);
+    // Debited Sunday 15 Nov: the NAV of Monday 16 Nov.
+    const flows = [{ on: '2026-11-15', amount: paise(500_000) }];
+    const waiting = holdingValue(holding(), latest, flows, paise(1_200_000), { lag: 1, published: new Map(), today: '2026-11-15' });
+    expect(waiting).toMatchObject({ estimatedUnitsE4: 0, pendingPaise: 500_000, value: 1_000_000 + 500_000, gain: 1_000_000 - 700_000 });
+    expect(waiting.orders[0]).toMatchObject({ stage: 'in_progress', navDate: '2026-11-16', navE4: null });
+
+    const published = new Map([['2026-11-16', { navE4: 1_250_000, date: '2026-11-16' }]]);
+    const done = holdingValue(holding(), latest, flows, paise(1_200_000), { lag: 1, published, today: '2026-11-17' });
+    expect(done.orders[0]).toMatchObject({ stage: 'allotted', navDate: '2026-11-16', navE4: 1_250_000, unitsE4: 400_000 });
+    expect(done).toMatchObject({ estimatedUnitsE4: 400_000, pendingPaise: 0, value: fundValue(1_400_000, 1_000_000) });
   });
 
   it('falls back to cost plus money in when there is no NAV at all', () => {
