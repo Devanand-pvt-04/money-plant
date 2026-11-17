@@ -17,7 +17,9 @@ import {
   FLOW_TOLERANCE,
   type CasStatement,
   type CasTransaction,
+  type NavPoint,
 } from './fund';
+import { navFrom, ordersTotal, sipOrder, type NavLag, type SipOrder } from './sip-order';
 import { paise, type Paise } from './money';
 
 /** One scheme from a CAS, ready to show and save. */
@@ -107,43 +109,64 @@ export interface HoldingRow {
 }
 
 export interface FundValue {
-  /** Units at the latest NAV, including estimated units for money paid in since the statement. */
+  /** Units at the latest NAV, including units bought since the statement, plus money still waiting for its NAV at cost. */
   value: Paise;
   /** What the units are worth now, less what they cost (the statement's cost plus money paid in since). */
   gain: Paise;
   navE4: number | null;
   navDate: DateKey | null;
-  /** Units bought since the statement, estimated until the next CAS (4 decimals). */
+  /** Units bought since the statement, until the next CAS replaces them (4 decimals). */
   estimatedUnitsE4: number;
+  /** Money paid in since the statement that is still waiting for its NAV (decision 0031). */
+  pendingPaise: Paise;
+  /** Each payment into the fund since the statement, oldest first (decision 0031). */
+  orders: SipOrder[];
+}
+
+/** What the phone knows about a fund's SIP orders (decision 0031). */
+export interface OrderInputs {
+  lag: NavLag;
+  /** The first NAV published on or after a day, keyed by that day (navFrom). */
+  published: ReadonlyMap<string, NavPoint>;
+  today: DateKey;
 }
 
 /**
  * NW-1, NW-3: what one fund account is worth today. `latest` holds AMFI NAVs by
  * AMFI code and ISIN; it wins over the statement's NAV when it is as new or
  * newer. `balance` is the account's ledger balance. Money paid in after the
- * statement buys units at the NAV estimated for its day (navOn), so a SIP
- * grows with the fund; money taken out counts at what it was.
+ * statement is an order (decision 0031): it counts at cost until the NAV of
+ * its day is published, then as units at that NAV. Without `orders`, every
+ * payment is estimated from the NAV around its day (navOn). Money taken out
+ * counts at what it was.
  */
 export function holdingValue(
   holding: HoldingRow,
   latest: ReadonlyMap<string, { navE4: number; date: DateKey }>,
   flows: readonly { on: DateKey; amount: Paise }[],
   balance: Paise | undefined,
+  orders?: OrderInputs,
 ): FundValue {
   const amfi = (holding.amfiCode && latest.get(holding.amfiCode)) || (holding.isin && latest.get(holding.isin)) || null;
   const statementNav = holding.navE4 !== null && holding.navDate ? { navE4: holding.navE4, date: holding.navDate as DateKey } : null;
   const nav = amfi && (!holding.navDate || amfi.date >= holding.navDate) ? amfi : statementNav;
   const held = balance ?? paise(holding.costPaise);
-  let estimatedUnitsE4 = 0;
+  const list: SipOrder[] = [];
   let paidIn = 0;
-  for (const flow of flows) {
+  for (const flow of [...flows].sort((a, b) => a.on.localeCompare(b.on))) {
     if (flow.on <= holding.asOf || flow.amount <= 0) continue;
-    const navE4 = navOn(flow.on, statementNav, nav);
-    if (navE4 === null) continue;
-    estimatedUnitsE4 += unitsBought(flow.amount, navE4);
+    if (orders) {
+      const published = orders.published.get(navFrom(flow.on, orders.lag)) ?? null;
+      list.push(sipOrder(flow, orders.lag, published, orders.today, statementNav, nav));
+    } else {
+      const navE4 = navOn(flow.on, statementNav, nav);
+      if (navE4 === null) continue;
+      list.push({ ...flow, stage: 'estimated', navDate: flow.on, navE4, unitsE4: unitsBought(flow.amount, navE4) });
+    }
     paidIn += flow.amount;
   }
-  const market = nav ? fundValue(holding.unitsE4 + estimatedUnitsE4, nav.navE4) : paise(holding.costPaise + paidIn);
+  const { unitsE4: estimatedUnitsE4, pending } = ordersTotal(list);
+  const market = nav ? paise(fundValue(holding.unitsE4 + estimatedUnitsE4, nav.navE4) + pending) : paise(holding.costPaise + paidIn);
   // Whatever the ledger holds beyond the statement's cost and the money that bought units (money taken out) counts as it is.
   const rest = held - holding.costPaise - paidIn;
   return {
@@ -152,6 +175,8 @@ export function holdingValue(
     navE4: nav?.navE4 ?? null,
     navDate: nav?.date ?? null,
     estimatedUnitsE4,
+    pendingPaise: pending,
+    orders: list,
   };
 }
 
