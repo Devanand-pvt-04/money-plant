@@ -1,4 +1,3 @@
-import { notifyLedgerChange } from './events';
 import { supabase } from './supabase';
 import { syncNow } from './sync';
 
@@ -14,7 +13,8 @@ export function watchSharedItems(userId: string): () => void {
   const pull = () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      syncNow().then(notifyLedgerChange, () => {});
+      // Sync says when something came in (and reconciling says when it changed entries).
+      syncNow().catch(() => {});
     }, 1500);
   };
   const channel = supabase

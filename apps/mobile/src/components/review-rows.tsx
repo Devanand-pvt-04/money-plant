@@ -10,7 +10,7 @@ import { formatAmount, formatDate, formatDateTime } from './format';
 import { OptionRow } from './option-row';
 import { Sheet } from './sheet';
 import { Button, figures, radius, useColors, makeStyles } from './ui';
-import { acceptPattern, declinePattern } from '@/lib/entries';
+import { acceptPattern, acceptWidening, declinePattern, keepPattern, pausePattern } from '@/lib/entries';
 import { adoptBankBalance, setCurrentBalance, type AccountBalance } from '@/lib/ledger';
 import { acceptCardCredit, beforePayment, recordUnrecorded, type CardInCredit } from '@/lib/cards';
 import { setRecurringStatus } from '@/lib/recurring';
@@ -20,18 +20,28 @@ export interface Proposal {
   rule: Rule & { match: PatternMatch };
   text: string;
   category: string;
+  /** Decision 0033: the pattern this proposal widens, described as it is now. */
+  widens: { id: string; text: string } | null;
+}
+
+/** Decision 0033: a pattern the user keeps correcting. */
+export interface PauseOffer {
+  rule: Rule;
+  text: string;
+  category: string;
 }
 
 export interface ReviewQuestions {
   gaps: AccountBalance[];
   inCredit: CardInCredit[];
   proposals: Proposal[];
+  pauses: PauseOffer[];
   suggested: RecurringPayment[];
   questions: CaptureQuestions;
 }
 
 export function questionCount(q: ReviewQuestions): number {
-  return q.gaps.length + q.inCredit.length + q.proposals.length + q.suggested.length + q.questions.senders.length;
+  return q.gaps.length + q.inCredit.length + q.proposals.length + q.pauses.length + q.suggested.length + q.questions.senders.length;
 }
 
 type FeatherName = ComponentProps<typeof Feather>['name'];
@@ -42,6 +52,7 @@ type Open =
   | { kind: 'credit'; account: string }
   | { kind: 'sender'; sender: string }
   | { kind: 'pattern'; rule: string }
+  | { kind: 'pause'; rule: string }
   | { kind: 'recurring'; id: string };
 
 /**
@@ -101,10 +112,18 @@ export function QuestionsPanel({ data, onError }: { data: ReviewQuestions; onErr
     ...data.proposals.map((p) => ({
       key: `pattern:${p.rule.id}`,
       icon: 'zap' as const,
-      title: `New pattern: ${p.category}`,
+      title: p.widens ? `Update pattern: ${p.category}` : `New pattern: ${p.category}`,
       meta: p.text,
       action: 'See',
       open: { kind: 'pattern' as const, rule: p.rule.id },
+    })),
+    ...data.pauses.map((p) => ({
+      key: `pause:${p.rule.id}`,
+      icon: 'pause-circle' as const,
+      title: `Pattern often corrected: ${p.category}`,
+      meta: `Corrected ${p.rule.misses} times, right ${p.rule.hits}`,
+      action: 'See',
+      open: { kind: 'pause' as const, rule: p.rule.id },
     })),
     ...data.suggested.map((item) => ({
       key: `recurring:${item.id}`,
@@ -120,6 +139,7 @@ export function QuestionsPanel({ data, onError }: { data: ReviewQuestions; onErr
   const credit = open?.kind === 'credit' ? data.inCredit.find((c) => c.balance.account.id === open.account) : undefined;
   const sender = open?.kind === 'sender' ? data.questions.senders.find((s) => s.sender === open.sender) : undefined;
   const pattern = open?.kind === 'pattern' ? data.proposals.find((p) => p.rule.id === open.rule) : undefined;
+  const pause = open?.kind === 'pause' ? data.pauses.find((p) => p.rule.id === open.rule) : undefined;
   const recurring = open?.kind === 'recurring' ? data.suggested.find((r) => r.id === open.id) : undefined;
 
   return (
@@ -174,8 +194,22 @@ export function QuestionsPanel({ data, onError }: { data: ReviewQuestions; onErr
         )}
       </Sheet>
 
-      <Sheet visible={!!pattern} onClose={close} title={pattern ? `New pattern: ${pattern.category}` : undefined}>
+      <Sheet visible={!!pattern} onClose={close} title={pattern ? `${pattern.widens ? 'Update' : 'New'} pattern: ${pattern.category}` : undefined}>
         {pattern && <PatternChoices proposal={pattern} close={close} />}
+      </Sheet>
+
+      <Sheet visible={!!pause} onClose={close} title={pause ? `${pause.category} pattern` : undefined}>
+        {pause && (
+          <>
+            <Text style={styles.body}>
+              You corrected this pattern {pause.rule.misses} times and kept its guess {pause.rule.hits} {pause.rule.hits === 1 ? 'time' : 'times'}: {pause.text}. Pause it so it
+              stops guessing? You can turn it back on or change it in Rules.
+            </Text>
+            <OptionRow icon="pause" title="Pause it" meta="Matching entries wait in Review without a guess" disabled={busy} onPress={() => run(() => pausePattern(pause.rule.id))} />
+            <OptionRow icon="edit-2" title="Change it" meta="Adjust the amounts or hours" disabled={busy} onPress={() => { close(); router.push(`/rule/${pause.rule.id}`); }} />
+            <OptionRow icon="check" title="Keep it as it is" meta="Asked again only after 3 more corrections" disabled={busy} onPress={() => run(() => keepPattern(pause.rule))} />
+          </>
+        )}
       </Sheet>
 
       <Sheet visible={!!recurring} onClose={close} title={recurring?.name}>
@@ -301,6 +335,17 @@ function PatternChoices({ proposal, close }: { proposal: Proposal; close: () => 
     work()
       .then(close)
       .catch((e) => Alert.alert("Couldn't save", e instanceof Error ? e.message : String(e)));
+  if (proposal.widens) {
+    return (
+      <>
+        <Text style={styles.body}>
+          Your {proposal.category} pattern is {proposal.widens.text}, but your recent entries fall just outside it. Widen it to {proposal.text}?
+        </Text>
+        <Button title="Update pattern" onPress={() => act(() => acceptWidening(proposal.rule.id))} />
+        <Button title="Keep it as it is" variant="secondary" onPress={() => act(() => declinePattern(proposal.rule.id))} />
+      </>
+    );
+  }
   return (
     <>
       <Text style={styles.body}>

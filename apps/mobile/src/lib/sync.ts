@@ -21,6 +21,7 @@ import {
   fromRemotePersonIdentifier,
   fromRemoteTransaction,
   itemLinks,
+  newSince,
   nextCursor,
   postings,
   recurring,
@@ -295,7 +296,11 @@ async function pushItemLinks(): Promise<number> {
   );
 }
 
-/** Pages through rows changed since the cursor, oldest first, and applies each page. */
+/**
+ * Pages through rows changed since the cursor, oldest first, and applies each
+ * page. Returns how many rows were new to the phone, so a pull that only
+ * brought back the rows at the cursor doesn't count as a change.
+ */
 async function pullTable<Row extends { updated_at: string }>(
   table: string,
   select: string,
@@ -313,7 +318,7 @@ async function pullTable<Row extends { updated_at: string }>(
     if (error) throw error;
     const rows = (data ?? []) as unknown as Row[];
     await apply(rows);
-    total += rows.length;
+    total += newSince(rows, cursor);
     next = nextCursor(rows, next);
     if (rows.length < PULL_PAGE) break;
   }

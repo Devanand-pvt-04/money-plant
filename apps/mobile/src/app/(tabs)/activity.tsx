@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { addMonths, currencyInfo, dateOf, monthOf, type MonthKey } from '@money-plant/core';
+import { addDays, addMonths, currencyInfo, dateOf, monthBounds, monthOf, startOfDate, type MonthKey } from '@money-plant/core';
 import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } from '@/components/activity-filters';
 import { formatAmount, formatDay, formatMonth, formatSummary } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
@@ -14,9 +14,29 @@ import { listTransactions, type TransactionRow } from '@/lib/ledger';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
 
-async function load() {
-  const [rows, tree] = await Promise.all([listTransactions(), listCategories()]);
-  return { rows, parents: new Map(flatten(tree).map((c) => [c.id, c.parentId])) };
+/** The entries a view needs: its month, or the filter's dates when it has any. ISO times, `to` exclusive. */
+interface Range {
+  from?: string;
+  to?: string;
+}
+
+function rangeOf(month: MonthKey, f: Pick<ActivityFilters, 'from' | 'to'>): Range {
+  if (f.from === null && f.to === null) {
+    const { start, end } = monthBounds(month);
+    return { from: start, to: end };
+  }
+  return {
+    ...(f.from !== null ? { from: startOfDate(f.from).toISOString() } : {}),
+    ...(f.to !== null ? { to: startOfDate(addDays(f.to, 1)).toISOString() } : {}),
+  };
+}
+
+const sameRange = (a: Range, b: Range) => a.from === b.from && a.to === b.to;
+
+/** Every entry in the range, not the newest few hundred, so older months and their totals are complete (HOME-2). */
+async function load(range: Range) {
+  const [rows, tree] = await Promise.all([listTransactions(range), listCategories()]);
+  return { rows, range, parents: new Map(flatten(tree).map((c) => [c.id, c.parentId])) };
 }
 
 function matchesQuery(row: TransactionRow, query: string): boolean {
@@ -80,10 +100,15 @@ export default function Activity() {
   const colors = useColors();
   const styles = useStyles();
   const insets = useSafeAreaInsets();
-  const { data, reload } = useLedger(load, { rows: [] as TransactionRow[], parents: new Map<string, string | null>() }, 'activity');
-  const { refreshing, onRefresh, error } = usePullToRefresh(reload);
   const [month, setMonth] = useState<MonthKey>(() => monthOf(new Date()));
   const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
+  const range = rangeOf(month, filters);
+  const { data, reload } = useLedger(() => load(range), { rows: [] as TransactionRow[], range: null as Range | null, parents: new Map<string, string | null>() }, 'activity');
+  const { refreshing, onRefresh, error } = usePullToRefresh(reload);
+  // useLedger reloads on focus and on ledger changes; another month or date range needs a reload too.
+  useEffect(() => {
+    reload();
+  }, [range.from, range.to, reload]);
   const [filtering, setFiltering] = useState(false);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -96,7 +121,8 @@ export default function Activity() {
     const day = dateOf(row.tx.occurredAt);
     return (f.from === null || day >= f.from) && (f.to === null || day <= f.to);
   };
-  const count = (f: ActivityFilters) => data.rows.filter((r) => inRange(r, f) && passes(r, f, data.parents)).length;
+  // A preview for other dates than the ones loaded isn't known until they are applied.
+  const count = (f: ActivityFilters) => (data.range && sameRange(rangeOf(month, f), data.range) ? data.rows.filter((r) => inRange(r, f) && passes(r, f, data.parents)).length : null);
 
   const { sections, totals, sources, toReview } = useMemo(() => {
     const q = query.trim().toLowerCase();

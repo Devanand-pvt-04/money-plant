@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import { ACCOUNT_TYPE_LABELS, convertOn, statementEnd, DEFAULT_CURRENCY, LIABILITY_TYPES, paise, reconcile, type AccountType, type CurrencyCode, type Paise, type Reconciliation } from '@money-plant/core';
 import {
   accountTypes,
@@ -20,7 +20,7 @@ import { fundValues } from './funds';
 import { marketValues } from './demat';
 import { getDb } from './db';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
-import { notifyLedgerChange } from './events';
+import { ledgerGeneration, notifyLedgerChange } from './events';
 import { loadRates, refreshTodayRates, todayKey } from './fx';
 import { homeCurrency } from './home-currency';
 import { homeConverter } from './home-money';
@@ -45,7 +45,31 @@ export interface AccountBalance {
   inNetWorth: boolean;
 }
 
-export async function listAccountBalances(): Promise<AccountBalance[]> {
+/** How long worked-out balances are reused when nothing in the ledger changed: long enough for one screen's load, short enough that a write that forgets to say so is seen next time. */
+const BALANCES_FRESH_MS = 2_000;
+let balancesCache: { generation: number; at: number; result: Promise<AccountBalance[]> } | null = null;
+
+/**
+ * Every account the user holds money in, with its balance and value today.
+ * Several parts of one screen ask for it (Home's balances, its week ahead and
+ * its card bills), so one result is shared until the ledger changes or two
+ * seconds pass.
+ */
+export function listAccountBalances(): Promise<AccountBalance[]> {
+  const generation = ledgerGeneration();
+  const now = Date.now();
+  if (balancesCache && balancesCache.generation === generation && now - balancesCache.at < BALANCES_FRESH_MS) return balancesCache.result;
+  const result = workOutBalances();
+  const entry = { generation, at: now, result };
+  balancesCache = entry;
+  // A failed run isn't kept, so the next caller tries again.
+  result.catch(() => {
+    if (balancesCache === entry) balancesCache = null;
+  });
+  return result;
+}
+
+async function workOutBalances(): Promise<AccountBalance[]> {
   const db = await getDb();
   const rows = db
     .select()
@@ -204,10 +228,17 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
   });
 }
 
-export async function listTransactions(options: { accountId?: string; pendingOnly?: boolean; limit?: number } = {}) {
+/**
+ * Entries newest first. `from` (inclusive) and `to` (exclusive) are ISO times;
+ * with no `limit`, every entry that fits is read, so a month or a date range
+ * is always complete (HOME-2).
+ */
+export async function listTransactions(options: { accountId?: string; pendingOnly?: boolean; limit?: number; from?: string; to?: string } = {}) {
   const db = await getDb();
   const conditions = [isNull(transactions.deletedAt)];
   if (options.pendingOnly) conditions.push(eq(transactions.status, 'pending'));
+  if (options.from) conditions.push(gte(transactions.occurredAt, options.from));
+  if (options.to) conditions.push(lt(transactions.occurredAt, options.to));
   if (options.accountId) {
     conditions.push(
       inArray(
@@ -216,13 +247,12 @@ export async function listTransactions(options: { accountId?: string; pendingOnl
       ),
     );
   }
-  const rows = db
+  const query = db
     .select()
     .from(transactions)
     .where(and(...conditions))
-    .orderBy(desc(transactions.occurredAt))
-    .limit(options.limit ?? 500)
-    .all();
+    .orderBy(desc(transactions.occurredAt));
+  const rows = options.limit ? query.limit(options.limit).all() : query.all();
   return withLegs(loadTransactions(db, rows));
 }
 
