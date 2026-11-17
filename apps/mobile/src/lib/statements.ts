@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { selfCheck } from './identity';
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { addDays, paise, startOfDate, type Paise } from '@money-plant/core';
+import { addDays, atTimeOf, paise, startOfDate, type Paise } from '@money-plant/core';
 import { balanceAnchors } from '@money-plant/db-schema';
 import { digitsMatch, ingestStatementRow, institutionBank, rebaseOpening, type IngestResult } from '@money-plant/matcher';
 import { parseStatementRow, type BankId, type ParsedStatementRow, type StatementRowInput } from '@money-plant/parser';
@@ -91,12 +91,12 @@ export async function importStatement(rows: readonly ParsedStatementRow[], accou
     seen.set(key, n + 1);
     const fingerprint = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `statement|${key}|${n}`);
     const day = startOfDate(row.date);
-    // A statement downloaded today ends now, not at midnight: today's rows can't be later than the import.
-    const noon = new Date(Math.min(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12).getTime(), startedAt));
+    // Statements print no times: the row keeps its date and takes the import's time of day, never later than the import.
+    const at = atTimeOf(row.date, new Date(startedAt), new Date(startedAt));
     const sourceId = Crypto.randomUUID();
     const outcome: IngestResult = await ingestStatementRow(
       ctx,
-      { parsed: row, accountId, occurredAt: noon.toISOString(), dayStart: day.toISOString(), fingerprint, sourceId },
+      { parsed: row, accountId, occurredAt: at.toISOString(), dayStart: day.toISOString(), fingerprint, sourceId },
       claimed,
     );
     if (outcome.outcome === 'duplicate_source') result.skipped++;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, addMonthsToDate, daysBetween, isDateKey, nextOccurrence } from './schedule';
+import { addDays, addMonthsToDate, atTimeOf, dateKey, daysBetween, isDateKey, nextOccurrence } from './schedule';
 
 describe('nextOccurrence', () => {
   it('moves weekly payments by 7 days', () => {
@@ -27,6 +27,28 @@ describe('dates', () => {
     expect(isDateKey('2026-10-25')).toBe(true);
     expect(isDateKey('2026-02-30')).toBe(false);
     expect(isDateKey('25-10-2026')).toBe(false);
+  });
+});
+
+describe('atTimeOf', () => {
+  const local = (y: number, m: number, d: number, h: number, min: number) => new Date(y, m - 1, d, h, min);
+
+  it('keeps the date and takes the time of day from the moment', () => {
+    const at = atTimeOf('2026-11-03', local(2026, 11, 17, 13, 15), local(2026, 11, 17, 13, 15));
+    expect(dateKey(at)).toBe('2026-11-03');
+    expect([at.getHours(), at.getMinutes()]).toEqual([13, 15]);
+  });
+
+  it('is never later than now', () => {
+    const now = local(2026, 11, 17, 9, 30);
+    expect(atTimeOf('2026-11-17', local(2026, 11, 16, 22, 0), now).getTime()).toBe(now.getTime());
+  });
+
+  it('accepts an ISO moment', () => {
+    const moment = local(2026, 11, 10, 8, 5);
+    const at = atTimeOf('2026-11-09', moment.toISOString(), local(2026, 11, 17, 0, 0));
+    expect(dateKey(at)).toBe('2026-11-09');
+    expect([at.getHours(), at.getMinutes()]).toEqual([8, 5]);
   });
 });
 

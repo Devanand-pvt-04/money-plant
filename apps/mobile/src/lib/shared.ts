@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
-import { addDays, buildUpiUri, dateOf, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
+import { addDays, atTimeOf, buildUpiUri, dateOf, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { accounts, itemLinks, sharedItems, transactions, type LocalItemLink, type LocalSharedItem } from '@money-plant/db-schema';
 import {
   counterpartCandidates,
@@ -292,8 +292,8 @@ async function makeShareEntry(db: Database, view: ItemView, personId: string, pe
   const id = Crypto.randomUUID();
   writeTransaction(db, {
     id,
-    // Noon keeps it on its day in any time zone.
-    occurredAt: new Date(`${view.occurredOn}T12:00:00`).toISOString(),
+    // The item's date at the time of day it was created, so every phone places it the same.
+    occurredAt: atTimeOf(view.occurredOn, view.createdAt).toISOString(),
     counterparty: personName,
     kind: 'expense',
     status: 'confirmed',
@@ -389,7 +389,7 @@ async function makeOutsideEntry(db: Database, view: ItemView, personId: string, 
   const id = Crypto.randomUUID();
   writeTransaction(db, {
     id,
-    occurredAt: new Date(`${view.occurredOn}T12:00:00`).toISOString(),
+    occurredAt: atTimeOf(view.occurredOn, view.createdAt).toISOString(),
     counterparty: personName,
     kind: 'iou',
     status: 'confirmed',

@@ -2,7 +2,7 @@ import { useEffect, useState, type ComponentProps } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { currencyInfo, dateKey, formatMoney, paise, parseMoney, type CurrencyCode, type DateKey } from '@money-plant/core';
+import { atTimeOf, currencyInfo, dateKey, formatMoney, paise, parseMoney, type CurrencyCode, type DateKey } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
 import { DateField } from '@/components/date-fields';
 import { formatAmount, formatDate } from '@/components/format';
@@ -95,7 +95,7 @@ export default function SettleUp() {
         how === 'bank'
           ? { transactionId: entryId! }
           : how === 'account'
-            ? { accountId: accountId!, occurredAt: new Date(`${occurredOn}T12:00:00`).toISOString() }
+            ? { accountId: accountId!, occurredAt: atTimeOf(occurredOn).toISOString() }
             : ({ outside: true, currency } as const);
       const id = await createItem({ personId: person.account.id, kind: 'repayment', flow, amount: value, occurredOn, reason: reason.trim() || null }, side);
       router.replace(`/item/${id}`);
