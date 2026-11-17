@@ -12,7 +12,7 @@ import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
 /** Money with a person moves through these; funds, deposits and stocks never (decision 0030). */
 const MONEY_TYPES: readonly AccountType[] = ['bank', 'credit_card', 'wallet', 'cash'];
 
-export type MoneySide = { type: 'entry'; id: string } | { type: 'account'; id: string } | { type: 'later' };
+export type MoneySide = { type: 'entry'; id: string } | { type: 'account'; id: string } | { type: 'later' } | { type: 'before' };
 
 /**
  * Where a loan or repayment's money went (decision 0030): "It'll come by SMS"
@@ -28,6 +28,8 @@ export function MoneySideSheet(props: {
   /** The amount being recorded; candidates are entries of this amount. */
   amountLabel: string;
   selected: MoneySide;
+  /** Offers "From before, no payment" for an old loan (decision 0032). */
+  allowBefore?: boolean;
   onPick: (side: MoneySide, account: AccountBalance | null) => void;
   onClose: () => void;
 }) {
@@ -40,7 +42,8 @@ export function MoneySideSheet(props: {
   }, [props.visible]);
 
   const tick = <Feather name="check" size={18} color={colors.primary} />;
-  const isOn = (side: MoneySide) => side.type === props.selected.type && (side.type === 'later' || (props.selected.type !== 'later' && side.id === props.selected.id));
+  const isOn = (side: MoneySide) =>
+    side.type === props.selected.type && ('id' in side && 'id' in props.selected ? side.id === props.selected.id : true);
 
   return (
     <Sheet visible={props.visible} onClose={props.onClose} title={props.title}>
@@ -61,6 +64,23 @@ export function MoneySideSheet(props: {
           </View>
           {isOn({ type: 'later' }) && tick}
         </Pressable>
+        {props.allowBefore && (
+          <Pressable
+            accessibilityRole="radio"
+            accessibilityState={{ selected: isOn({ type: 'before' }) }}
+            onPress={() => props.onPick({ type: 'before' }, null)}
+            style={({ pressed }) => [styles.sms, styles.next, isOn({ type: 'before' }) && styles.smsOn, pressed && styles.pressed]}
+          >
+            <View style={[styles.icon, styles.smsIcon]}>
+              <Feather name="clock" size={17} color={colors.primary} />
+            </View>
+            <View style={styles.grow}>
+              <Text style={styles.name}>From before, no payment</Text>
+              <Text style={styles.meta}>Only counts what's owed. No account of yours changes</Text>
+            </View>
+            {isOn({ type: 'before' }) && tick}
+          </Pressable>
+        )}
 
         {props.candidates.length > 0 && (
           <>
@@ -146,6 +166,7 @@ const useStyles = makeStyles((colors) => ({
   },
   smsOn: { borderColor: colors.primary, backgroundColor: colors.primarySurface },
   smsIcon: { backgroundColor: colors.background },
+  next: { marginTop: 8 },
   section: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 16, marginBottom: 6, marginHorizontal: 4 },
   card: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 14, paddingVertical: 10 },

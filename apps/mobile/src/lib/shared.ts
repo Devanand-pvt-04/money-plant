@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { addDays, atTimeOf, buildUpiUri, dateOf, DEFAULT_CURRENCY, paise, startOfDate, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
-import { accounts, itemLinks, sharedItems, transactions, type LocalItemLink, type LocalSharedItem } from '@money-plant/db-schema';
+import { accounts, itemLinks, postings, sharedItems, transactions, type LocalItemLink, type LocalSharedItem } from '@money-plant/db-schema';
 import {
   counterpartCandidates,
   itemStatus,
@@ -54,6 +54,8 @@ export interface ItemView extends SharedItem {
   groupRef: string | null;
   /** A repayment settled another way: no money moved (decision 0027). */
   settledOutside: boolean;
+  /** This user's side is from before the app: no payment linked, no account of theirs moved (decision 0032). */
+  fromBefore: boolean;
   createdAt: string;
   /** This user's person for the other side; null when the friend isn't a person here yet. */
   personId: string | null;
@@ -80,7 +82,7 @@ async function friendEmails(): Promise<Map<string, string>> {
 /** The answer this user sees: their own one waiting to be sent wins over the server's. */
 const answerOf = (row: LocalSharedItem, mine: boolean) => (mine ? row.answer : (row.myAnswer ?? row.answer));
 
-function toView(row: LocalSharedItem, meId: string, link: LocalItemLink | undefined, person: Person | undefined): ItemView {
+function toView(row: LocalSharedItem, meId: string, link: LocalItemLink | undefined, person: Person | undefined, beforeTx: ReadonlySet<string>): ItemView {
   const mine = row.userId === meId;
   const answer = answerOf(row, mine);
   const base = {
@@ -102,6 +104,7 @@ function toView(row: LocalSharedItem, meId: string, link: LocalItemLink | undefi
     categoryName: row.categoryName,
     groupRef: row.groupRef,
     settledOutside: row.settledOutside,
+    fromBefore: transactionId !== null && beforeTx.has(transactionId),
     createdAt: row.createdAt,
     personId: person?.account.id ?? null,
     personName: person?.account.name ?? 'A friend',
@@ -127,6 +130,9 @@ export async function listItems(): Promise<ItemView[]> {
       .map((l) => [l.itemId, l]),
   );
   const byId = new Map(people.map((p) => [p.account.id, p]));
+  // Entries written against the hidden "from before" account (decision 0032).
+  const beforeId = await derivedId(HIDDEN.before.key);
+  const beforeTx = new Set(db.select({ id: postings.transactionId }).from(postings).where(eq(postings.accountId, beforeId)).all().map((r) => r.id));
   return rows
     .map((row) => {
       const link = links.get(row.id);
@@ -135,7 +141,7 @@ export async function listItems(): Promise<ItemView[]> {
         const email = emails.get(row.userId);
         person = email ? people.find((p) => p.account.email === email) : undefined;
       }
-      return toView(row, me.id, link, person);
+      return toView(row, me.id, link, person, beforeTx);
     })
     .sort((a, b) => b.occurredOn.localeCompare(a.occurredOn) || b.createdAt.localeCompare(a.createdAt));
 }
@@ -365,26 +371,42 @@ async function makeTypedEntry(db: Database, view: ItemView, personId: string, pe
 }
 
 /**
- * The hidden account a debt settled another way is written against (decision
- * 0027): not one of the user's accounts, not spending or income. One per user,
- * with an id derived from the user's id, so every device makes the same one.
+ * The hidden accounts the person's side of an item is written against when no
+ * account of the user's moves: one for a debt settled another way (decision
+ * 0027), one for a debt from before the app (decision 0032). Neither is an
+ * account the user owns, nor spending or income. One of each per user, with
+ * an id derived from the user's id, so every device makes the same one.
  */
-async function settledAccountId(db: Database): Promise<string> {
-  const id = await derivedId('system:settled');
-  const existing = db.select({ id: accounts.id, deletedAt: accounts.deletedAt }).from(accounts).where(eq(accounts.id, id)).get();
+const HIDDEN = {
+  settled: { key: 'system:settled', name: 'Settled outside the app' },
+  before: { key: 'system:before', name: 'From before the app' },
+} as const;
+type Hidden = keyof typeof HIDDEN;
+
+async function hiddenAccountId(db: Database, which: Hidden): Promise<string> {
+  const id = await derivedId(HIDDEN[which].key);
+  const existing = db.select({ id: accounts.id }).from(accounts).where(eq(accounts.id, id)).get();
   if (!existing) {
     db.insert(accounts)
-      .values({ id, type: 'settled', name: 'Settled outside the app', institution: null, last4: null, openingBalancePaise: 0, createdAt: now(), dirty: 1 })
+      .values({ id, type: 'settled', name: HIDDEN[which].name, institution: null, last4: null, openingBalancePaise: 0, createdAt: now(), dirty: 1 })
       .run();
   }
   return id;
 }
 
-/** A repayment settled another way: the person's balance moves against the hidden settled account, and no account of the user's changes. */
-async function makeOutsideEntry(db: Database, view: ItemView, personId: string, personName: string): Promise<void> {
-  if (view.kind !== 'repayment') throw new Error('Only a repayment can be settled another way');
-  const settled = await settledAccountId(db);
-  // Paid back to the user ('to_me'): what the person owes goes down.
+/** Items that can be from before the app: a share the user paid, or a loan either way (decision 0032). */
+export const canBeFromBefore = (view: Pick<ItemView, 'kind' | 'flow'>) => view.kind === 'loan' || (view.kind === 'share' && view.flow === 'to_them');
+
+/**
+ * The person's balance moves against a hidden account, and no account of the
+ * user's changes: a repayment settled another way, or a share or loan from
+ * before the app, which has no payment to link.
+ */
+async function makeHiddenEntry(db: Database, view: ItemView, personId: string, personName: string, which: Hidden): Promise<void> {
+  if (which === 'settled' && view.kind !== 'repayment') throw new Error('Only a repayment can be settled another way');
+  if (which === 'before' && !canBeFromBefore(view)) throw new Error('Only a share you paid or a loan can be from before');
+  const hidden = await hiddenAccountId(db, which);
+  // Owed to the user ('to_them', or paid back to them, 'to_me' on a repayment) moves the person's balance up or down.
   const person = paise(view.flow === 'to_me' ? -view.amount : view.amount);
   const id = Crypto.randomUUID();
   writeTransaction(db, {
@@ -401,7 +423,7 @@ async function makeOutsideEntry(db: Database, view: ItemView, personId: string, 
     note: view.reason,
     postings: [
       { id: Crypto.randomUUID(), accountId: personId, amount: person, currency: view.currency },
-      { id: Crypto.randomUUID(), accountId: settled, amount: paise(-person), currency: view.currency },
+      { id: Crypto.randomUUID(), accountId: hidden, amount: paise(-person), currency: view.currency },
     ],
     sources: [
       {
@@ -410,7 +432,7 @@ async function makeOutsideEntry(db: Database, view: ItemView, personId: string, 
         sender: null,
         externalRef: null,
         fingerprint: `manual:${id}`,
-        parsedFields: { settled: view.id, amount: view.amount, counterparty: personName },
+        parsedFields: { [which]: view.id, amount: view.amount, counterparty: personName },
         receivedAt: now(),
         confidence: 1,
         rawText: null,
@@ -445,6 +467,8 @@ export type EntrySide =
   | { categoryId: string }
   /** A repayment settled another way: no money moved (decision 0027). In the person's balance currency; home when left out. */
   | { outside: true; currency?: CurrencyCode }
+  /** A share the user paid or a loan from before the app: no payment to link, no account of the user's moves (decision 0032). */
+  | { before: true }
   /** Linked later. */
   | null;
 
@@ -497,6 +521,8 @@ export async function createItem(input: NewItem, side: EntrySide): Promise<strin
   if (side && 'categoryId' in side && !(input.kind === 'share' && input.flow === 'to_me')) throw new Error('Only a share someone else paid needs a category');
   const outside = side !== null && 'outside' in side;
   if (outside && input.kind !== 'repayment') throw new Error('Only paying back can be settled another way');
+  const before = side !== null && 'before' in side;
+  if (before && !canBeFromBefore(input)) throw new Error('Only a share you paid or a loan can be from before');
   const db = await getDb();
   const [me, person] = await Promise.all([getMe(), requirePerson(input.personId)]);
   const id = Crypto.randomUUID();
@@ -525,7 +551,8 @@ export async function createItem(input: NewItem, side: EntrySide): Promise<strin
     if (side && 'transactionId' in side) await linkInto(db, view, person.account.id, side.transactionId);
     else if (side && 'accountId' in side) await makeTypedEntry(db, view, person.account.id, person.account.name, side.accountId, side.occurredAt);
     else if (side && 'categoryId' in side) await makeShareEntry(db, view, person.account.id, person.account.name, side.categoryId);
-    else if (outside) await makeOutsideEntry(db, view, person.account.id, person.account.name);
+    else if (outside) await makeHiddenEntry(db, view, person.account.id, person.account.name, 'settled');
+    else if (before) await makeHiddenEntry(db, view, person.account.id, person.account.name, 'before');
   } catch (e) {
     // Nothing half-made: the item goes again, before it was ever sent.
     db.delete(sharedItems).where(eq(sharedItems.id, id)).run();
@@ -540,12 +567,15 @@ export async function createItem(input: NewItem, side: EntrySide): Promise<strin
 /**
  * Step 4: one bill split with several people, one share each, tied together
  * by a group ref and settled person by person. With an entry, every share
- * comes off its category; what is left there is the user's own part.
+ * comes off its category; what is left there is the user's own part. A bill
+ * from before the app (decision 0032) has no entry: each share is only what
+ * the person owes.
  */
 export async function createSplit(
   input: { shares: readonly { personId: string; amount: Paise }[]; occurredOn: DateKey; reason: string | null },
-  transactionId: string | null,
+  paidWith: string | 'before' | null,
 ): Promise<string[]> {
+  const transactionId = paidWith === 'before' ? null : paidWith;
   const shares = input.shares.filter((s) => s.amount > 0);
   if (shares.length === 0) throw new Error('Pick who it is with');
   if (new Set(shares.map((s) => s.personId)).size !== shares.length) throw new Error('Pick each person once');
@@ -567,7 +597,7 @@ export async function createSplit(
       made.push(
         await createItem(
           { personId: share.personId, kind: 'share', flow: 'to_them', amount: share.amount, occurredOn: input.occurredOn, reason: input.reason, groupRef },
-          transactionId ? { transactionId } : null,
+          paidWith === 'before' ? { before: true } : transactionId ? { transactionId } : null,
         ),
       );
     }
@@ -686,6 +716,26 @@ export async function unlinkEntry(id: string): Promise<void> {
   const view = await requireView(id);
   if (!view.link?.transactionId) return;
   await undoLink(db, view.link);
+  notifyLedgerChange();
+  pushSoon();
+}
+
+/**
+ * The user has no payment to link: the share or loan is from before the app
+ * (decision 0032). Only what the person owes is written; no account of the
+ * user's moves, and nothing counts as spending. A payment linked before goes
+ * back to its category.
+ */
+export async function markFromBefore(id: string): Promise<void> {
+  const db = await getDb();
+  const view = await requireView(id);
+  if (!view.personId) throw new Error('This friend isn\'t in your People yet. Pull down on People to sync, then try again.');
+  if (!canBeFromBefore(view)) throw new Error('Only a share you paid or a loan can be from before');
+  if (view.status === 'needs_answer' || view.status === 'declined') throw new Error('Accept it first');
+  if (view.fromBefore) return;
+  const person = await requirePerson(view.personId);
+  if (view.link?.transactionId) await undoLink(db, view.link);
+  await makeHiddenEntry(db, view, person.account.id, person.account.name, 'before');
   notifyLedgerChange();
   pushSoon();
 }
@@ -887,6 +937,9 @@ async function reconcile(): Promise<number> {
       continue;
     }
     const madeByApp = tx !== null && !tx.postings.some((p) => owned.has(p.accountId));
+    // From before the app: written again with the new amount (decision 0032).
+    const beforeId = await derivedId(HIDDEN.before.key);
+    const wasBefore = madeByApp && tx.postings.some((p) => p.accountId === beforeId);
     // The user's own share someone else paid: the entry the app made just takes the new amount.
     const keepCategory = madeByApp && tx ? tx.postings.find((p) => p.accountId !== link.personAccountId)?.accountId : undefined;
     await undoLink(db, link);
@@ -894,7 +947,9 @@ async function reconcile(): Promise<number> {
     if (stale) continue;
     const view = (await getItem(row.id))!;
     try {
-      if (madeByApp) {
+      if (wasBefore) {
+        if (canBeFromBefore(view)) await makeHiddenEntry(db, view, link.personAccountId, view.personName, 'before');
+      } else if (madeByApp) {
         if (view.kind === 'share' && view.flow === 'to_me' && keepCategory) await makeShareEntry(db, view, link.personAccountId, view.personName, keepCategory);
       } else await linkInto(db, view, link.personAccountId, link.transactionId);
     } catch {
@@ -918,7 +973,7 @@ async function autoLink(db: Database): Promise<number> {
     // Settled another way (decision 0027): this side writes it against its own settled account, no question asked.
     if (view.settledOutside) {
       try {
-        await makeOutsideEntry(db, view, view.personId, view.personName);
+        await makeHiddenEntry(db, view, view.personId, view.personName, 'settled');
         linked++;
       } catch {
         // Left for the next run.
@@ -992,10 +1047,11 @@ export const STATUS_TEXT: Record<ItemStatus, string> = {
 };
 
 /** A status line that fits the item: a share someone else paid needs no bank entry, so it never says "link". */
-export function statusText(view: Pick<ItemView, 'status' | 'kind' | 'flow' | 'mine' | 'oneSided' | 'settledOutside'>): string {
+export function statusText(view: Pick<ItemView, 'status' | 'kind' | 'flow' | 'mine' | 'oneSided' | 'settledOutside' | 'fromBefore'>): string {
   if (view.status === 'needs_link' && view.kind === 'share' && view.flow === 'to_them') return 'Link the entry you paid with';
   if (view.status === 'needs_link' && view.kind !== 'share') return view.flow === 'to_them' ? 'Link the payment you sent' : 'Link the payment you got';
   if (view.settledOutside) return 'Settled another way';
+  if (view.status === 'linked' && view.fromBefore) return 'From before, no payment linked';
   if (view.status === 'linked' && view.oneSided) return 'Only on your phone';
   return STATUS_TEXT[view.status];
 }

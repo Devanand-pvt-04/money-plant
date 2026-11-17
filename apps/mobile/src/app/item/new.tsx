@@ -155,7 +155,9 @@ export default function NewItem() {
   // A picked entry stops fitting once the amount, action or date changes.
   useEffect(() => {
     if (!fromTx && side.type === 'entry' && !candidates.some((tx) => tx.id === side.id)) setSide({ type: 'later' });
-  }, [fromTx, side, candidates]);
+    // Only a loan can be from before here (decision 0032); paying back has Settle up's "settled another way".
+    if (side.type === 'before' && kind !== 'loan') setSide({ type: 'later' });
+  }, [fromTx, side, candidates, kind]);
 
   const strip = useMemo(() => {
     const byRecent = [...people].sort((a, b) => (recent.get(b.account.id) ?? '').localeCompare(recent.get(a.account.id) ?? ''));
@@ -168,6 +170,7 @@ export default function NewItem() {
     if (paidByThem) return category ? { categoryId: category.id } : null;
     if (side.type === 'entry') return { transactionId: side.id };
     if (side.type === 'account') return { accountId: side.id, occurredAt: atTimeOf(occurredOn).toISOString() };
+    if (side.type === 'before' && kind === 'loan') return { before: true };
     return null;
   };
 
@@ -230,7 +233,9 @@ export default function NewItem() {
     ? { icon: 'link' as FeatherName, label: `Entry: ${fromTx.tx.counterparty ?? 'payment'}` }
     : side.type === 'later'
       ? { icon: 'message-square' as FeatherName, label: 'Comes by SMS' }
-      : side.type === 'entry'
+      : side.type === 'before'
+        ? { icon: 'clock' as FeatherName, label: 'From before, no payment' }
+        : side.type === 'entry'
         ? { icon: 'link' as FeatherName, label: `Entry: ${candidates.find((tx) => tx.id === side.id)?.counterparty ?? 'payment'}` }
         : { icon: 'briefcase' as FeatherName, label: `${out ? 'From' : 'Into'} ${sideName ?? 'account'}` };
 
@@ -401,6 +406,7 @@ export default function NewItem() {
         candidates={candidates}
         amountLabel={formatAmount(amount, currency)}
         selected={side}
+        allowBefore={kind === 'loan'}
         onPick={(next, account) => {
           setSide(next);
           setSideName(account ? accountLabel(account.account) : null);

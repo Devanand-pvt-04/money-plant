@@ -50,6 +50,9 @@ const percentText = (hundredths: number) => `${(hundredths / 100).toFixed(2).rep
  * says whether it adds up. `?from=<entry id>` splits one of the user's
  * entries; `?person=<id>` starts with that person in.
  */
+/** The bill is from before the app: no payment to link (decision 0032). */
+const BEFORE = 'before';
+
 export default function SplitBill() {
   const colors = useColors();
   const styles = useStyles();
@@ -67,6 +70,7 @@ export default function SplitBill() {
   const [out, setOut] = useState<Set<string>>(new Set());
   const [values, setValues] = useState<Record<SplitMethod, Record<string, string>>>({ equally: {}, amounts: {}, percent: {}, shares: {}, adjust: {} });
   const [candidates, setCandidates] = useState<LedgerTransaction[]>([]);
+  // An entry's id, BEFORE for an old bill with no payment (decision 0032), or null to link later.
   const [linkTo, setLinkTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -320,7 +324,7 @@ export default function SplitBill() {
           </>
         )}
 
-        {!fromTx && candidates.length > 0 && (
+        {!fromTx && (
           <>
             <SectionTitle>You paid with</SectionTitle>
             <Chips>
@@ -333,8 +337,15 @@ export default function SplitBill() {
                 />
               ))}
               <Chip label="Link later" selected={linkTo === null} onPress={() => setLinkTo(null)} />
+              <Chip label="From before, no payment" selected={linkTo === BEFORE} onPress={() => setLinkTo(linkTo === BEFORE ? null : BEFORE)} />
             </Chips>
-            <Text style={styles.hint}>Pick the entry if the bill is already in your ledger, so it isn't counted twice.</Text>
+            <Text style={styles.hint}>
+              {linkTo === BEFORE
+                ? 'Only what each person owes you is counted. No account of yours changes and nothing counts as spending. When they pay you back, Settle up into the account it comes in to.'
+                : candidates.length > 0
+                  ? "Pick the entry if the bill is already in your ledger, so it isn't counted twice."
+                  : 'Link later waits for the bank SMS or statement. Pick From before for an old bill with no payment to link.'}
+            </Text>
           </>
         )}
         {error && <ErrorText>{error}</ErrorText>}
