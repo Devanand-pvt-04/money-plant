@@ -1,7 +1,7 @@
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { lentBorrowed } from '@money-plant/core';
+import { lentBorrowed, percentLabel, wholePercents } from '@money-plant/core';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatSummary } from '@/components/format';
 import { ErrorText, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
@@ -69,16 +69,21 @@ export default function Accounts() {
   const change = previous === null ? null : worth - previous;
   const next = data.upcoming[0];
 
-  // Where the money sits: what each slice owns, of everything owned.
+  // Where the money sits: what each slice owns, of everything owned (the
+  // "You own" tile). Money lent is owned too and sits in Other with cash and
+  // schemes; debts aren't a slice, they show under "You owe".
   const slices = new Map<AccountGroup['slice'], number>();
   for (const b of counted) {
     if (homeValueOf(b) <= 0) continue;
     const slice = GROUPS.find((g) => g.has(b))?.slice ?? 'rest';
     slices.set(slice, (slices.get(slice) ?? 0) + homeValueOf(b));
   }
-  const parts = (['funds', 'bank', 'stocks', 'deposits', 'rest'] as const)
+  if (owed.lent > 0) slices.set('rest', (slices.get('rest') ?? 0) + owed.lent);
+  const sliced = (['funds', 'bank', 'stocks', 'deposits', 'rest'] as const)
     .map((slice) => ({ slice, value: slices.get(slice) ?? 0 }))
     .filter((p) => p.value > 0);
+  const percents = wholePercents(sliced.map((p) => p.value));
+  const parts = sliced.map((p, i) => ({ ...p, label: `${SLICE_LABELS[p.slice]} ${percentLabel(p.value, percents[i]!)}` }));
 
   const groups = GROUPS.map((group) => {
     const rows = data.balances.filter(group.has);
@@ -136,9 +141,9 @@ export default function Accounts() {
             Leaves out {unrated.map((b) => b.account.name).join(', ')} until today's exchange rate loads
           </Text>
         )}
-        {own > 0 && parts.length > 0 && (
+        {parts.length > 0 && (
           <>
-            <View style={styles.bar} accessible accessibilityLabel={`Where it sits: ${parts.map((p) => `${SLICE_LABELS[p.slice]} ${Math.round((p.value * 100) / own)}%`).join(', ')}`}>
+            <View style={styles.bar} accessible accessibilityLabel={`Where it sits: ${parts.map((p) => p.label).join(', ')}`}>
               {parts.map((p) => (
                 <View key={p.slice} style={{ flex: p.value, backgroundColor: SLICE_COLOURS[p.slice] }} />
               ))}
@@ -148,7 +153,7 @@ export default function Accounts() {
                 <View key={p.slice} style={styles.legendItem}>
                   <View style={[styles.legendDot, { backgroundColor: SLICE_COLOURS[p.slice] }]} />
                   <Text style={styles.legendText} numberOfLines={1}>
-                    {SLICE_LABELS[p.slice]} {Math.round((p.value * 100) / own)}%
+                    {p.label}
                   </Text>
                 </View>
               ))}
