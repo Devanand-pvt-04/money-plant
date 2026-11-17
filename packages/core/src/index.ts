@@ -17,3 +17,4 @@ export * from './fund-views';
 export * from './sip-order';
 export * from './owed';
 export * from './card-bill';
+export * from './percent';
