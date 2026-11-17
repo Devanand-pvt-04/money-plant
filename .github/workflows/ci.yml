@@ -10,12 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - run: pnpm typecheck
       - run: pnpm test
       # Security pass (decision 0016): fail on high or critical advisories in shipped dependencies.
@@ -36,10 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: supabase/setup-cli@v1
-        with:
-          # Pinned, so a new CLI release can't fail CI on a day nothing changed. Bump on purpose.
-          version: 3.0.0
+      - uses: ./.github/actions/setup-supabase
       - run: supabase db start
       - run: supabase test db
       - run: supabase db advisors --fail-on warn

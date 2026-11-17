@@ -35,9 +35,10 @@ Money Plant is a personal finance app for Deva and friends. It keeps one accurat
 - `npx supabase db start` then `npx supabase test db`: database access tests (needs Docker); CI runs them with `supabase db advisors`, `pnpm audit` and gitleaks
 - `cd apps/mobile && npx expo install <pkg>`: add Expo or React Native packages so versions match the SDK. Use `pnpm --filter <pkg> add` for everything else
 - `cd apps/mobile && npx expo run:android`: local development build (needs Android Studio), or `npx eas-cli@latest build --profile development --platform android` for a cloud build
-- `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`: the production APK Deva uses daily. JS fixes ship to production by themselves after a merge to main (`.github/workflows/ota-update.yml`); Deva no longer uses preview. By hand: Actions → OTA update, or `npx eas-cli@latest update --channel production --platform android`
-- Migrations reach the hosted project through `.github/workflows/migrate.yml`: after a merge to main that touches `supabase/migrations`, and before every OTA update from the Actions tab. By hand: `npx supabase db push` (after `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`)
-- Edge functions reach the hosted project through `.github/workflows/functions.yml`: after a merge to main that changes `supabase/functions`, and before every OTA update (changed functions only). By hand: Actions → Edge functions, or `npx supabase functions deploy <name>`
+- `cd apps/mobile && npx eas-cli@latest build --profile production --platform android`: the production APK Deva uses daily. JS fixes ship to production by themselves after a merge to main (`.github/workflows/deploy.yml`); Deva no longer uses preview. By hand: Actions → Deploy, or `npx eas-cli@latest update --channel production --platform android`
+- One workflow ships a merge to main: `.github/workflows/deploy.yml` runs migrations, then changed edge functions, then the OTA update, one after another, skipping a step whose part didn't change. Don't give `migrate.yml` or `functions.yml` their own push trigger; they are called by Deploy and run by hand from the Actions tab
+- Migrations: `.github/workflows/migrate.yml`. By hand: `npx supabase db push` (after `npx supabase link --project-ref dywcmxixmzeqhzifuhwm`)
+- Edge functions: `.github/workflows/functions.yml` (changed functions only after a merge). By hand: Actions → Edge functions, or `npx supabase functions deploy <name>`
 
 ## Expo notes
 

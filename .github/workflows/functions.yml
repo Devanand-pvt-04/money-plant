@@ -2,20 +2,17 @@ name: Edge functions
 
 # Deploys supabase/functions to the hosted project, the same as
 # `npx supabase functions deploy <name>` from a PC. It runs:
-# - by itself after a merge to main that changes a function: only the
-#   functions whose folder changed, or all of them when supabase/config.toml,
-#   a shared folder (one starting with _) or this file changed;
-# - before every OTA update (ota-update.yml calls it), so the phones never get
-#   code that calls a function the server doesn't have yet;
+# - as the second step of Deploy (deploy.yml), after migrations, when a merge
+#   to main changes a function: only the functions whose folder changed, or all
+#   of them when supabase/config.toml, a shared folder (one starting with _) or
+#   this file changed. A Deploy run by hand deploys all of them. Either way the
+#   phones never get code that calls a function the server doesn't have yet;
 # - by hand from Actions → Edge functions → Run workflow, for one function or all.
 # Function secrets (AI worker token and the like) stay in the Supabase
 # dashboard; this only uploads code. Needs the repository secret
 # SUPABASE_ACCESS_TOKEN (docs/setup.md, section 4).
 
 on:
-  push:
-    branches: [main]
-    paths: ['supabase/functions/**', 'supabase/config.toml', '.github/workflows/functions.yml']
   workflow_dispatch:
     inputs:
       function:
@@ -77,11 +74,8 @@ jobs:
           fi
           echo "Deploying: $(echo $names)"
           { echo 'names<<EOF'; printf '%s\n' "$names"; echo 'EOF'; } >> "$GITHUB_OUTPUT"
-      - uses: supabase/setup-cli@v1
+      - uses: ./.github/actions/setup-supabase
         if: steps.pick.outputs.names != ''
-        with:
-          # Same pinned version as CI.
-          version: 3.0.0
       # Each function's settings (verify_jwt) come from supabase/config.toml.
       # No terminal to confirm on: the step above lists what --yes deploys.
       - name: Deploy

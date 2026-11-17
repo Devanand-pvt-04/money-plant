@@ -4,10 +4,12 @@
 
 ## How it ships
 
-- [ ] JS only: OTA with `npx eas-cli@latest update --channel preview`, then `production` once tried
+<!-- After the merge, the Deploy action applies migrations, then changed edge functions, then publishes the OTA update to production. -->
+
+- [ ] JS only: ships by itself after the merge (Deploy → OTA update)
 - [ ] Native change: `version` bumped in `apps/mobile/app.json` and a new build is needed (CI checks this)
-- [ ] Database: new migration in `supabase/migrations`, apply with `npx supabase db push`
-- [ ] Edge function: deploy with `npx supabase functions deploy <name>`
+- [ ] Database: new migration in `supabase/migrations` (Deploy applies it first)
+- [ ] Edge function: changed function in `supabase/functions` (Deploy deploys it before the OTA update)
 
 ## Checks
 

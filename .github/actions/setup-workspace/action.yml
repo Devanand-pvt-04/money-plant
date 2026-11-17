@@ -1,0 +1,13 @@
+name: Set up the workspace
+description: pnpm, Node from .nvmrc with the pnpm cache, and pnpm install. Run actions/checkout first.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash
