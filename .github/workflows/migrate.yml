@@ -2,18 +2,15 @@ name: Database migrations
 
 # Applies supabase/migrations to the hosted project, the same as
 # `npx supabase db push` from a PC. It runs:
-# - by itself after a merge to main that adds or changes a migration;
-# - before every OTA update (ota-update.yml calls it), so the phones never get
-#   code that needs a column the server doesn't have yet;
+# - as the first step of Deploy (deploy.yml) after a merge to main that adds or
+#   changes a migration, and in every Deploy run by hand, so edge functions and
+#   the phones never get code that needs a column the server doesn't have yet;
 # - by hand from Actions → Database migrations → Run workflow.
 # Only migrations the server hasn't applied yet run; with none, it does nothing.
 # Needs the repository secrets SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD
 # (docs/setup.md, section 4).
 
 on:
-  push:
-    branches: [main]
-    paths: ['supabase/migrations/**', '.github/workflows/migrate.yml']
   workflow_dispatch:
   workflow_call:
     secrets:
@@ -44,10 +41,7 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@v7
-      - uses: supabase/setup-cli@v1
-        with:
-          # Same pinned version as CI.
-          version: 3.0.0
+      - uses: ./.github/actions/setup-supabase
       - run: supabase link --project-ref "$PROJECT_REF"
       # What will run, in the log, before it runs.
       # CLI 3 targets the local stack unless told otherwise; --remote is the linked project.

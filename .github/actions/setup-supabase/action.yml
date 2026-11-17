@@ -1,0 +1,10 @@
+name: Set up the Supabase CLI
+description: The one pinned Supabase CLI version for CI and every deploy. Run actions/checkout first.
+
+runs:
+  using: composite
+  steps:
+    - uses: supabase/setup-cli@v1
+      with:
+        # Pinned, so a new CLI release can't fail CI or a deploy on a day nothing changed. Bump on purpose.
+        version: 3.0.0

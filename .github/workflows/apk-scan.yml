@@ -4,7 +4,7 @@ name: APK security scan
 # from the Actions tab: Run workflow after each new APK (docs/security.md).
 # By default it takes the newest finished EAS build of the chosen profile;
 # give a build ID to scan an older one. Needs the EXPO_TOKEN repository secret,
-# the same one the OTA update workflow uses. Findings never fail the run:
+# the same one the Deploy workflow uses. Findings never fail the run:
 # read the summary and the report, then decide (docs/security.md, "APK scan").
 
 on:
@@ -46,13 +46,8 @@ jobs:
           docker run -d --name mobsf -p 127.0.0.1:8000:8000 -e MOBSF_API_KEY="$key" "$MOBSF_IMAGE"
 
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
       # eas-cli reads the app config, which needs the workspace installed.
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-workspace
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest

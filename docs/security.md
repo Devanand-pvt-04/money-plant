@@ -42,7 +42,7 @@ Every PR description also says how its change was checked for security.
 
 ## APK scan (after each new build)
 
-CI checks the code, but a scanner looks at the finished APK the way an outside tester would. After each new production or preview build, go to **Actions → APK security scan → Run workflow** and pick the profile. It downloads the newest finished EAS build (or the build ID you give it), scans it with [MobSF](https://github.com/MobSF/Mobile-Security-Framework-MobSF) (free, open source), and keeps the report as the run's `mobsf-report` artifact for 90 days. The run summary lists the high and warning findings. Findings never fail the run. It uses the same `EXPO_TOKEN` secret as the OTA update workflow.
+CI checks the code, but a scanner looks at the finished APK the way an outside tester would. After each new production or preview build, go to **Actions → APK security scan → Run workflow** and pick the profile. It downloads the newest finished EAS build (or the build ID you give it), scans it with [MobSF](https://github.com/MobSF/Mobile-Security-Framework-MobSF) (free, open source), and keeps the report as the run's `mobsf-report` artifact for 90 days. The run summary lists the high and warning findings. Findings never fail the run. It uses the same `EXPO_TOKEN` secret as the Deploy workflow.
 
 Read each new high or warning finding and fix it, or add it to the list below with the reason. Bump the pinned MobSF image in `.github/workflows/apk-scan.yml` now and then.
 
