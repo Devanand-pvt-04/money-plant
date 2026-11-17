@@ -72,7 +72,7 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
   const note = tx.note?.trim() || null;
   const title = note ?? payee;
   const { text, color } = displayAmount(row, colors);
-  const detail = tx.kind === 'transfer' ? 'Transfer' : row.settled ? 'Settled another way' : (row.category?.name ?? 'No category');
+  const detail = tx.kind === 'transfer' ? 'Transfer' : row.fromBefore ? 'From before the app' : row.settled ? 'Settled another way' : (row.category?.name ?? 'No category');
   const pick = tx.kind !== 'transfer' && tx.status === 'pending' && !row.category;
   const where = showTime ? formatTime(tx.occurredAt) : tx.kind !== 'transfer' ? legs[0]?.accountName : undefined;
   return (
@@ -83,7 +83,7 @@ export function TransactionItem({ row, showTime }: { row: TransactionRow; showTi
     >
       {tx.kind === 'transfer' || row.settled ? (
         <View style={styles.transfer}>
-          <Feather name={row.settled ? 'check-circle' : 'repeat'} size={16} color={colors.muted} />
+          <Feather name={row.fromBefore ? 'clock' : row.settled ? 'check-circle' : 'repeat'} size={16} color={colors.muted} />
         </View>
       ) : row.category ? (
         <CategoryIcon category={row.category.look} size={40} />

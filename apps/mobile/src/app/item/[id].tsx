@@ -14,11 +14,13 @@ import { ItemRow } from '@/components/people-rows';
 import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import {
   answerItem,
+  canBeFromBefore,
   candidatesFor,
   deleteItem,
   getItem,
   itemTitle,
   linkEntry,
+  markFromBefore,
   sameBill,
   recordEntry,
   statusText,
@@ -96,6 +98,19 @@ export default function ItemDetail() {
     view.status !== 'declined' &&
     view.status !== 'needs_answer' &&
     data.personOwes;
+  // Decision 0032: an old share or loan with no payment to link.
+  const offerBefore = canBeFromBefore(view) && !view.fromBefore && view.status === 'needs_link';
+  const confirmBefore = () =>
+    Alert.alert(
+      'From before, no payment to link?',
+      owedToMe
+        ? `${view.personName} will owe you ${formatAmount(view.amount, view.currency)}. No account of yours changes and nothing counts as spending. When they pay you back, Settle up into the account it comes in to.`
+        : `You'll owe ${view.personName} ${formatAmount(view.amount, view.currency)}. No account of yours changes. When you pay them back, Settle up from the account you pay with.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Yes, from before', onPress: () => void run(() => markFromBefore(view.id)) },
+      ],
+    );
   const inCurrency = view.currency === 'INR' ? accounts.filter((b) => b.currency === 'INR') : accounts.filter((b) => b.currency === view.currency);
 
   function startEdit() {
@@ -203,6 +218,17 @@ export default function ItemDetail() {
               the entry and pick {view.kind === 'share' ? 'Split' : view.flow === 'to_them' ? 'I lent it or I paid back' : 'I borrowed it or Paid me back'}.
             </Text>
           )}
+          {offerBefore && (
+            <Card>
+              <LinkRow
+                first
+                icon="clock"
+                title="No payment, it's from before"
+                meta={owedToMe ? `Only counts what ${view.personName} owes you. No account changes` : `Only counts what you owe ${view.personName}. No account changes`}
+                onPress={confirmBefore}
+              />
+            </Card>
+          )}
           {view.kind !== 'share' && inCurrency.length > 0 && (
             <>
               <Text style={styles.label}>Or add it by hand, for cash or an account without SMS</Text>
@@ -233,14 +259,20 @@ export default function ItemDetail() {
         </>
       )}
 
-      {view.transactionId && !view.settledOutside && (
+      {view.fromBefore && (
+        <Text style={styles.hint}>
+          From before the app: no payment is linked and no account of yours changed. {owedToMe ? `When ${view.personName} pays you back` : `When you pay ${view.personName} back`}, Settle up with the
+          account the money moves through.
+        </Text>
+      )}
+      {view.transactionId && !view.settledOutside && !view.fromBefore && (
         <Card>
           <LinkRow first icon="file-text" title="Open your entry" meta="The payment this is tied to" onPress={() => router.push(`/transaction/${view.transactionId}`)} />
         </Card>
       )}
       {view.transactionId && !view.settledOutside && !paidByThem && (
         <Pressable accessibilityRole="button" hitSlop={8} onPress={() => run(() => unlinkEntry(view.id))} style={styles.quiet}>
-          <Text style={styles.link}>That's not the right entry</Text>
+          <Text style={styles.link}>{view.fromBefore ? 'Link a payment instead' : "That's not the right entry"}</Text>
         </Pressable>
       )}
 

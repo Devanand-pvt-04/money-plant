@@ -149,6 +149,8 @@ export interface TransactionRow {
   accountNames: Record<string, string>;
   /** A debt settled another way (decision 0027): no money moved in any account. */
   settled: boolean;
+  /** A share or loan from before the app (decision 0032): only what the person owes, no money moved now. */
+  fromBefore: boolean;
 }
 
 async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
@@ -197,6 +199,7 @@ async function withLegs(txs: LedgerTransaction[]): Promise<TransactionRow[]> {
       homeAmount: homeAmount === null ? null : paise(homeAmount),
       accountNames: Object.fromEntries(tx.postings.map((p) => [p.accountId, byId.get(p.accountId)?.name ?? 'Unknown account'])),
       settled: tx.postings.some((p) => byId.get(p.accountId)?.type === 'settled'),
+      fromBefore: tx.sources.some((s) => typeof s.parsedFields.before === 'string'),
     };
   });
 }
