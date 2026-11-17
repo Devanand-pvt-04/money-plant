@@ -43,6 +43,19 @@ export function startOfDate(key: DateKey): Date {
   return new Date(y, m - 1, d);
 }
 
+/**
+ * A moment on `key` for an entry whose source gives a date but no time: the
+ * date stays and the time of day is `moment`'s (when the entry was made or
+ * the statement imported). It is never later than `now`, so a row dated
+ * today is not placed after the import.
+ */
+export function atTimeOf(key: DateKey, moment: Date | string = new Date(), now: Date = new Date()): Date {
+  const at = typeof moment === 'string' ? new Date(moment) : moment;
+  const day = startOfDate(key);
+  const placed = new Date(day.getFullYear(), day.getMonth(), day.getDate(), at.getHours(), at.getMinutes(), at.getSeconds(), at.getMilliseconds());
+  return new Date(Math.min(placed.getTime(), now.getTime()));
+}
+
 export function addDays(key: DateKey, days: number): DateKey {
   const start = startOfDate(key);
   return dateKey(new Date(start.getFullYear(), start.getMonth(), start.getDate() + days));

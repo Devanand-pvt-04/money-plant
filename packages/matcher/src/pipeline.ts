@@ -260,7 +260,7 @@ export interface StatementCapture {
   parsed: ParsedStatementRow;
   /** The account the user said the statement is for. */
   accountId: string;
-  /** Local noon on the row's date; statements print no times. */
+  /** The row's date at the import's time of day; statements print no times. */
   occurredAt: string;
   /** Local midnight starting the row's date. */
   dayStart: string;

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
-import { dateKey, dateOf, paise, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
+import { atTimeOf, dateKey, dateOf, paise, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
 import { accountLabel } from '@/components/account-picker';
 import { CategoryPicker } from '@/components/category-picker';
@@ -167,7 +167,7 @@ export default function NewItem() {
   const sideFor = (): EntrySide => {
     if (paidByThem) return category ? { categoryId: category.id } : null;
     if (side.type === 'entry') return { transactionId: side.id };
-    if (side.type === 'account') return { accountId: side.id, occurredAt: new Date(`${occurredOn}T12:00:00`).toISOString() };
+    if (side.type === 'account') return { accountId: side.id, occurredAt: atTimeOf(occurredOn).toISOString() };
     return null;
   };
 

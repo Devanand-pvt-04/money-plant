@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { currencyInfo, formatMoney, paise, parseMoney } from '@money-plant/core';
+import { atTimeOf, currencyInfo, formatMoney, paise, parseMoney } from '@money-plant/core';
 import type { LedgerTransaction } from '@money-plant/matcher';
 import { CategoryPicker } from '@/components/category-picker';
 import { formatAmount, formatDate } from '@/components/format';
@@ -212,7 +212,7 @@ export default function ItemDetail() {
                     key={b.account.id}
                     label={b.account.name}
                     selected={false}
-                    onPress={() => run(() => recordEntry(view.id, b.account.id, new Date(`${view.occurredOn}T12:00:00`).toISOString()))}
+                    onPress={() => run(() => recordEntry(view.id, b.account.id, atTimeOf(view.occurredOn).toISOString()))}
                   />
                 ))}
               </Chips>
