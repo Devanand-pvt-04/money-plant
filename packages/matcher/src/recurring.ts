@@ -99,11 +99,16 @@ export function amountClose(expected: Paise, actual: Paise): boolean {
   return Math.abs(actual - expected) <= expected * AMOUNT_TOLERANCE;
 }
 
-/** "netflix" matches "netflix com" (whole words); very short names must match exactly. */
+/**
+ * One normalised name holds the other, ignoring spaces: "google play" matches
+ * "google play store", "googleplay" and "google playstore". Plain containment,
+ * never a spelling guess, so "google pay" doesn't match "google play". Names
+ * under 4 letters must match exactly.
+ */
 function namesMatch(a: string, b: string): boolean {
   if (a === b) return true;
-  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
-  return short.length >= 4 && ` ${long} `.includes(` ${short} `);
+  const [short, long] = [a.replace(/ /g, ''), b.replace(/ /g, '')].sort((x, y) => x.length - y.length) as [string, string];
+  return short.length >= 4 && long.includes(short);
 }
 
 export function payeeMatches(item: Pick<RecurringPayment, 'vpa' | 'merchant'>, debit: Pick<Debit, 'vpa' | 'merchant'>): boolean {

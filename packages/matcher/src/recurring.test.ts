@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from '@money-plant/core';
+import { normaliseMerchant } from '@money-plant/categoriser';
 import { parsePreDebitText } from '@money-plant/parser';
 import { applyPreDebit, debitOf, detectRecurring, dueState, settleRecurring, shortfall, type Debit, type RecurringPayment } from './recurring';
 import type { LedgerTransaction } from './types';
@@ -60,6 +61,16 @@ describe('settleRecurring (REC-4)', () => {
       debit('2026-10-25', 649, { merchant: 'hotstar' }),
     ];
     expect(settleRecurring(netflix, debits).paid).toHaveLength(0);
+  });
+
+  it('matches when one payee name holds the other, spaces ignored, but never by a near spelling', () => {
+    const play = { ...netflix, name: 'Google Play', merchant: normaliseMerchant('Google Play'), amount: paise(14900), accountId: null };
+    const matches = (label: string) => settleRecurring(play, [debit('2026-10-25', 149, { merchant: normaliseMerchant(label) })]).paid.length === 1;
+    for (const label of ['Google Play Store', 'GOOGLEPLAY', 'Google Playstore', 'GOOGLE*PLAY via Razorpay', 'google play', 'Google']) expect(matches(label)).toBe(true);
+    for (const label of ['Google Pay Via ICICI', 'playstore@axisbank']) expect(matches(label)).toBe(false);
+    // A short name still has to match exactly.
+    const ola = { ...play, merchant: 'ola' };
+    expect(settleRecurring(ola, [debit('2026-10-25', 149, { merchant: 'olacabs' })]).paid).toHaveLength(0);
   });
 
   it('matches by UPI ID when both sides have one', () => {
