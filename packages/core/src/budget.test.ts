@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, suggestionStep, sortBudgets, combineBudgets } from './budget';
+import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, suggestionStep, sortBudgets, combineBudgets, withCarries, carryQuestions } from './budget';
 
 describe('effectiveBudgets', () => {
   const rows = [
@@ -180,5 +180,57 @@ describe('sortBudgets', () => {
       limit: 7_000,
       status: 'over',
     });
+  });
+});
+
+describe('withCarries (BUD-5)', () => {
+  const counted = new Map([
+    ['food', paise(500000)],
+    ['fuel', paise(300000)],
+    ['rent', paise(2000000)],
+  ]);
+
+  it('adds a leftover and takes off an overspend', () => {
+    const result = withCarries(counted, new Map([['food', paise(80000)], ['fuel', paise(-120000)]]));
+    expect(result.get('food')).toBe(580000);
+    expect(result.get('fuel')).toBe(180000);
+    expect(result.get('rent')).toBe(2000000);
+  });
+
+  it('never goes below zero', () => {
+    expect(withCarries(counted, new Map([['fuel', paise(-450000)]])).get('fuel')).toBe(0);
+  });
+
+  it('ignores a carry on a category without a counted budget', () => {
+    expect(withCarries(counted, new Map([['travel', paise(10000)]])).has('travel')).toBe(false);
+  });
+});
+
+describe('carryQuestions (BUD-5)', () => {
+  const limits = new Map([
+    ['food', paise(580000)],
+    ['fuel', paise(300000)],
+    ['rent', paise(2000000)],
+    ['gifts', paise(100000)],
+  ]);
+  const spent = new Map([
+    ['food', paise(450000)],
+    ['fuel', paise(420000)],
+    ['rent', paise(2000000)],
+  ]);
+
+  it('offers leftovers and overspends for budgets in both months', () => {
+    expect(carryQuestions(limits, spent, new Set(['food', 'fuel', 'rent']))).toEqual([
+      { categoryId: 'food', amount: 130000 },
+      { categoryId: 'fuel', amount: -120000 },
+    ]);
+  });
+
+  it('skips a category with no budget next month', () => {
+    expect(carryQuestions(limits, spent, new Set(['fuel'])).map((q) => q.categoryId)).toEqual(['fuel']);
+  });
+
+  it('offers a whole unspent budget', () => {
+    expect(carryQuestions(limits, spent, new Set(['gifts']))).toEqual([{ categoryId: 'gifts', amount: 100000 }]);
   });
 });

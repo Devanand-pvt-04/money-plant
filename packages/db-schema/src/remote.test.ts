@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   fromRemoteBudget,
+  fromRemoteBudgetCarry,
   fromRemoteRecurring,
   fromRemoteDeposit,
   fromRemoteHolding,
@@ -9,6 +10,7 @@ import {
   toRemoteRecurring,
   fromRemoteRule,
   toRemoteBudget,
+  toRemoteBudgetCarry,
   toRemoteRule,
   fromRemoteAccount,
   fromRemoteTransaction,
@@ -203,6 +205,15 @@ describe('budget mapping', () => {
     const remote = toRemoteBudget({ id: 'b-2', month: null, categoryAccountId: 'food', limitPaise: 300000, createdAt: '2026-10-22T10:00:00.000Z', updatedAt: null, deletedAt: null, dirty: 1, rev: 0 });
     expect(remote.month).toBeNull();
     expect(fromRemoteBudget({ ...remote, user_id: 'u', updated_at: '2026-10-22T10:00:01+00:00' }).month).toBeNull();
+  });
+});
+
+describe('budget carry mapping (BUD-5)', () => {
+  it('keeps the sign and stores the month as its first day', () => {
+    const remote = toRemoteBudgetCarry({ id: 'c-1', month: '2026-11', categoryAccountId: 'fuel', amountPaise: -120000, createdAt: '2026-11-01T04:00:00.000Z', updatedAt: null, deletedAt: null, dirty: 1, rev: 2 });
+    expect(remote).toMatchObject({ month: '2026-11-01', amount_paise: -120000 });
+    const back = fromRemoteBudgetCarry({ ...remote, user_id: 'u', updated_at: '2026-11-01T04:00:01+00:00', amount_paise: '-120000' as unknown as number });
+    expect(back).toMatchObject({ month: '2026-11', amountPaise: -120000, dirty: 0 });
   });
 });
 

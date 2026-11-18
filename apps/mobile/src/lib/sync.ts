@@ -5,6 +5,7 @@ import {
   accountTypes,
   accounts,
   balanceAnchors,
+  budgetCarries,
   budgets,
   deposits,
   holdings,
@@ -12,6 +13,7 @@ import {
   fromRemoteAccountType,
   fromRemoteAnchor,
   fromRemoteBudget,
+  fromRemoteBudgetCarry,
   fromRemoteDeposit,
   fromRemoteHolding,
   fromRemoteRecurring,
@@ -33,6 +35,7 @@ import {
   toRemoteAccountType,
   toRemoteAnchor,
   toRemoteBudget,
+  toRemoteBudgetCarry,
   toRemoteDeposit,
   toRemoteHolding,
   toRemoteRecurring,
@@ -46,6 +49,7 @@ import {
   type RemoteAccountType,
   type RemoteBalanceAnchor,
   type RemoteBudget,
+  type RemoteBudgetCarry,
   type RemoteDeposit,
   type RemoteHolding,
   type RemoteRecurring,
@@ -72,6 +76,7 @@ const ANCHORS_CURSOR = 'sync.balance_anchors.cursor';
 const ACCOUNT_TYPES_CURSOR = 'sync.account_types.cursor';
 const RULES_CURSOR = 'sync.rules.cursor';
 const BUDGETS_CURSOR = 'sync.budgets.cursor';
+const BUDGET_CARRIES_CURSOR = 'sync.budget_carries.cursor';
 const RECURRING_CURSOR = 'sync.recurring.cursor';
 const DEPOSITS_CURSOR = 'sync.deposits.cursor';
 const HOLDINGS_CURSOR = 'sync.holdings.cursor';
@@ -230,6 +235,13 @@ async function pushBudgets(): Promise<number> {
   const db = await getDb();
   return pushSimple('budgets', db.select().from(budgets).where(eq(budgets.dirty, 1)).all(), toRemoteBudget, (row) =>
     db.update(budgets).set({ dirty: 0 }).where(and(eq(budgets.id, row.id), eq(budgets.rev, row.rev))).run(),
+  );
+}
+
+async function pushBudgetCarries(): Promise<number> {
+  const db = await getDb();
+  return pushSimple('budget_carries', db.select().from(budgetCarries).where(eq(budgetCarries.dirty, 1)).all(), toRemoteBudgetCarry, (row) =>
+    db.update(budgetCarries).set({ dirty: 0 }).where(and(eq(budgetCarries.id, row.id), eq(budgetCarries.rev, row.rev))).run(),
   );
 }
 
@@ -413,6 +425,18 @@ async function pullBudgets(): Promise<number> {
   });
 }
 
+async function pullBudgetCarries(): Promise<number> {
+  const db = await getDb();
+  return pullTable<RemoteBudgetCarry>('budget_carries', '*', BUDGET_CARRIES_CURSOR, async (rows) => {
+    for (const row of rows) {
+      const local = db.select({ dirty: budgetCarries.dirty }).from(budgetCarries).where(eq(budgetCarries.id, row.id)).get();
+      if (local?.dirty === 1) continue;
+      const incoming = fromRemoteBudgetCarry(row);
+      db.insert(budgetCarries).values(incoming).onConflictDoUpdate({ target: budgetCarries.id, set: incoming }).run();
+    }
+  });
+}
+
 async function pullRecurring(): Promise<number> {
   const db = await getDb();
   return pullTable<RemoteRecurring>('recurring', '*', RECURRING_CURSOR, async (rows) => {
@@ -563,7 +587,7 @@ async function wipeIfClearedElsewhere(clearedAt: unknown): Promise<void> {
 
 /**
  * Push then pull, in reference order: account types, accounts (including
- * categories), rules, transactions, anchors, budgets, recurring payments,
+ * categories), rules, transactions, anchors, budgets, budget carries, recurring payments,
  * deposits, holdings, identifiers, shared items, item links. Postings point at accounts, rules,
  * budgets, recurring payments, deposits and holdings at accounts and categories, anchors at
  * sources, links at items, people and entries. Concurrent calls share one run.
@@ -583,6 +607,7 @@ export function syncNow(): Promise<SyncResult> {
         (await pushTransactions()) +
         (await pushAnchors()) +
         (await pushBudgets()) +
+        (await pushBudgetCarries()) +
         (await pushRecurring()) +
         (await pushDeposits()) +
         (await pushHoldings()) +
@@ -596,6 +621,7 @@ export function syncNow(): Promise<SyncResult> {
         (await pullTransactions()) +
         (await pullAnchors()) +
         (await pullBudgets()) +
+        (await pullBudgetCarries()) +
         (await pullRecurring()) +
         (await pullDeposits()) +
         (await pullHoldings()) +

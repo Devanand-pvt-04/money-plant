@@ -9,7 +9,7 @@ import { categoryStyle } from '@/components/category-style';
 import { formatDate, formatMonth, formatAmount as rupees } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
 import { ProgressBar, SectionTitle, radius, useColors, makeStyles, MoneyCard } from '@/components/ui';
-import { categoryBreakdown, currentMonth, daysLeft, monthOverview, setBudget, type BudgetLine, type CategoryBreakdown } from '@/lib/budgets';
+import { carryText, categoryBreakdown, currentMonth, daysLeft, monthOverview, setBudget, type BudgetLine, type CategoryBreakdown } from '@/lib/budgets';
 import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { useLedger } from '@/lib/use-ledger';
@@ -122,6 +122,7 @@ export default function CategoryMonth() {
         </Text>
         {line?.limit != null && <ProgressBar value={line.spent / line.limit} status={line.pace?.status} marker={data.elapsed} onHero />}
         {line?.limit != null && <Text style={styles.heroMeta}>{paceText(line, left)}</Text>}
+        {line?.carry != null && <Text style={styles.heroMeta}>{carryText(line.carry, month)}.</Text>}
       </MoneyCard>
 
       {overall && (

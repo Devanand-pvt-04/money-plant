@@ -96,6 +96,44 @@ export function countedBudgets(limits: ReadonlyMap<string, Paise>, parentOf: Rea
   return result;
 }
 
+/**
+ * BUD-5 (decision 0034): the counted budgets with each one's carry from last
+ * month added: a leftover carried in (positive) or an overspend taken off
+ * (negative). A carry lands only on a budget that counts, and a budget never
+ * goes below zero.
+ */
+export function withCarries(counted: ReadonlyMap<string, Paise>, carries: ReadonlyMap<string, Paise>): Map<string, Paise> {
+  const result = new Map<string, Paise>();
+  for (const [id, limit] of counted) result.set(id, paise(Math.max(0, limit + (carries.get(id) ?? 0))));
+  return result;
+}
+
+export interface CarryQuestion {
+  categoryId: string;
+  /** Last month's budget minus what it spent: positive is left over, negative went over. */
+  amount: Paise;
+}
+
+/**
+ * BUD-5: what can carry from one month into the next. Every category whose
+ * budget counted in both months (at the same level, BUD-1) and didn't land
+ * exactly on its budget. `limits` are last month's budgets with their own
+ * carries, so carried money can carry again.
+ */
+export function carryQuestions(
+  limits: ReadonlyMap<string, Paise>,
+  spent: ReadonlyMap<string, Paise>,
+  nextCounted: ReadonlySet<string>,
+): CarryQuestion[] {
+  const result: CarryQuestion[] = [];
+  for (const [categoryId, limit] of limits) {
+    if (!nextCounted.has(categoryId)) continue;
+    const amount = limit - (spent.get(categoryId) ?? 0);
+    if (amount !== 0) result.push({ categoryId, amount: paise(amount) });
+  }
+  return result;
+}
+
 export interface BudgetTotal {
   /** The sum of the budgets that count, or null when none are set. */
   limit: Paise | null;

@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(62);
+select plan(65);
 
 -- ---- Structure ----
 
@@ -105,6 +105,9 @@ insert into shared_items (id, kind, flow, amount_paise, occurred_on) values
   ('a6000000-0000-4000-8000-000000000014', 'loan', 'to_them', 50000, current_date);
 insert into item_links (id, item_id, person_account_id, transaction_id) values
   ('a6000000-0000-4000-8000-000000000015', 'a6000000-0000-4000-8000-000000000014', 'a0000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000001');
+-- A carry (decision 0034): last month's leftover in her category, carried into this month.
+insert into budget_carries (id, month, category_account_id, amount_paise) values
+  ('a6000000-0000-4000-8000-000000000016', date_trunc('month', current_date)::date, 'a0000000-0000-4000-8000-000000000002', 80000);
 
 select is((select count(*)::int from accounts), 3, 'Asha reads her own accounts');
 select is(
@@ -175,6 +178,12 @@ update recurring set amount_paise = 1 where id = 'a6000000-0000-4000-8000-000000
 update split_groups set name = 'hacked' where id = 'a6000000-0000-4000-8000-000000000006';
 update deposits set amount_paise = 1 where id = 'a6000000-0000-4000-8000-000000000007';
 update holdings set units_e4 = 0 where id = 'a6000000-0000-4000-8000-000000000008';
+select is((select count(*)::int from budget_carries), 0, 'Bala reads none of Asha''s budget carries');
+update budget_carries set amount_paise = -1 where id = 'a6000000-0000-4000-8000-000000000016';
+select throws_ok(
+  $$insert into budget_carries (id, month, category_account_id, amount_paise) values
+    ('b6000000-0000-4000-8000-000000000016', date_trunc('month', current_date)::date, 'a0000000-0000-4000-8000-000000000002', 1)$$,
+  '42501', null, 'Bala cannot carry money into Asha''s category');
 
 select throws_ok(
   $$insert into account_types (id, user_id, name, class) values ('b6000000-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001', 'planted', 'asset')$$,
@@ -254,6 +263,7 @@ select is((select name from accounts where id = 'a0000000-0000-4000-8000-0000000
 select is((select note from transactions where id = 'a1000000-0000-4000-8000-000000000001'), null, 'Asha''s entry note is unchanged');
 select is((select sum(amount_paise)::bigint from postings where transaction_id = 'a1000000-0000-4000-8000-000000000001'), 0::bigint, 'Asha''s postings still sum to zero');
 select is((select amount_paise from ious where id = 'a4000000-0000-4000-8000-000000000001'), 50000::bigint, 'Bala could not change the IOU amount');
+select is((select amount_paise from budget_carries where id = 'a6000000-0000-4000-8000-000000000016'), 80000::bigint, 'Bala could not change Asha''s carry');
 select isnt((select confirmed_at from ious where id = 'a4000000-0000-4000-8000-000000000001'), null, 'Bala''s confirmation was recorded');
 select is((select count(*)::int from accounts where user_id = 'aaaaaaaa-0000-4000-8000-000000000001'), 3, 'Chitra clearing her data left Asha''s accounts');
 select is(

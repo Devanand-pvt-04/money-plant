@@ -11,6 +11,8 @@ import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
 import { ErrorText, Button, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
 import {
+  carryChoices,
+  carryText,
   currentMonth,
   daysLeft,
   incomeByCategory,
@@ -31,7 +33,9 @@ type Segment = 'spending' | 'income';
 
 async function load(month: MonthKey) {
   const [overview, income] = await Promise.all([monthOverview(month), incomeByCategory(month)]);
-  return { overview, income };
+  // BUD-5: last month's carry questions still waiting for an answer, only while viewing this month.
+  const openCarries = month === currentMonth() ? (await carryChoices(addMonths(month, -1), { into: overview })).filter((c) => c.answer === null).length : 0;
+  return { overview, income, openCarries };
 }
 
 const SORT_KEY = 'budgets.sort';
@@ -67,14 +71,14 @@ export default function Budgets() {
   const [sorting, setSorting] = useState(false);
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<{ id: string; name: string; start: Paise | null } | null>(null);
-  const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[] } | null, 'budgets');
+  const { data, reload } = useLedger(() => load(month), null as { overview: MonthOverview; income: { category: CategoryNode; amount: Paise }[]; openCarries: number } | null, 'budgets');
   const { refreshing, onRefresh, error } = usePullToRefresh(reload);
   // useLedger reloads on focus and on ledger changes; a different month needs a reload too.
   useEffect(() => {
     reload();
   }, [month, reload]);
   if (!data) return null;
-  const { overview, income } = data;
+  const { overview, income, openCarries } = data;
 
   const roots = overview.lines.filter((l) => !l.category!.parentId);
   const children = (id: string) => sortBudgets(overview.lines.filter((l) => l.category!.parentId === id), sort, sortable);
@@ -158,6 +162,7 @@ export default function Budgets() {
         {segment === 'spending' ? (
           <>
             <Overall line={overview.overall} outside={overview.outside} month={month} elapsed={overview.elapsed} />
+            {openCarries > 0 && <CarryLink month={addMonths(month, -1)} count={openCarries} />}
             <ReviewLink month={month < currentMonth() ? month : addMonths(month, -1)} />
             <View style={styles.sectionHead}>
               <Text style={[styles.sectionTitle, styles.grow]}>Categories</Text>
@@ -309,6 +314,25 @@ function ReviewLink({ month }: { month: MonthKey }) {
   );
 }
 
+/** BUD-5: last month's leftovers and overspends still to decide on, opening the review where they're asked. */
+function CarryLink({ month, count }: { month: MonthKey; count: number }) {
+  const colors = useColors();
+  const styles = useStyles();
+  const name = formatMonth(month).split(' ')[0];
+  return (
+    <Pressable accessibilityRole="button" onPress={() => router.push(`/month-review?month=${month}`)} style={({ pressed }) => [styles.card, styles.row, pressed && styles.pressed]}>
+      <Feather name="corner-down-right" size={18} color={colors.primary} />
+      <View style={styles.grow}>
+        <Text style={styles.name}>Carry {name}'s leftovers?</Text>
+        <Text style={styles.meta}>
+          {count} {count === 1 ? 'category' : 'categories'} to decide on
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 /** "Over by", "On pace for", and while under budget this month, what's left a day (BUD-2). */
 function PaceNote({ line, month }: { line: BudgetLine; month: MonthKey }) {
   const styles = useStyles();
@@ -365,6 +389,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
       </View>
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} marker={props.elapsed} />}
       <PaceNote line={line} month={month} />
+      {line.carry !== null && <Text style={styles.meta}>{carryText(line.carry, month)}</Text>}
       {props.childBudgets && <Text style={styles.meta}>Its sub-category budgets added up</Text>}
       {props.open && (
         <View style={styles.children}>
@@ -384,6 +409,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
                   {child.limit !== null ? ` of ${rupees(child.limit)}` : ''}
                 </Text>
               </View>
+              {child.carry !== null && <Text style={styles.meta}>{carryText(child.carry, month)}</Text>}
               {child.limit !== null && (
                 <ProgressBar value={child.spent / child.limit} status={child.pace?.status ?? 'ok'} color={style.color} marker={props.elapsed} />
               )}

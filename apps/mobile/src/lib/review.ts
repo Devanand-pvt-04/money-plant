@@ -13,7 +13,7 @@ import {
 } from '@money-plant/core';
 import { formatMonth } from '@/components/format';
 import { homeCurrency } from './home-currency';
-import { categoryBreakdown, currentMonth, incomeThisMonth, monthOverview, setBudget, type MonthOverview } from './budgets';
+import { carryChoices, categoryBreakdown, currentMonth, incomeThisMonth, monthOverview, setBudget, type CarryChoice, type MonthOverview } from './budgets';
 import type { CategoryNode } from './categories';
 import { kvGet, kvSet } from './kv';
 import { notifyAt } from './notifications';
@@ -48,6 +48,8 @@ export interface MonthReview {
   biggest: { category: CategoryNode; spent: Paise; usual: Paise }[];
   uncategorised: { category: CategoryNode; count: number; amount: Paise } | null;
   suggestions: ReviewSuggestion[];
+  /** BUD-5: leftovers and overspends that can carry into this month; empty for older months. */
+  carries: CarryChoice[];
   moved: MonthOverview['moved'];
 }
 
@@ -103,6 +105,7 @@ export async function monthReview(month: MonthKey): Promise<MonthReview> {
   }
 
   const budget = overview.overall.limit;
+  const carries = await carryChoices(month, { from: overview });
   return {
     month,
     spent: paise(overview.overall.spent + overview.outside),
@@ -121,6 +124,7 @@ export async function monthReview(month: MonthKey): Promise<MonthReview> {
       }),
     uncategorised,
     suggestions,
+    carries,
     moved: overview.moved,
   };
 }
@@ -156,7 +160,7 @@ export async function scheduleMonthReview(): Promise<void> {
     channel: 'budgets',
     at: new Date(year, index + 1, 1, REVIEW_HOUR, 0, 0),
     title: `Your ${name} review is ready`,
-    body: 'See what went over, why, and budget changes for next month.',
+    body: 'See what went over and why, carry leftovers into the new month, and budget changes.',
     data: { url: `/month-review?month=${month}` },
   });
 }

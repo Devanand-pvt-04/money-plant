@@ -4,6 +4,7 @@ import type {
   LocalAccountType,
   LocalBalanceAnchor,
   LocalBudget,
+  LocalBudgetCarry,
   LocalItemLink,
   LocalPosting,
   LocalRecurring,
@@ -463,6 +464,43 @@ export function fromRemoteBudget(row: RemoteBudget): LocalBudget {
     month: row.month === null ? null : row.month.slice(0, 7),
     categoryAccountId: row.category_account_id,
     limitPaise: row.limit_paise === null ? null : Number(row.limit_paise),
+    createdAt: iso(row.created_at),
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at,
+    dirty: 0,
+    rev: 0,
+  };
+}
+
+export interface RemoteBudgetCarry {
+  id: string;
+  user_id: string;
+  /** First day of the month the carry lands in, "2026-11-01". */
+  month: string;
+  category_account_id: string;
+  amount_paise: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export function toRemoteBudgetCarry(row: LocalBudgetCarry): Omit<RemoteBudgetCarry, 'user_id' | 'updated_at'> {
+  return {
+    id: row.id,
+    month: `${row.month}-01`,
+    category_account_id: row.categoryAccountId,
+    amount_paise: row.amountPaise,
+    created_at: row.createdAt,
+    deleted_at: row.deletedAt,
+  };
+}
+
+export function fromRemoteBudgetCarry(row: RemoteBudgetCarry): LocalBudgetCarry {
+  return {
+    id: row.id,
+    month: row.month.slice(0, 7),
+    categoryAccountId: row.category_account_id,
+    amountPaise: Number(row.amount_paise),
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
