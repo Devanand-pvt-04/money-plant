@@ -15,3 +15,10 @@ nodeLinker: hoisted
 # ships a fixed version.
 overrides:
   node-forge: ^1.4.1
+
+# picomatch <=4.0.7 (GHSA-fc5q-39xc-vjpf, ReDoS) comes in through Metro and
+# jest-util (build tooling, not the app) and has no fixed release yet. Deva
+# chose to ignore it for now (2026-11-18); drop this once picomatch ships a fix.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
