@@ -187,7 +187,8 @@ export function ProgressBar(props: { value: number; status?: 'ok' | 'pace' | 'ov
   const color = onHero
     ? status === 'over' ? colors.heroDanger : status === 'pace' ? colors.heroWarning : (props.color ?? colors.heroAccent)
     : status === 'over' ? colors.danger : status === 'pace' ? colors.warning : (props.color ?? colors.primary);
-  const clamp = (n: number) => Math.min(100, Math.max(0, n * 100));
+  // A budget of zero (an overspend carried in, BUD-5) with nothing spent gives 0 / 0.
+  const clamp = (n: number) => (Number.isNaN(n) ? 0 : Math.min(100, Math.max(0, n * 100)));
   const pct = (n: number) => `${clamp(n)}%` as const;
   const width = useSharedValue(0);
   useEffect(() => {

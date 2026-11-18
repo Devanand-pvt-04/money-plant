@@ -15,7 +15,7 @@ import {
   type Rule,
   type UserCategory,
 } from '@money-plant/categoriser';
-import { accounts, budgets, merchantCache, postings, rules, transactions } from '@money-plant/db-schema';
+import { accounts, budgetCarries, budgets, merchantCache, postings, rules, transactions } from '@money-plant/db-schema';
 import {
   SYSTEM_ACCOUNT_NAMES,
   decisionReview,
@@ -240,6 +240,10 @@ export async function mergeCategory(fromId: string, intoId: string): Promise<num
   db.update(budgets)
     .set({ deletedAt: now(), dirty: 1, rev: sql`${budgets.rev} + 1` })
     .where(eq(budgets.categoryAccountId, fromId))
+    .run();
+  db.update(budgetCarries)
+    .set({ deletedAt: now(), dirty: 1, rev: sql`${budgetCarries.rev} + 1` })
+    .where(eq(budgetCarries.categoryAccountId, fromId))
     .run();
   db.update(accounts)
     .set({ parentId: intoId, dirty: 1, rev: sql`${accounts.rev} + 1` })

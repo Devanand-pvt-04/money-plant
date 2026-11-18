@@ -5,6 +5,7 @@ import {
   budgetPace,
   budgetSettings,
   budgetTotal,
+  carryQuestions,
   countedBudgets,
   monthBounds,
   monthElapsed,
@@ -13,6 +14,7 @@ import {
   rollUp,
   suggestBudget,
   suggestionStep,
+  withCarries,
   type MonthKey,
   type BudgetSetting,
   type CurrencyCode,
@@ -20,8 +22,8 @@ import {
   type Paise,
   type SpendBreakdown,
 } from '@money-plant/core';
-import { budgets, postings, transactions } from '@money-plant/db-schema';
-import { formatAmount as rupees } from '@/components/format';
+import { budgetCarries, budgets, postings, transactions } from '@money-plant/db-schema';
+import { formatAmount as rupees, formatMonth } from '@/components/format';
 import { flatten, listCategories, type CategoryNode } from './categories';
 import { getDb } from './db';
 import { homeCurrency } from './home-currency';
@@ -80,6 +82,11 @@ export interface BudgetLine {
   pace: Pace | null;
   /** A sub-category whose parent has the budget: it counts there, not on its own (BUD-1). */
   inParentBudget: boolean;
+  /**
+   * BUD-5: carried from last month into `limit`: a leftover (positive) or an
+   * overspend taken off (negative). Null when nothing carried.
+   */
+  carry: Paise | null;
 }
 
 export interface MonthOverview {
@@ -147,6 +154,16 @@ function budgetRows(db: Awaited<ReturnType<typeof getDb>>) {
 
 const NO_SETTING: BudgetSetting = { default: null, override: null, limit: null };
 
+/** BUD-5: every answer for carrying into `month`, keyed by category; zero is "Leave it". */
+function carryRows(db: Awaited<ReturnType<typeof getDb>>, month: MonthKey): Map<string, Paise> {
+  const rows = db
+    .select({ categoryId: budgetCarries.categoryAccountId, amount: budgetCarries.amountPaise })
+    .from(budgetCarries)
+    .where(and(eq(budgetCarries.month, month), isNull(budgetCarries.deletedAt)))
+    .all();
+  return new Map(rows.map((row) => [row.categoryId, paise(row.amount)]));
+}
+
 /** BUD-1 and BUD-2: spend against budget for every spending category in a month. */
 export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   const db = await getDb();
@@ -156,7 +173,10 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   const settings = budgetSettings(budgetRows(db), month);
   const limits = new Map<string, Paise>();
   for (const [key, setting] of settings) if (setting.limit !== null && ids.has(key)) limits.set(key, setting.limit);
-  const counted = countedBudgets(limits, parents);
+  const base = countedBudgets(limits, parents);
+  const carries = carryRows(db, month);
+  // BUD-5: last month's leftover or overspend, where the user chose to carry it.
+  const counted = withCarries(base, carries);
   const allSpending = paise(tree.reduce((sum, root) => sum + (spent.get(root.id) ?? 0), 0));
   const total = budgetTotal(counted, spent, allSpending);
   const elapsed = month === currentMonth() ? monthElapsed(month, new Date()) : month < currentMonth() ? 1 : 0;
@@ -165,7 +185,8 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
     const setting = settings.get(category.id) ?? NO_SETTING;
     const limit = counted.get(category.id) ?? null;
     const inParentBudget = category.parentId !== null && counted.has(category.parentId);
-    return { category, spent: amount, limit, setting, pace: limit === null ? null : budgetPace(amount, limit, elapsed), inParentBudget };
+    const carry = base.has(category.id) && (carries.get(category.id) ?? 0) !== 0 ? carries.get(category.id)! : null;
+    return { category, spent: amount, limit, setting, pace: limit === null ? null : budgetPace(amount, limit, elapsed), inParentBudget, carry };
   };
   return {
     month,
@@ -177,12 +198,72 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
       setting: NO_SETTING,
       pace: total.limit === null ? null : budgetPace(total.spent, total.limit, elapsed),
       inParentBudget: false,
+      carry: null,
     },
     outside: total.outside,
     lines: tree.flatMap((root) => [line(root), ...root.children.map(line)]),
     moved: await movedThisMonth(month, moved),
     missingRates: [...missing],
   };
+}
+
+export interface CarryChoice {
+  category: CategoryNode;
+  /** The month the carry lands in: the month after the one reviewed. */
+  into: MonthKey;
+  /** What it would carry now: left over (positive) or over (negative). */
+  amount: Paise;
+  /** What the user chose, fixed when they answered: the carried amount, 0 to leave it, null not yet. */
+  answer: Paise | null;
+}
+
+/**
+ * BUD-5 (decision 0034): the carry questions for `from`, asked only while the
+ * month after it is the current month. One per category budgeted in both
+ * months that didn't land exactly on its budget. Pass the two overviews when
+ * the caller already has them.
+ */
+export async function carryChoices(from: MonthKey, loaded: { from?: MonthOverview; into?: MonthOverview } = {}): Promise<CarryChoice[]> {
+  const into = addMonths(from, 1);
+  if (into !== currentMonth()) return [];
+  const [before, after] = await Promise.all([loaded.from ?? monthOverview(from), loaded.into ?? monthOverview(into)]);
+  const counted = (o: MonthOverview) => o.lines.filter((l) => l.limit !== null && !l.category!.system);
+  const limits = new Map(counted(before).map((l) => [l.category!.id, l.limit!]));
+  const spent = new Map(before.lines.map((l) => [l.category!.id, l.spent]));
+  const next = new Set(counted(after).map((l) => l.category!.id));
+  const answers = carryRows(await getDb(), into);
+  const byId = new Map(before.lines.map((l) => [l.category!.id, l.category!]));
+  return carryQuestions(limits, spent, next).map((q) => ({ category: byId.get(q.categoryId)!, into, amount: q.amount, answer: answers.get(q.categoryId) ?? null }));
+}
+
+/** BUD-5: answers carry questions: carry each amount as it stands now, or with `leave`, carry nothing. */
+export async function answerCarries(choices: readonly CarryChoice[], leave = false): Promise<void> {
+  if (choices.length === 0) return;
+  const db = await getDb();
+  const rows = await Promise.all(
+    choices.map(async (c) => ({
+      id: await derivedId(`carry:${c.into}:${c.category.id}`),
+      month: c.into,
+      categoryAccountId: c.category.id,
+      amountPaise: leave ? 0 : c.amount,
+    })),
+  );
+  db.transaction((t) => {
+    for (const row of rows) {
+      const values = { ...row, deletedAt: null, dirty: 1 };
+      t.insert(budgetCarries)
+        .values({ ...values, createdAt: now() })
+        .onConflictDoUpdate({ target: budgetCarries.id, set: { ...values, rev: sql`${budgetCarries.rev} + 1` } })
+        .run();
+    }
+  });
+  notifyLedgerChange();
+}
+
+/** BUD-5: what last month added to or took off a month's budget, for under its bar. */
+export function carryText(carry: Paise, month: MonthKey): string {
+  const from = formatMonth(addMonths(month, -1)).split(' ')[0];
+  return carry > 0 ? `Includes ${rupees(carry)} carried from ${from}` : `${rupees(paise(-carry))} taken off for ${from}'s overspend`;
 }
 
 export type BudgetConflict =

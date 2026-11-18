@@ -12,6 +12,7 @@ import { aiReviewFor, type AiReview } from '@/lib/ai-review';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { acceptSuggestion, ignoreSuggestion, lastMonth, monthReview, type MonthReview, type ReviewOverspend, type ReviewSuggestion } from '@/lib/review';
 import { useIsAdmin } from '@/lib/admin';
+import { answerCarries, type CarryChoice } from '@/lib/budgets';
 import { useLedger } from '@/lib/use-ledger';
 
 const monthName = (month: MonthKey) => formatMonth(month).split(' ')[0]!;
@@ -145,6 +146,8 @@ function Body({ review, ai, onEdit, onIgnored }: { review: MonthReview; ai: AiRe
           ))}
         </>
       )}
+
+      {review.carries.length > 0 && <CarrySection carries={review.carries} month={month} onChanged={onIgnored} />}
 
       {review.uncategorised && (
         <>
@@ -343,6 +346,96 @@ function SuggestionCard({ suggestion: s, onEdit, onIgnored }: { suggestion: Revi
   );
 }
 
+/**
+ * BUD-5 (decision 0034): for each category budgeted in both months, carry
+ * last month's leftover into this month or take its overspend off, or leave
+ * it. Asked per category, while the new month is open; "Carry all" answers
+ * every open question at once.
+ */
+function CarrySection({ carries, month, onChanged }: { carries: CarryChoice[]; month: MonthKey; onChanged: () => void }) {
+  const styles = useStyles();
+  const [busy, setBusy] = useState(false);
+  const open = carries.filter((c) => c.answer === null);
+  const into = monthName(addMonths(month, 1));
+  const run = async (work: Promise<void>) => {
+    setBusy(true);
+    try {
+      await work;
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
+  return (
+    <>
+      <SectionTitle>Leftovers and overspends</SectionTitle>
+      <Text style={styles.meta}>
+        Carry what was left in {monthName(month)} into {into}'s budget, or take what went over off it. The amount is fixed when you choose, and a budget never goes below zero.
+      </Text>
+      {open.length > 1 && (
+        <View style={styles.carryAll}>
+          <Choice label={busy ? 'Saving…' : `Carry all ${open.length}`} primary onPress={() => !busy && void run(answerCarries(open))} />
+        </View>
+      )}
+      {carries.map((c) => (
+        <CarryCard key={c.category.id} choice={c} month={month} busy={busy} onAnswer={(leave) => run(answerCarries([c], leave))} />
+      ))}
+    </>
+  );
+}
+
+function CarryCard({ choice: c, month, busy, onAnswer }: { choice: CarryChoice; month: MonthKey; busy: boolean; onAnswer: (leave: boolean) => void }) {
+  const colors = useColors();
+  const styles = useStyles();
+  const [changing, setChanging] = useState(false);
+  const into = monthName(c.into);
+  const left = c.amount > 0;
+  const size = Math.abs(c.amount) as Paise;
+  const asking = c.answer === null || changing;
+  const answer = (leave: boolean) => {
+    if (busy) return;
+    setChanging(false);
+    onAnswer(leave);
+  };
+  return (
+    <View style={styles.card}>
+      <View style={styles.row}>
+        <CategoryIcon category={c.category} />
+        <View style={styles.grow}>
+          <Text style={styles.name} numberOfLines={1}>
+            {c.category.name}
+          </Text>
+          <Text style={styles.meta}>
+            {rupees(size)} {left ? 'left' : 'over'} in {monthName(month)}
+          </Text>
+        </View>
+        {!asking && (
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setChanging(true)}>
+            <Text style={styles.link}>Change</Text>
+          </Pressable>
+        )}
+      </View>
+      {asking ? (
+        <View style={styles.choices}>
+          <Choice label={left ? `Carry ${rupees(size)} into ${into}` : `Take ${rupees(size)} off ${into}`} primary onPress={() => answer(false)} />
+          <Choice label="Leave it" onPress={() => answer(true)} />
+        </View>
+      ) : (
+        <View style={styles.answer}>
+          <Feather name="check" size={14} color={colors.primary} />
+          <Text style={styles.answerText}>
+            {c.answer === 0
+              ? `Left as it was. ${into} keeps its usual budget.`
+              : c.answer! > 0
+                ? `${rupees(c.answer!)} carried into ${into}.`
+                : `${rupees(-c.answer! as Paise)} taken off ${into}.`}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function Choice({ label, primary, onPress }: { label: string; primary?: boolean; onPress: () => void }) {
   const styles = useStyles();
   return (
@@ -378,7 +471,11 @@ const useStyles = makeStyles((colors) => ({
   lineText: { fontSize: 13, color: colors.secondary, flex: 1 },
   lineAmount: { fontSize: 13, color: colors.secondary, fontVariant: ['tabular-nums'] },
   subhead: { fontSize: 12, fontWeight: '600', color: colors.muted, paddingLeft: 46, marginTop: 2 },
-  choices: { flexDirection: 'row', gap: 8, paddingLeft: 46 },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingLeft: 46 },
+  carryAll: { flexDirection: 'row' },
+  answer: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 46 },
+  answerText: { fontSize: 13, color: colors.secondary, flex: 1 },
+  link: { fontSize: 13, fontWeight: '600', color: colors.primary },
   choice: { minHeight: 36, paddingHorizontal: 14, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   choicePrimary: { backgroundColor: colors.ink, borderColor: colors.ink },
   choiceText: { fontSize: 13, fontWeight: '600', color: colors.text },

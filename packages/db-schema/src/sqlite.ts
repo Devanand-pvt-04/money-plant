@@ -233,6 +233,27 @@ export const budgets = sqliteTable(
 );
 
 /**
+ * BUD-5 (decision 0034): a leftover carried into (positive) or an overspend
+ * taken off (negative) a category's budget for one month, or zero when the
+ * user chose to leave it. Ids are derived from user, month and category.
+ */
+export const budgetCarries = sqliteTable(
+  'budget_carries',
+  {
+    id: text('id').primaryKey(),
+    month: text('month').notNull(),
+    categoryAccountId: text('category_account_id').notNull(),
+    amountPaise: integer('amount_paise').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at'),
+    deletedAt: text('deleted_at'),
+    dirty: integer('dirty').notNull().default(1),
+    rev: integer('rev').notNull().default(0),
+  },
+  (table) => [index('budget_carries_dirty_idx').on(table.dirty)],
+);
+
+/**
  * Local only: what the shared merchant dictionary and the AI said about each
  * merchant this phone asked about, keyed by normalised name. A null key means
  * nobody knew; `checked_at` decides when to ask again.
@@ -544,6 +565,7 @@ export type LocalFxRate = typeof fxRates.$inferSelect;
 export type LocalAccountType = typeof accountTypes.$inferSelect;
 export type LocalRule = typeof rules.$inferSelect;
 export type LocalBudget = typeof budgets.$inferSelect;
+export type LocalBudgetCarry = typeof budgetCarries.$inferSelect;
 export type LocalTransaction = typeof transactions.$inferSelect;
 export type LocalPosting = typeof postings.$inferSelect;
 export type LocalSource = typeof sources.$inferSelect;
@@ -989,4 +1011,17 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     date TEXT NOT NULL,
     PRIMARY KEY (amfi_code, from_date)
   );`,
+  // Decision 0034: carrying a budget's leftover or overspend into the next month (BUD-5).
+  `CREATE TABLE budget_carries (
+    id TEXT PRIMARY KEY NOT NULL,
+    month TEXT NOT NULL,
+    category_account_id TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    deleted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 1,
+    rev INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX budget_carries_dirty_idx ON budget_carries (dirty);`,
 ];
