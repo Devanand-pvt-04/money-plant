@@ -236,7 +236,7 @@ Accuracy and privacy rank above speed of delivery. A fast app with wrong totals 
 | Privacy | Contacts are read and matched only on the phone; the contact list is never uploaded |
 | Security | Row-level security, so each user reads only their own rows and the IOUs they are part of. Encryption at rest, and an encrypted local database |
 | Security | Secrets (AI keys, SMS provider keys) live only on the backend, never in the app |
-| Offline | Capture, review and all screens work offline; sync catches up when the phone is back online |
+| Offline | Capture, review and all screens work offline; sync catches up when the phone is back online, retrying with back-off while the app is open, and tabs show how many changes are waiting (decision 0035). Friend invites and links, the profile and statement imports need the internet and say so |
 | UX | Home answers "is this month on track?" within 3 seconds of opening (HOME-1) |
 | UX | A daily review takes under 2 minutes, with one tap or swipe per entry. Quick add takes 3 taps (CAP-7) |
 | UX | Every automatic entry shows its source and why it got its category. Rupees use Indian grouping (₹1,25,000) and other currencies their own symbol, decimals and groups of three ($1,250.00), with one consistent colour for money in and one for money out |

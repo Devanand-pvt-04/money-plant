@@ -7,6 +7,7 @@ import { Sheet } from '@/components/sheet';
 import { Button, Initial, radius, useColors, makeStyles } from '@/components/ui';
 import { pickContact } from '@/lib/contacts';
 import { createPerson, phoneOf, type Person } from '@/lib/people';
+import { errorText } from '@/lib/errors';
 
 /**
  * Who's in a split (decision 0027): a sheet with search, the people the user
@@ -54,7 +55,7 @@ export function PeopleSheet(props: {
       setQuery('');
       props.onCreated(id);
     } catch (e) {
-      Alert.alert("Couldn't add", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't add", errorText(e));
     } finally {
       setBusy(false);
     }
@@ -74,7 +75,7 @@ export function PeopleSheet(props: {
       }
       await add({ name: contact.name, contactId: contact.id, phone });
     } catch (e) {
-      Alert.alert("Couldn't open contacts", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't open contacts", errorText(e));
     }
   }
 

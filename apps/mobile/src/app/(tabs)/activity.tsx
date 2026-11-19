@@ -6,6 +6,7 @@ import { addDays, addMonths, currencyInfo, dateOf, monthBounds, monthOf, startOf
 import { FilterSheet, NO_FILTERS, activeChips, passes, type ActivityFilters } from '@/components/activity-filters';
 import { formatAmount, formatDay, formatMonth, formatSummary } from '@/components/format';
 import { transactionTitle, TransactionItem } from '@/components/transaction-item';
+import { OfflineNote } from '@/components/offline-note';
 import { ErrorText, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { useAiWaiting } from '@/lib/ai-settings';
 import { flatten, listCategories } from '@/lib/categories';
@@ -211,6 +212,7 @@ export default function Activity() {
               </View>
             )}
             {error && <ErrorText>{error}</ErrorText>}
+            <OfflineNote />
             {waiting > 0 && (
               // Decision 0012: so a PC that's off reads as waiting, not as a bug.
               <View style={styles.waiting} accessibilityRole="text">

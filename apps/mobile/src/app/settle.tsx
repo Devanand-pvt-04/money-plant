@@ -11,6 +11,7 @@ import { Button, Chip, Chips, ErrorText, Field, Initial, SectionTitle, radius, u
 import { listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { getPerson, type Person } from '@/lib/people';
 import { createItem, entriesFitting, getItem, type ItemFlow } from '@/lib/shared';
+import { errorText } from '@/lib/errors';
 
 type How = 'bank' | 'account' | 'outside';
 
@@ -100,7 +101,7 @@ export default function SettleUp() {
       const id = await createItem({ personId: person.account.id, kind: 'repayment', flow, amount: value, occurredOn, reason: reason.trim() || null }, side);
       router.replace(`/item/${id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       setSaving(false);
     }
   }

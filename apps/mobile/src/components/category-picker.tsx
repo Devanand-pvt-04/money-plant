@@ -7,6 +7,7 @@ import { createCategory, flatten, listCategories, type CategoryNode } from '@/li
 import { kvGet, kvSet } from '@/lib/kv';
 import { CategoryIcon, Sheet } from './sheet';
 import { Button, radius, useColors, makeStyles } from './ui';
+import { errorText } from '@/lib/errors';
 
 const RECENT_KEY = 'picker.recentCategories';
 const RECENT_SHOWN = 4;
@@ -227,7 +228,7 @@ export function NewCategory(props: {
       props.onCreated(id);
     } catch (e) {
       setSaving(false);
-      Alert.alert("Couldn't add", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't add", errorText(e));
     }
   }
 

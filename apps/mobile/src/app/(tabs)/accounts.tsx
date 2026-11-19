@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { lentBorrowed, percentLabel, wholePercents } from '@money-plant/core';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatSummary } from '@/components/format';
+import { OfflineNote } from '@/components/offline-note';
 import { ErrorText, MoneyCard, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { GROUPS, SLICE_COLOURS, SLICE_LABELS, type AccountGroup } from '@/lib/account-groups';
 import { marketValues } from '@/lib/demat';
@@ -122,6 +123,7 @@ export default function Accounts() {
         </Pressable>
       </View>
       {error && <ErrorText>{error}</ErrorText>}
+      <OfflineNote />
 
       <MoneyCard style={styles.hero}>
         <View style={styles.between}>

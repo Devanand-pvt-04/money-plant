@@ -19,6 +19,7 @@ import { getTransaction } from '@/lib/ledger';
 import { isVpa } from '@/lib/me';
 import { createPerson, findPersonForPayee, listPeople, SamePersonError, type Person } from '@/lib/people';
 import { createItem, entriesFitting, listItems, type EntrySide, type ItemFlow, type ItemKind } from '@/lib/shared';
+import { errorText } from '@/lib/errors';
 
 type FeatherName = ComponentProps<typeof Feather>['name'];
 
@@ -197,7 +198,7 @@ export default function NewItem() {
       const id = await createItem({ personId: who, kind, flow, amount: paise(amount), occurredOn, reason: reason?.trim() || null }, sideFor());
       router.replace(`/item/${id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       setSaving(false);
     }
   }

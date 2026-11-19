@@ -3,7 +3,7 @@ import { categoriseWithAi } from './ai-categorise';
 import { refreshAiReview } from './ai-review';
 import { fillMissingPayees, hasImportedInbox, importInbox } from './capture';
 import { refreshDeposits } from './deposits';
-import { reportBackground } from './errors';
+import { isOffline, reportBackground } from './errors';
 import { refreshFunds } from './funds';
 import { refreshDemat } from './demat';
 import { refreshRecurring } from './recurring';
@@ -24,7 +24,8 @@ export function catchUpDue(): boolean {
 /**
  * Catches up on SMS that arrived while the receiver couldn't run, syncs, and
  * starts the passes that act on new entries. Concurrent calls share one run.
- * Throws when the sync fails.
+ * The passes run on the phone, so they run even when the sync fails (offline,
+ * decision 0035); the sync's error is thrown after they start.
  */
 export function refreshAll(): Promise<void> {
   running ??= (async () => {
@@ -33,7 +34,10 @@ export function refreshAll(): Promise<void> {
       if (isSmsReaderAvailable && hasSmsPermission() && (await hasImportedInbox())) await importInbox();
       // Payees a newer parser can now read, for entries captured before it (once per parser change).
       await fillMissingPayees().catch(reportBackground('payees'));
-      await syncNow();
+      const syncError = await syncNow().then(
+        () => null,
+        (e: unknown) => e ?? new Error('Sync failed'),
+      );
       // REC-1, REC-4: new debits mark payments paid, steady ones become suggestions, reminders follow.
       refreshRecurring().catch(reportBackground('recurring'));
       // NW-2: RD instalments and FD payments become transfers into their deposits.
@@ -48,6 +52,7 @@ export function refreshAll(): Promise<void> {
       categoriseWithAi().catch(reportBackground('ai-categorise'));
       // BUD-4, decision 0012: last month's AI write-up, queued once the month ends.
       refreshAiReview().catch(reportBackground('ai-review'));
+      if (syncError !== null) throw syncError;
     } finally {
       running = null;
     }
@@ -65,7 +70,8 @@ export function usePullToRefresh(reload: () => unknown) {
       await refreshAll();
       setError(null);
     } catch (e) {
-      setError(`Sync failed: ${e instanceof Error ? e.message : String(e)}`);
+      // Offline isn't a failure: the screen shows that changes are waiting instead (decision 0035).
+      setError(isOffline(e) ? null : `Sync failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setRefreshing(false);
       reload();

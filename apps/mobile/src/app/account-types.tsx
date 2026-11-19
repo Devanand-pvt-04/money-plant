@@ -6,6 +6,7 @@ import { FormScroll } from '@/components/keyboard';
 import { Button, Chip, Chips, ErrorText, Field, SectionTitle, makeStyles } from '@/components/ui';
 import { createAccountType, deleteAccountType, listAccountTypes, updateAccountType } from '@/lib/account-types';
 import { useLedger } from '@/lib/use-ledger';
+import { errorText } from '@/lib/errors';
 
 /** ACC-6: account types the user names, on a fixed asset or liability class. */
 export default function AccountTypes() {
@@ -53,7 +54,7 @@ export default function AccountTypes() {
             title="Delete"
             variant="secondary"
             onPress={() =>
-              deleteAccountType(t.id).catch((e) => Alert.alert("Couldn't delete", e instanceof Error ? e.message : String(e)))
+              deleteAccountType(t.id).catch((e) => Alert.alert("Couldn't delete", errorText(e)))
             }
           />
         </View>

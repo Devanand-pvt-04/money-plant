@@ -9,6 +9,7 @@ import { syncNow } from '@/lib/sync';
 import { formatAmount } from './format';
 import { Sheet } from './sheet';
 import { Button, radius, useColors, makeStyles } from './ui';
+import { errorText } from '@/lib/errors';
 
 /** The types offered when adding an account from a picker; the full list stays on the Add account screen. */
 const QUICK_TYPES: readonly AccountType[] = ['bank', 'cash', 'wallet', 'credit_card'];
@@ -121,7 +122,7 @@ function NewAccount(props: { onCancel: () => void; onCreated: (id: string) => vo
       props.onCreated(id);
     } catch (e) {
       setSaving(false);
-      Alert.alert("Couldn't add", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't add", errorText(e));
     }
   }
 

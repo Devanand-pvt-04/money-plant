@@ -4,6 +4,7 @@ import { Chip, Chips, radius, useColors, makeStyles } from '@/components/ui';
 import { mobileDigits } from '@money-plant/matcher';
 import { pickContact } from '@/lib/contacts';
 import { createPerson, phoneOf, type Person } from '@/lib/people';
+import { errorText } from '@/lib/errors';
 
 /**
  * People as chips, with a way to add someone by name or from the phone's
@@ -34,7 +35,7 @@ export function PersonPicker(props: {
       setName('');
       props.onCreated(id);
     } catch (e) {
-      Alert.alert("Couldn't add", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't add", errorText(e));
     }
   }
 
@@ -57,7 +58,7 @@ export function PersonPicker(props: {
       }
       await add({ name: contact.name, contactId: contact.id, phone });
     } catch (e) {
-      Alert.alert("Couldn't open contacts", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't open contacts", errorText(e));
     }
   }
 

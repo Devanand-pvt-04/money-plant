@@ -15,6 +15,7 @@ import { categoryNames, type CategoryNode } from '@/lib/categories';
 import { addManualEntry, addManualTransfer } from '@/lib/entries';
 import type { AccountBalance } from '@/lib/ledger';
 import { quickAddDefaults, rememberAccount, type QuickAddDefaults } from '@/lib/quick-add';
+import { errorText } from '@/lib/errors';
 
 type Mode = 'debit' | 'credit' | 'transfer';
 const MODE_LABELS: Record<Mode, string> = { debit: 'Spent', credit: 'Received', transfer: 'Transfer' };
@@ -99,7 +100,7 @@ export default function QuickAdd() {
       router.back();
     } catch (e) {
       setSaving(false);
-      Alert.alert("Couldn't save", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't save", errorText(e));
     }
   }
 

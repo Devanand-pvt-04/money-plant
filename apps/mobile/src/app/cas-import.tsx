@@ -10,6 +10,7 @@ import { Button, Card, ErrorText, Field, radius, useColors, makeStyles } from '@
 import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
 import { heldFundIsins, importDemat } from '@/lib/demat';
 import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
+import { errorText } from '@/lib/errors';
 
 const KFINTECH_CAS_URL = 'https://mfs.kfintech.com/investor/General/ConsolidatedAccountStatement';
 
@@ -21,6 +22,7 @@ const ERRORS: Record<PdfErrorCode, string> = {
   demat_not_supported: "This statement couldn't be read.",
   too_large: 'The PDF is over 10 MB.',
   not_configured: "The statement reader isn't set up on the server yet.",
+  offline: "Reading a statement needs the internet. Try again once you're online.",
   service_unavailable: "Couldn't reach the statement reader. Check your connection and try again; it can take a minute to wake up.",
   unknown: "Something went wrong reading the statement. Try again in a minute.",
 };
@@ -64,7 +66,7 @@ export default function CasImport() {
       setDemat(read.kind === 'demat' ? dematGroups(read, await heldFundIsins()) : null);
       setStatement(read);
     } catch (e) {
-      setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${e instanceof Error ? e.message : String(e)})`);
+      setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${errorText(e)})`);
     } finally {
       setReading(false);
     }
@@ -78,7 +80,7 @@ export default function CasImport() {
       else await importCas(statement);
       router.back();
     } catch (e) {
-      setError(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Couldn't save: ${errorText(e)}`);
       setSaving(false);
     }
   }

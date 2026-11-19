@@ -30,6 +30,7 @@ import {
 } from '@/lib/shared';
 import { getPerson } from '@/lib/people';
 import { useLedger } from '@/lib/use-ledger';
+import { errorText } from '@/lib/errors';
 
 /** One shared item (decision 0026): what it is, where it stands on this side, and what the user can do next. */
 export default function ItemDetail() {
@@ -77,7 +78,7 @@ export default function ItemDetail() {
   const startEditRef = useRef(() => {});
 
   if (!view) return null;
-  const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  const fail = (e: unknown) => setError(errorText(e));
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);

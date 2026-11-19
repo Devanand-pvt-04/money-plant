@@ -4,6 +4,7 @@ import type { CategoryFlow } from '@money-plant/categoriser';
 import type { CategoryNode } from '@/lib/categories';
 import { addRule, setCategoryForEntries } from '@/lib/entries';
 import { CategoryPicker } from './category-picker';
+import { errorText } from '@/lib/errors';
 
 /**
  * The change-category flow shared by the review inbox and the entry screen:
@@ -30,7 +31,7 @@ export function useCategoryChange() {
         Alert.alert('New pattern', 'A few of your recent entries look alike. Open Review to accept or decline the pattern.');
       }
     } catch (e) {
-      Alert.alert("Couldn't change the category", e instanceof Error ? e.message : String(e));
+      Alert.alert("Couldn't change the category", errorText(e));
     }
   }
 

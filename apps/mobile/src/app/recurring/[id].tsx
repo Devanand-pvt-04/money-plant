@@ -26,6 +26,7 @@ import { categoryNames } from '@/lib/categories';
 import { homeCurrency } from '@/lib/home-currency';
 import { getTransaction, listAccountBalances, type AccountBalance } from '@/lib/ledger';
 import { closeOccurrence, deleteRecurring, dueLabel, getRecurring, saveRecurring, setRecurringStatus, today } from '@/lib/recurring';
+import { errorText } from '@/lib/errors';
 
 const ORIGIN_LABELS: Record<RecurringPayment['origin'], string> = {
   manual: 'You added this',
@@ -131,7 +132,7 @@ export default function RecurringDetail() {
       setSaving(false);
       setEditing(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       setSaving(false);
     }
   }
