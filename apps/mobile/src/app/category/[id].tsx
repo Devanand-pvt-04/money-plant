@@ -10,6 +10,7 @@ import { CategoryIcon } from '@/components/sheet';
 import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { ICON_NAMES } from '@/lib/icon-set';
 import { deleteCategory, flatten, listCategories, mergeCategory, moveCategory, renameCategory, setCategoryIcon, type CategoryNode } from '@/lib/categories';
+import { errorText } from '@/lib/errors';
 
 /** CAT-1, CAT-5: rename, change the icon, move, merge or delete one category. Entries keep their history. */
 export default function CategoryDetail() {
@@ -38,12 +39,12 @@ export default function CategoryDetail() {
   const automatic = categoryStyle({ ...typed, icon: null });
   const pickIcon = (icon: string | null) => {
     setCategory({ ...category, icon });
-    setCategoryIcon(id, icon).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    setCategoryIcon(id, icon).catch((e) => setError(errorText(e)));
   };
   const run = (work: () => Promise<unknown>) =>
     work().then(
       () => router.back(),
-      (e) => setError(e instanceof Error ? e.message : String(e)),
+      (e) => setError(errorText(e)),
     );
 
   return (

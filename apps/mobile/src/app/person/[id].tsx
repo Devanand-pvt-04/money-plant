@@ -14,6 +14,7 @@ import { getMe } from '@/lib/me';
 import { createItem, itemsWith, personTotals, reminderMessage, type ItemView } from '@/lib/shared';
 import { createPerson, getPerson, phoneOf, type Person } from '@/lib/people';
 import { useLedger } from '@/lib/use-ledger';
+import { errorText } from '@/lib/errors';
 
 type FeatherName = ComponentProps<typeof Feather>['name'];
 
@@ -99,7 +100,7 @@ function PersonOverview({ id }: { id: string }) {
         );
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setClearing(false);
     }
@@ -109,7 +110,7 @@ function PersonOverview({ id }: { id: string }) {
     try {
       await Share.share({ message: reminderMessage(person!, await getMe()) });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 
@@ -242,7 +243,7 @@ function NewPerson() {
       // Decision 0021: the contact's mobile number recognises their number-based UPI IDs.
       setPhone(picked.phones.map(mobileDigits).find((m): m is string => m !== null) ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 
@@ -254,7 +255,7 @@ function NewPerson() {
       router.replace(`/person/${created}`);
     } catch (e) {
       setSaving(false);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 

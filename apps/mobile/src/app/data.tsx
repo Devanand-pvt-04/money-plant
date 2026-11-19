@@ -7,6 +7,7 @@ import { Sheet } from '@/components/sheet';
 import { Button, Card, ErrorText, Field, SectionTitle, radius, useColors, makeStyles } from '@/components/ui';
 import { clearMyData, deleteAccount } from '@/lib/account';
 import { exportData, type ExportResult } from '@/lib/export';
+import { errorText } from '@/lib/errors';
 
 type Danger = 'clear' | 'delete';
 
@@ -48,7 +49,7 @@ export default function YourData() {
       const result = await exportData();
       if (result) setExported(result);
     } catch (e) {
-      setError(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Export failed: ${errorText(e)}`);
     } finally {
       setExporting(false);
     }

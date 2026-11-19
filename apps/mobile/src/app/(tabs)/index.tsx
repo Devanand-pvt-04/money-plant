@@ -7,6 +7,7 @@ import { formatMonth, formatAmount, reviewTime, formatSummary } from '@/componen
 import { SetupCard } from '@/components/setup-card';
 import { TransactionItem } from '@/components/transaction-item';
 import { Avatar, useMe } from '@/components/avatar';
+import { OfflineNote } from '@/components/offline-note';
 import { ErrorText, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { gapIsDue } from '@/lib/cards';
 import { ensureDefaultCategories } from '@/lib/categories';
@@ -172,6 +173,7 @@ export default function Home() {
         )}
 
         {error && <ErrorText>{error}</ErrorText>}
+        <OfflineNote />
       </ScrollView>
 
       <Pressable

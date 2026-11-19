@@ -7,6 +7,7 @@ import { DateTimeField } from './date-fields';
 import { Sheet } from './sheet';
 import { transactionTitle, displayAmount } from './transaction-item';
 import { ErrorText, figures, radius, useColors, makeStyles } from './ui';
+import { errorText } from '@/lib/errors';
 
 export type EditField = 'payee' | 'note' | 'amount' | 'when';
 
@@ -67,7 +68,7 @@ export function EditFieldSheet({ row, field, onClose }: { row: TransactionRow; f
       }
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       setSaving(false);
     }
   }

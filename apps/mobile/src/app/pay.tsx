@@ -17,6 +17,7 @@ import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib
 import { editEntry, setCategoryForEntries } from '@/lib/entries';
 import { listAccountBalances } from '@/lib/ledger';
 import { guessForPayee, isShop, payWithUpi, recentPayees, settleUnconfirmed, type PayeeGuess, type PaymentResult } from '@/lib/upi';
+import { errorText } from '@/lib/errors';
 
 /** UPI's per-payment ceiling for most payments, ₹1,00,000. */
 const MAX_AMOUNT = 10_000_000;
@@ -280,7 +281,7 @@ function Amount(props: { payment: UpiPayment; guess: PayeeGuess | null; onBack: 
     try {
       props.onPaid(await payWithUpi({ payment, amount, decision: guess?.decision ?? null, accountId: from.id, note }), amount);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setPaying(false);
     }
@@ -401,7 +402,7 @@ function Paid(props: { payment: UpiPayment; guess: PayeeGuess | null; result: Pa
       if (note.trim()) await editEntry(id, { note });
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 

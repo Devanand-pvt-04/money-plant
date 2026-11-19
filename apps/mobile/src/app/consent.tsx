@@ -13,6 +13,7 @@ import { getMe, updateMe } from '@/lib/me';
 import { signOut } from '@/lib/session';
 import { startSetup } from '@/lib/setup';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../modules/sms-reader';
+import { errorText } from '@/lib/errors';
 
 type Icon = ComponentProps<typeof Feather>['name'];
 
@@ -140,7 +141,7 @@ function Consent(props: { returning: boolean; stepLabel: string | null; onAgree:
     try {
       await props.onAgree();
     } catch (e) {
-      setError(`Couldn't save that: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Couldn't save that: ${errorText(e)}`);
     } finally {
       setBusy(false);
     }
@@ -273,7 +274,7 @@ function Sms({ stepLabel, onDone }: { stepLabel: string; onDone: () => Promise<u
       setProgress(await importRange(addMonthsToDate(day, -months), day, setProgress));
       setImported(true);
     } catch (e) {
-      setError(`Couldn't read the messages: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Couldn't read the messages: ${errorText(e)}`);
     } finally {
       setBusy(false);
     }

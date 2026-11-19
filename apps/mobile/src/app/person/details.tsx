@@ -15,6 +15,7 @@ import { mergePeople } from '@/lib/merge-people';
 import { extraVpasOf, formatBankAccount, getPerson, listPeople, personInUse, phoneOf, removalBlocker, removePerson, SamePersonError, updatePerson, type Person, type PersonInput } from '@/lib/people';
 import { markInvited } from '@/lib/setup';
 import { useLedger } from '@/lib/use-ledger';
+import { errorText } from '@/lib/errors';
 
 type FieldKey = 'name' | 'email' | 'upi' | 'phone' | 'bank';
 
@@ -116,7 +117,7 @@ export default function PersonDetails() {
                 // Kept under the other person: go to them. The page underneath says this one is gone.
                 if (keepId !== id) router.replace(`/person/${keepId}`);
               },
-              (e) => setError(e instanceof Error ? e.message : String(e)),
+              (e) => setError(errorText(e)),
             ),
         },
       ],
@@ -134,7 +135,7 @@ export default function PersonDetails() {
         onPress: () =>
           removePerson(id).then(
             () => router.dismissTo('/people'),
-            (e) => setError(e instanceof Error ? e.message : String(e)),
+            (e) => setError(errorText(e)),
           ),
       },
     ]);
@@ -150,7 +151,7 @@ export default function PersonDetails() {
       if (result === 'invited') await Share.share({ message: inviteMessage(savedEmail, await getMe()) });
       setLink(await linkForEmail(savedEmail));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setInviting(false);
     }
@@ -178,7 +179,7 @@ export default function PersonDetails() {
       const mobile = picked.phones.map(mobileDigits).find((m): m is string => m !== null);
       await save({ contactId: picked.id, ...(mobile && !phoneOf(person) ? { phone: mobile } : {}) });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 
@@ -187,7 +188,7 @@ export default function PersonDetails() {
     try {
       await save({ contactId: null });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 
@@ -341,7 +342,7 @@ function EditSheet(props: { field: FieldKey | null; person: Person; onClose: () 
                 : { bankAccounts: text };
       if (await props.save(change)) props.onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setSaving(false);
     }

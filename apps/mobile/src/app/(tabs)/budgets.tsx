@@ -9,6 +9,7 @@ import { categoryStyle } from '@/components/category-style';
 import { formatMonth, formatAmount, formatSummary } from '@/components/format';
 import { roundingText } from '@/components/budget-sheet';
 import { CategoryIcon, Sheet } from '@/components/sheet';
+import { OfflineNote } from '@/components/offline-note';
 import { ErrorText, Button, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
 import {
   carryChoices,
@@ -128,6 +129,7 @@ export default function Budgets() {
     <>
       <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {error && <ErrorText>{error}</ErrorText>}
+        <OfflineNote />
         <View style={styles.months}>
           <Pressable accessibilityRole="button" accessibilityLabel="Previous month" hitSlop={8} onPress={() => setMonth(addMonths(month, -1))} style={styles.arrow}>
             <Feather name="chevron-left" size={22} color={colors.text} />

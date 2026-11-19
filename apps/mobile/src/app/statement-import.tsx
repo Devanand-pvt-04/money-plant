@@ -10,6 +10,7 @@ import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/compo
 import { listAccountBalances } from '@/lib/ledger';
 import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
 import { importStatement, previewStatement, readStatement, type StatementImportResult, type StatementPreview } from '@/lib/statements';
+import { errorText } from '@/lib/errors';
 
 const ERRORS: Record<PdfErrorCode, string> = {
   wrong_password: "That password didn't open the PDF. Banks often use a mix of your name and date of birth; the email with the statement says which.",
@@ -19,6 +20,7 @@ const ERRORS: Record<PdfErrorCode, string> = {
   demat_not_supported: "Couldn't find a transaction table in this PDF.",
   too_large: 'The PDF is over 10 MB. Download a shorter period.',
   not_configured: "The statement reader isn't set up on the server yet.",
+  offline: "Reading a statement needs the internet. Try again once you're online.",
   service_unavailable: "Couldn't reach the statement reader. Check your connection and try again; it can take a minute to wake up.",
   unknown: 'Something went wrong reading the statement. Try again in a minute.',
 };
@@ -75,7 +77,7 @@ export default function StatementImport() {
       setPreview(next);
       if (!target && next.suggested) setTarget({ id: next.suggested.account.id, label: accountLabel(next.suggested.account), currency: next.suggested.account.currency });
     } catch (e) {
-      setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${e instanceof Error ? e.message : String(e)})`);
+      setError(e instanceof PdfError ? `${ERRORS[e.code]}${e.detail ? ` (${e.detail})` : ''}` : `${ERRORS.unknown} (${errorText(e)})`);
     } finally {
       setReading(false);
     }
@@ -88,7 +90,7 @@ export default function StatementImport() {
     try {
       setResult(await importStatement(preview.rows, target.id));
     } catch (e) {
-      setError(`Couldn't import the statement: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Couldn't import the statement: ${errorText(e)}`);
     } finally {
       setSaving(false);
     }

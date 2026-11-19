@@ -24,6 +24,7 @@ import {
   openNotificationAccessSettings,
   readsAnySender,
 } from '../../modules/sms-reader';
+import { errorText } from '@/lib/errors';
 
 async function load() {
   const [stats, imported, senders] = await Promise.all([captureStats(), hasImportedInbox(), listSenderRows()]);
@@ -108,7 +109,7 @@ export default function Capture() {
     try {
       setProgress(await work());
     } catch (e) {
-      setError(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Import failed: ${errorText(e)}`);
     } finally {
       setBusy(false);
       reload();
@@ -308,7 +309,7 @@ function Check({ on, text, action }: { on: boolean; text: string; action?: { lab
 function SenderChoices({ row, onDone, onError }: { row: SenderRow; onDone: () => void; onError: (message: string) => void }) {
   const styles = useStyles();
   const [linking, setLinking] = useState(false);
-  const act = (work: () => Promise<unknown>) => void work().then(onDone, (e) => onError(e instanceof Error ? e.message : String(e)));
+  const act = (work: () => Promise<unknown>) => void work().then(onDone, (e) => onError(errorText(e)));
   return (
     <>
       <Text style={styles.body}>{row.ignored ? 'Ignored: its messages never become entries.' : row.account ? `Messages go to ${row.account.name}.` : "Messages wait until you pick which account they're for."}</Text>
@@ -370,7 +371,7 @@ function AddSender({ onDone, onError }: { onDone: () => void; onError: (message:
         onClose={() => setLinking(false)}
         onPick={(account) => {
           setLinking(false);
-          void addSender(name.trim(), account.account.id).then(onDone, (e) => onError(e instanceof Error ? e.message : String(e)));
+          void addSender(name.trim(), account.account.id).then(onDone, (e) => onError(errorText(e)));
         }}
       />
     </>

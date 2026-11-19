@@ -14,6 +14,7 @@ import { homeCurrency } from '@/lib/home-currency';
 import { getTransaction } from '@/lib/ledger';
 import { listPeople, type Person } from '@/lib/people';
 import { createSplit, entriesFitting, listItems } from '@/lib/shared';
+import { errorText } from '@/lib/errors';
 
 const METHODS: { method: SplitMethod; label: string; hint: string }[] = [
   { method: 'equally', label: 'Equally', hint: 'Tick who is in. Any odd paise stay with you.' },
@@ -175,7 +176,7 @@ export default function SplitBill() {
       const ids = await createSplit({ shares, occurredOn, reason: reason.trim() || null }, fromTx ? fromTx.tx.id : linkTo);
       router.replace(`/item/${ids[0]}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       setSaving(false);
     }
   }

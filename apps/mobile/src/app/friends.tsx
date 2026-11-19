@@ -18,6 +18,7 @@ import {
 import { getMe } from '@/lib/me';
 import { markInvited } from '@/lib/setup';
 import { supabase } from '@/lib/supabase';
+import { errorText, isOffline } from '@/lib/errors';
 
 /** ACC-8 and ACC-9: invite friends by email, answer friend requests, and see who you're linked with. */
 export default function Friends() {
@@ -40,7 +41,7 @@ export default function Friends() {
       setAdmin(session.data.session?.user.app_metadata?.role === 'admin');
       setError(null);
     } catch (e) {
-      setError(`Couldn't load your friends. This needs the internet. ${e instanceof Error ? e.message : ''}`.trim());
+      setError(isOffline(e) ? "Friends need the internet. Try again once you're online." : `Couldn't load your friends. ${errorText(e)}`);
     } finally {
       setLoading(false);
     }
@@ -75,14 +76,14 @@ export default function Friends() {
       }
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setSending(false);
     }
   }
 
   function act(work: () => Promise<void>) {
-    work().then(load, (e) => Alert.alert("Couldn't do that", e instanceof Error ? e.message : String(e)));
+    work().then(load, (e) => Alert.alert("Couldn't do that", errorText(e)));
   }
 
   function confirmUnlink(link: FriendLink) {

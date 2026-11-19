@@ -1,4 +1,5 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
+import { isOffline } from './errors';
 import { supabase } from './supabase';
 
 /** Why a PDF couldn't be read, from the parser service or its edge function. */
@@ -11,6 +12,7 @@ export type PdfErrorCode =
   | 'too_large'
   | 'not_configured'
   | 'service_unavailable'
+  | 'offline'
   | 'unknown';
 
 const CODES: readonly PdfErrorCode[] = ['wrong_password', 'not_a_cas', 'not_a_statement', 'no_text', 'demat_not_supported', 'too_large', 'not_configured', 'service_unavailable'];
@@ -58,6 +60,8 @@ export async function sendPdf<T>(fn: 'parse-cas' | 'parse-statement', file: PdfF
       throw new PdfError(CODES.find((c) => c === detail) ?? 'unknown', `HTTP ${response.status}${typeof detail === 'string' ? ` ${detail}` : ''}`);
     }
     const cause = (error as { context?: unknown }).context;
+    // Decision 0035: the statement reader runs on the server, so offline says so plainly.
+    if (isOffline(error) || isOffline(cause)) throw new PdfError('offline', error.name);
     throw new PdfError('service_unavailable', `${error.name}: ${cause instanceof Error ? cause.message : error.message}`);
   }
   if (!data) throw new PdfError('unknown', 'Empty response');

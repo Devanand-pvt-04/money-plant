@@ -115,11 +115,20 @@ export function watchErrors(): void {
 }
 
 /** Offline and timed-out calls are expected on a phone; they aren't worth a report. */
-function isOffline(error: Error): boolean {
+export function isOffline(error: unknown): boolean {
+  const e = toError(error);
   return /network request failed|failed to fetch|fetch failed|FunctionsFetchError|FunctionsRelayError|AuthRetryableFetchError|timed? ?out|aborted/i.test(
-    `${error.name} ${error.message}`,
+    `${e.name} ${e.message}`,
   );
 }
+
+/** What went wrong, for the user: a call that needed the internet says so instead of "Network request failed" (decision 0035). */
+export function errorText(error: unknown): string {
+  if (isOffline(error)) return NEEDS_INTERNET;
+  return error instanceof Error ? error.message : String(error);
+}
+
+export const NEEDS_INTERNET = "This needs the internet. Try again once you're online.";
 
 const reported = new Set<string>();
 

@@ -10,6 +10,7 @@ import { Button, Card, ErrorText, MoneyCard, SectionTitle, figures, radius, useC
 import { extraVpasOf, getPerson, phoneOf, type Person } from '@/lib/people';
 import { payLink } from '@/lib/shared';
 import { copyText, openUpiApp, openUpiLink, UPI_APPS, type UpiApp } from '@/lib/upi';
+import { errorText } from '@/lib/errors';
 
 interface Target {
   key: string;
@@ -66,7 +67,7 @@ export default function PayPerson() {
       setCopied(key);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 
@@ -75,7 +76,7 @@ export default function PayPerson() {
     try {
       await openUpiApp(app);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }
 

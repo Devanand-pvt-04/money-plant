@@ -15,6 +15,7 @@ import { adoptBankBalance, setCurrentBalance, type AccountBalance } from '@/lib/
 import { acceptCardCredit, beforePayment, recordUnrecorded, type CardInCredit } from '@/lib/cards';
 import { setRecurringStatus } from '@/lib/recurring';
 import { ignoreSender, linkSender, type CaptureQuestions } from '@/lib/senders';
+import { errorText } from '@/lib/errors';
 
 export interface Proposal {
   rule: Rule & { match: PatternMatch };
@@ -71,7 +72,7 @@ export function QuestionsPanel({ data, onError }: { data: ReviewQuestions; onErr
     setBusy(true);
     work()
       .then(close)
-      .catch((e) => onError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => onError(errorText(e)))
       .finally(() => setBusy(false));
   };
   if (questionCount(data) === 0) return null;
@@ -334,7 +335,7 @@ function PatternChoices({ proposal, close }: { proposal: Proposal; close: () => 
   const act = (work: () => Promise<unknown>) =>
     work()
       .then(close)
-      .catch((e) => Alert.alert("Couldn't save", e instanceof Error ? e.message : String(e)));
+      .catch((e) => Alert.alert("Couldn't save", errorText(e)));
   if (proposal.widens) {
     return (
       <>

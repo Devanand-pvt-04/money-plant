@@ -227,7 +227,8 @@ The phone holds the working copy and Supabase holds the shared record. Sync work
 - **Push:** the phone sends the rows changed since its last successful push (local `dirty = 1`). In milestone 1 it upserts straight into the table under row-level security. A sync edge function takes over when push needs server-side validation (postings that must balance).
 - **Pull:** the phone asks for rows with updated_at after its last pull cursor and applies them locally.
 - **Conflicts:** the last writer wins per row, with two exceptions. On a shared item, a new amount, kind or flow asks the other person again (decision 0026). Postings are always replaced as a set together with their transaction.
-- **Triggers:** sync runs on app open, after each capture, and every 15 minutes in the background where the OS allows.
+- **Triggers:** sync runs on app open, after each capture and local change, and every 15 minutes in the background where the OS allows.
+- **Offline (decision 0035):** the dirty rows are the queue of waiting changes. While a sync fails for being offline and the app is open, it is retried after 30 s, backing off to every 10 minutes, and at once when the app returns to the front. Tabs show "Offline" with the number of waiting changes instead of an error, and work on the phone (recurring, deposits, funds) runs even when the sync fails.
 - **Realtime:** Supabase Realtime pushes IOU changes, so a friend sees a confirmation or settlement within seconds.
 
 If conflicts become a real problem, a sync library (for example PowerSync or ElectricSQL) can replace this hand-written sync later.

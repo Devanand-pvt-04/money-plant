@@ -9,6 +9,7 @@ import type { IdentifierKind } from '@money-plant/matcher';
 import { setHomeCurrency, useHomeCurrency } from '@/lib/home-currency';
 import { addMyIdentifier, loadMyIdentifiers, removeMyIdentifier, setMyIdentifierShared, type MyIdentifier } from '@/lib/identity';
 import { getMe, updateMe, type Me } from '@/lib/me';
+import { errorText, isOffline } from '@/lib/errors';
 
 const KINDS: { kind: IdentifierKind; label: string; placeholder: string }[] = [
   { kind: 'upi', label: 'UPI ID', placeholder: 'deva@ybl' },
@@ -47,7 +48,7 @@ export default function Profile() {
       setName(loaded.name ?? '');
       setVpa(loaded.vpa ?? '');
       return loadMyIdentifiers(loaded.id).then(setMine);
-    }).catch((e) => setError(`${e instanceof Error ? e.message : String(e)}. Your profile needs the internet.`));
+    }).catch((e) => setError(isOffline(e) ? "Your profile needs the internet. Try again once you're online." : `${errorText(e)}. Your profile needs the internet.`));
   }, []);
 
   // Decision 0025: everything that identifies the user, which linked friends' phones use to recognise their payments.

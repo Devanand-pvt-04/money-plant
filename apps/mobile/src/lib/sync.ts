@@ -1,5 +1,8 @@
 import { syncFriendLinks } from './friends';
-import { and, eq, inArray, isNotNull, isNull, ne, notInArray } from 'drizzle-orm';
+import { useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
+import { and, count, eq, inArray, isNotNull, isNull, ne, notInArray, or, type SQL } from 'drizzle-orm';
+import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { isRejection, pushWithFallback } from '@money-plant/core';
 import {
   accountTypes,
@@ -60,7 +63,7 @@ import {
   type RemoteTransaction,
 } from '@money-plant/db-schema';
 import { ensureDefaultCategories } from './categories';
-import { reportBackground } from './errors';
+import { isOffline, reportBackground } from './errors';
 import { notifyLedgerChange } from './events';
 import { getDb } from './db';
 import { kvGet, kvSet } from './kv';
@@ -543,6 +546,96 @@ async function dropHiddenItems(me: string): Promise<number> {
   return hidden.length;
 }
 
+/**
+ * Decision 0035: every change is saved on the phone first and marked dirty, so
+ * the dirty rows are the queue of changes waiting to go up. Offline, sync is
+ * tried again on a timer that backs off, while the app is open, and at once
+ * when the app comes back to the front. Screens show "Offline" and how many
+ * changes are waiting instead of a failure.
+ */
+const RETRY_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
+let offline = false;
+let retryStep = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+const statusListeners = new Set<() => void>();
+
+function setOffline(next: boolean): void {
+  if (offline === next) return;
+  offline = next;
+  for (const listener of statusListeners) listener();
+}
+
+function clearRetry(): void {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
+}
+
+function scheduleRetry(): void {
+  if (retryTimer || AppState.currentState !== 'active') return;
+  const delay = RETRY_MS[Math.min(retryStep, RETRY_MS.length - 1)]!;
+  retryStep++;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    syncNow().catch(() => {});
+  }, delay);
+}
+
+function wentOffline(): void {
+  setOffline(true);
+  scheduleRetry();
+}
+
+function cameOnline(): void {
+  clearRetry();
+  retryStep = 0;
+  setOffline(false);
+}
+
+AppState.addEventListener('change', (state) => {
+  if (state !== 'active') return clearRetry();
+  // Back in front while offline: try at once, then back off from the start again.
+  if (!offline) return;
+  retryStep = 0;
+  syncNow().catch(() => {});
+});
+
+/** Whether the last sync couldn't reach the server. */
+export function isSyncOffline(): boolean {
+  return offline;
+}
+
+/** True while the last sync couldn't reach the server; re-renders when that changes. */
+export function useSyncOffline(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      statusListeners.add(listener);
+      return () => statusListeners.delete(listener);
+    },
+    () => offline,
+  );
+}
+
+/** Changes on this phone not yet sent: dirty rows in every synced table, and answers to friends' items. */
+export async function countWaiting(): Promise<number> {
+  const db = await getDb();
+  const dirtyIn = (table: SQLiteTable, where: SQL | undefined) => db.select({ n: count() }).from(table).where(where).get()?.n ?? 0;
+  return (
+    dirtyIn(accountTypes, eq(accountTypes.dirty, 1)) +
+    dirtyIn(accounts, eq(accounts.dirty, 1)) +
+    dirtyIn(rules, eq(rules.dirty, 1)) +
+    dirtyIn(transactions, eq(transactions.dirty, 1)) +
+    dirtyIn(balanceAnchors, eq(balanceAnchors.dirty, 1)) +
+    dirtyIn(budgets, eq(budgets.dirty, 1)) +
+    dirtyIn(budgetCarries, eq(budgetCarries.dirty, 1)) +
+    dirtyIn(recurring, eq(recurring.dirty, 1)) +
+    dirtyIn(deposits, eq(deposits.dirty, 1)) +
+    dirtyIn(holdings, eq(holdings.dirty, 1)) +
+    dirtyIn(personIdentifiers, eq(personIdentifiers.dirty, 1)) +
+    dirtyIn(sharedItems, or(eq(sharedItems.dirty, 1), isNotNull(sharedItems.myAnswer))) +
+    dirtyIn(itemLinks, eq(itemLinks.dirty, 1))
+  );
+}
+
 export interface SyncResult {
   pushed: number;
   pulled: number;
@@ -595,7 +688,9 @@ async function wipeIfClearedElsewhere(clearedAt: unknown): Promise<void> {
 export function syncNow(): Promise<SyncResult> {
   running ??= (async () => {
     try {
-      const { data } = await supabase.auth.getSession();
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      // Offline with an expired token: the session can't be refreshed yet, which is being offline, not signed out.
+      if (!data.session && sessionError && isOffline(sessionError)) throw sessionError;
       if (!data.session || held) return { pushed: 0, pulled: 0 };
       const me = data.session.user.id;
       await wipeIfClearedElsewhere(data.session.user.user_metadata?.data_cleared_at);
@@ -643,8 +738,11 @@ export function syncNow(): Promise<SyncResult> {
       if (reconciled > 0) setTimeout(() => void syncNow().catch(() => {}), 0);
       // Screens out of view reload on their next focus only after a change, so say when one came in.
       if (pulled > 0) notifyLedgerChange();
+      cameOnline();
       return { pushed, pulled };
     } catch (e) {
+      if (isOffline(e)) wentOffline();
+      else setOffline(false);
       // Most callers don't wait for sync, so a failure would go unseen; the caller still gets it.
       reportBackground('sync')(e);
       throw e;

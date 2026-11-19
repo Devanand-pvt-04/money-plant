@@ -3,12 +3,14 @@ import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-
 import { router, useNavigation, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { formatAmount, formatSummary } from '@/components/format';
+import { OfflineNote } from '@/components/offline-note';
 import { ErrorText, Card, Initial, MoneyCard, SectionTitle, figures, radius, useColors, makeStyles } from '@/components/ui';
 import { mergePeople } from '@/lib/merge-people';
 import { dismissDuplicate, duplicateSuggestions, listPeople, type DuplicateSuggestion, type Person } from '@/lib/people';
 import { itemTitle, listItems, statusText, type ItemView } from '@/lib/shared';
 import { usePullToRefresh } from '@/lib/refresh';
 import { useLedger } from '@/lib/use-ledger';
+import { errorText } from '@/lib/errors';
 
 async function load() {
   const [people, items] = await Promise.all([listPeople(), listItems()]);
@@ -62,7 +64,7 @@ export default function People() {
       `Everything with ${d.removeName} (entries, shared items, UPI IDs) moves to ${d.keepName}, and ${d.removeName} is removed.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Merge', onPress: () => mergePeople(d.remove, d.keep).catch((e) => setMergeError(e instanceof Error ? e.message : String(e))) },
+        { text: 'Merge', onPress: () => mergePeople(d.remove, d.keep).catch((e) => setMergeError(errorText(e))) },
       ],
     );
   }
@@ -106,6 +108,7 @@ export default function People() {
   return (
     <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
       {error && <ErrorText>{error}</ErrorText>}
+      <OfflineNote />
       <MoneyCard>
         <View>
           <Text style={styles.heroLabel}>{net < 0 ? 'Overall, you owe' : "Overall, you'll get back"}</Text>
