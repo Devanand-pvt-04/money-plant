@@ -134,6 +134,79 @@ export function carryQuestions(
   return result;
 }
 
+/**
+ * BUD-5: an overspend the user chose to take off later budgets. It starts in
+ * `into` and comes off month after month until cleared (decision 0034).
+ */
+export interface CarryDebt {
+  id: string;
+  /** The first month it comes off. */
+  into: MonthKey;
+  /** The whole overspend, positive. */
+  amount: Paise;
+  /** Null takes as much as each month's budget allows; 2 to 6 aims for equal parts over that many budgeted months. */
+  spread: number | null;
+  /** From this month on, whatever is left is dropped. */
+  stoppedFrom: MonthKey | null;
+}
+
+export interface DebtMonth {
+  /** Taken off this month's budget, per debt. */
+  taken: Map<string, Paise>;
+  /** Still to come off after this month, per debt; zero once cleared or stopped. */
+  left: Map<string, Paise>;
+}
+
+/**
+ * BUD-5: takes overspends off a category's budgets month by month, oldest
+ * first, from its first month through `until`. `room` is what a month's
+ * budget holds before overspends come off (the budget plus anything carried
+ * in), or null when the category has no budget that month: overspends wait
+ * for the next month with one. A month's budget never goes below zero; what
+ * it can't take moves on. A spread debt aims, by its k-th budgeted month, to
+ * have k/n of the amount taken (rounded up), so shortfalls catch up later and
+ * anything left after n months comes off as needed.
+ */
+export function absorbDebts(debts: readonly CarryDebt[], room: (month: MonthKey) => number | null, until: MonthKey): Map<MonthKey, DebtMonth> {
+  const result = new Map<MonthKey, DebtMonth>();
+  if (debts.length === 0) return result;
+  const order = [...debts].sort((a, b) => a.into.localeCompare(b.into) || a.id.localeCompare(b.id));
+  const left = new Map<string, number>(order.map((d) => [d.id, d.amount]));
+  const counted = new Map<string, number>(order.map((d) => [d.id, 0]));
+  for (let month = order[0]!.into; month <= until; month = addMonths(month, 1)) {
+    const taken = new Map<string, Paise>();
+    for (const d of order) if (d.stoppedFrom !== null && month >= d.stoppedFrom) left.set(d.id, 0);
+    const budget = room(month);
+    if (budget !== null) {
+      let free = Math.max(0, budget);
+      for (const d of order) {
+        const owed = left.get(d.id)!;
+        if (d.into > month || owed <= 0) continue;
+        const k = counted.get(d.id)! + 1;
+        counted.set(d.id, k);
+        const due = d.spread !== null && k < d.spread ? Math.max(0, Math.ceil((d.amount * k) / d.spread) - (d.amount - owed)) : owed;
+        const take = Math.min(due, free);
+        if (take <= 0) continue;
+        free -= take;
+        left.set(d.id, owed - take);
+        taken.set(d.id, paise(take));
+      }
+    }
+    result.set(month, { taken, left: new Map([...left].map(([id, amount]) => [id, paise(amount)])) });
+  }
+  return result;
+}
+
+/** BUD-5: the last month an overspend comes off within the months worked out; null if it doesn't clear in them. */
+export function debtClearsBy(debtId: string, months: ReadonlyMap<MonthKey, DebtMonth>): MonthKey | null {
+  let last: MonthKey | null = null;
+  for (const [month, state] of months) {
+    if ((state.taken.get(debtId) ?? 0) > 0) last = month;
+    if ((state.left.get(debtId) ?? 0) === 0) return last;
+  }
+  return null;
+}
+
 export interface BudgetTotal {
   /** The sum of the budgets that count, or null when none are set. */
   limit: Paise | null;

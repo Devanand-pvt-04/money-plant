@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(65);
+select plan(66);
 
 -- ---- Structure ----
 
@@ -179,6 +179,11 @@ update split_groups set name = 'hacked' where id = 'a6000000-0000-4000-8000-0000
 update deposits set amount_paise = 1 where id = 'a6000000-0000-4000-8000-000000000007';
 update holdings set units_e4 = 0 where id = 'a6000000-0000-4000-8000-000000000008';
 select is((select count(*)::int from budget_carries), 0, 'Bala reads none of Asha''s budget carries');
+insert into accounts (id, type, name) values ('b0000000-0000-4000-8000-000000000016', 'category', 'Bala food');
+select throws_ok(
+  $$insert into budget_carries (id, month, category_account_id, amount_paise, continues_id) values
+    ('b6000000-0000-4000-8000-000000000017', date_trunc('month', current_date)::date, 'b0000000-0000-4000-8000-000000000016', -1, 'a6000000-0000-4000-8000-000000000016')$$,
+  '42501', null, 'Bala cannot continue Asha''s carry from his own category');
 update budget_carries set amount_paise = -1 where id = 'a6000000-0000-4000-8000-000000000016';
 select throws_ok(
   $$insert into budget_carries (id, month, category_account_id, amount_paise) values

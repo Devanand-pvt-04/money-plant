@@ -12,7 +12,8 @@ import { aiReviewFor, type AiReview } from '@/lib/ai-review';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { acceptSuggestion, ignoreSuggestion, lastMonth, monthReview, type MonthReview, type ReviewOverspend, type ReviewSuggestion } from '@/lib/review';
 import { useIsAdmin } from '@/lib/admin';
-import { answerCarries, type CarryChoice } from '@/lib/budgets';
+import { answerCarries, spreadText, type CarryChoice } from '@/lib/budgets';
+import { SpreadSheet } from '@/components/spread-sheet';
 import { useLedger } from '@/lib/use-ledger';
 
 const monthName = (month: MonthKey) => formatMonth(month).split(' ')[0]!;
@@ -370,7 +371,7 @@ function CarrySection({ carries, month, onChanged }: { carries: CarryChoice[]; m
     <>
       <SectionTitle>Leftovers and overspends</SectionTitle>
       <Text style={styles.meta}>
-        Carry what was left in {monthName(month)} into {into}'s budget, or take what went over off it. The amount is fixed when you choose, and a budget never goes below zero.
+        Carry what was left in {monthName(month)} into {into}'s budget, or take what went over off it. The amount is fixed when you choose. An overspend bigger than a month's budget keeps coming off the months after until it's cleared.
       </Text>
       {open.length > 1 && (
         <View style={styles.carryAll}>
@@ -378,16 +379,19 @@ function CarrySection({ carries, month, onChanged }: { carries: CarryChoice[]; m
         </View>
       )}
       {carries.map((c) => (
-        <CarryCard key={c.category.id} choice={c} month={month} busy={busy} onAnswer={(leave) => run(answerCarries([c], leave))} />
+        <CarryCard key={c.category.id} choice={c} month={month} busy={busy} onAnswer={(leave, spread) => run(answerCarries([c], leave, spread))} />
       ))}
     </>
   );
 }
 
-function CarryCard({ choice: c, month, busy, onAnswer }: { choice: CarryChoice; month: MonthKey; busy: boolean; onAnswer: (leave: boolean) => void }) {
+function CarryCard({ choice: c, month, busy, onAnswer }: { choice: CarryChoice; month: MonthKey; busy: boolean; onAnswer: (leave: boolean, spread: number | null) => void }) {
   const colors = useColors();
   const styles = useStyles();
   const [changing, setChanging] = useState(false);
+  // How an overspend comes off: as needed unless the user picks a spread (decision 0034).
+  const [spread, setSpread] = useState<number | null>(c.spread);
+  const [picking, setPicking] = useState(false);
   const into = monthName(c.into);
   const left = c.amount > 0;
   const size = Math.abs(c.amount) as Paise;
@@ -395,7 +399,7 @@ function CarryCard({ choice: c, month, busy, onAnswer }: { choice: CarryChoice; 
   const answer = (leave: boolean) => {
     if (busy) return;
     setChanging(false);
-    onAnswer(leave);
+    onAnswer(leave, spread);
   };
   return (
     <View style={styles.card}>
@@ -417,8 +421,17 @@ function CarryCard({ choice: c, month, busy, onAnswer }: { choice: CarryChoice; 
       </View>
       {asking ? (
         <View style={styles.choices}>
-          <Choice label={left ? `Carry ${rupees(size)} into ${into}` : `Take ${rupees(size)} off ${into}`} primary onPress={() => answer(false)} />
+          <Choice
+            label={left ? `Carry ${rupees(size)} into ${into}` : spread === null ? `Take ${rupees(size)} off ${into}` : `Take ${rupees(size)} off over ${spread} months`}
+            primary
+            onPress={() => answer(false)}
+          />
           <Choice label="Leave it" onPress={() => answer(true)} />
+          {!left && (
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setPicking(true)} style={styles.how}>
+              <Text style={styles.link}>How?</Text>
+            </Pressable>
+          )}
         </View>
       ) : (
         <View style={styles.answer}>
@@ -428,9 +441,21 @@ function CarryCard({ choice: c, month, busy, onAnswer }: { choice: CarryChoice; 
               ? `Left as it was. ${into} keeps its usual budget.`
               : c.answer! > 0
                 ? `${rupees(c.answer!)} carried into ${into}.`
-                : `${rupees(-c.answer! as Paise)} taken off ${into}.`}
+                : `${rupees(-c.answer! as Paise)} taken off from ${into}, ${spreadText(c.spread)}.`}
           </Text>
         </View>
+      )}
+      {!left && (
+        <SpreadSheet
+          visible={picking}
+          amount={size}
+          value={spread}
+          onPick={(next) => {
+            setSpread(next);
+            setPicking(false);
+          }}
+          onClose={() => setPicking(false)}
+        />
       )}
     </View>
   );
@@ -473,6 +498,7 @@ const useStyles = makeStyles((colors) => ({
   subhead: { fontSize: 12, fontWeight: '600', color: colors.muted, paddingLeft: 46, marginTop: 2 },
   choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingLeft: 46 },
   carryAll: { flexDirection: 'row' },
+  how: { minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 },
   answer: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 46 },
   answerText: { fontSize: 13, color: colors.secondary, flex: 1 },
   link: { fontSize: 13, fontWeight: '600', color: colors.primary },

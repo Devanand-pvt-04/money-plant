@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, suggestionStep, sortBudgets, combineBudgets, withCarries, carryQuestions } from './budget';
+import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, suggestionStep, sortBudgets, combineBudgets, withCarries, carryQuestions, absorbDebts, debtClearsBy, type CarryDebt } from './budget';
 
 describe('effectiveBudgets', () => {
   const rows = [
@@ -232,5 +232,57 @@ describe('carryQuestions (BUD-5)', () => {
 
   it('offers a whole unspent budget', () => {
     expect(carryQuestions(limits, spent, new Set(['gifts']))).toEqual([{ categoryId: 'gifts', amount: 100000 }]);
+  });
+});
+
+describe('absorbDebts (BUD-5)', () => {
+  const debt = (over: Partial<CarryDebt> = {}): CarryDebt => ({ id: 'd1', into: '2026-11', amount: paise(700000), spread: null, stoppedFrom: null, ...over });
+  const flat = (amount: number) => () => amount;
+
+  it('takes an overspend as needed across months until cleared', () => {
+    const months = absorbDebts([debt()], flat(300000), '2027-02');
+    expect(months.get('2026-11')!.taken.get('d1')).toBe(300000);
+    expect(months.get('2026-12')!.taken.get('d1')).toBe(300000);
+    expect(months.get('2027-01')!.taken.get('d1')).toBe(100000);
+    expect(months.get('2027-01')!.left.get('d1')).toBe(0);
+    expect(months.get('2027-02')!.taken.has('d1')).toBe(false);
+    expect(debtClearsBy('d1', months)).toBe('2027-01');
+  });
+
+  it('spreads equal parts, rounding the first up', () => {
+    const months = absorbDebts([debt({ spread: 3 })], flat(1000000), '2027-01');
+    expect([...months.values()].map((m) => m.taken.get('d1'))).toEqual([233334, 233333, 233333]);
+  });
+
+  it('moves a part a month cannot take on to the next', () => {
+    const room = (m: string) => (m === '2026-11' ? 100000 : 1000000);
+    const months = absorbDebts([debt({ spread: 2 })], room, '2027-01');
+    expect(months.get('2026-11')!.taken.get('d1')).toBe(100000);
+    expect(months.get('2026-12')!.taken.get('d1')).toBe(600000);
+  });
+
+  it('waits through months with no budget', () => {
+    const room = (m: string) => (m === '2026-12' ? null : 300000);
+    const months = absorbDebts([debt()], room, '2027-02');
+    expect(months.get('2026-12')!.taken.size).toBe(0);
+    expect(months.get('2027-01')!.taken.get('d1')).toBe(300000);
+    expect(months.get('2027-02')!.taken.get('d1')).toBe(100000);
+  });
+
+  it('drops what is left once stopped', () => {
+    const months = absorbDebts([debt({ stoppedFrom: '2026-12' })], flat(300000), '2027-01');
+    expect(months.get('2026-11')!.taken.get('d1')).toBe(300000);
+    expect(months.get('2026-12')!.taken.size).toBe(0);
+    expect(months.get('2026-12')!.left.get('d1')).toBe(0);
+  });
+
+  it('takes the oldest overspend first, and a later one queues behind it', () => {
+    const months = absorbDebts([debt({ id: 'b', into: '2026-12', amount: paise(200000) }), debt({ id: 'a', amount: paise(400000) })], flat(300000), '2027-01');
+    expect(months.get('2026-12')!.taken.get('a')).toBe(100000);
+    expect(months.get('2026-12')!.taken.get('b')).toBe(200000);
+  });
+
+  it('never clears with no budget ahead', () => {
+    expect(debtClearsBy('d1', absorbDebts([debt()], () => null, '2027-12'))).toBeNull();
   });
 });

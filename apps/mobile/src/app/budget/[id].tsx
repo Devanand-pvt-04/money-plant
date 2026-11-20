@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import type { MonthKey, Paise } from '@money-plant/core';
@@ -9,7 +9,21 @@ import { categoryStyle } from '@/components/category-style';
 import { formatDate, formatMonth, formatAmount as rupees } from '@/components/format';
 import { CategoryIcon } from '@/components/sheet';
 import { ProgressBar, SectionTitle, radius, useColors, makeStyles, MoneyCard } from '@/components/ui';
-import { carryText, categoryBreakdown, currentMonth, daysLeft, monthOverview, setBudget, type BudgetLine, type CategoryBreakdown } from '@/lib/budgets';
+import {
+  carryText,
+  categoryBreakdown,
+  changeOverspend,
+  currentMonth,
+  daysLeft,
+  monthOverview,
+  setBudget,
+  spreadText,
+  stopOverspend,
+  type BudgetLine,
+  type CategoryBreakdown,
+  type OverspendDebt,
+} from '@/lib/budgets';
+import { SpreadSheet } from '@/components/spread-sheet';
 import { categoryNames, flatten, listCategories, type CategoryNode } from '@/lib/categories';
 import { requestNotificationPermission } from '@/lib/notifications';
 import { useLedger } from '@/lib/use-ledger';
@@ -122,7 +136,7 @@ export default function CategoryMonth() {
         </Text>
         {line?.limit != null && <ProgressBar value={line.spent / line.limit} status={line.pace?.status} marker={data.elapsed} onHero />}
         {line?.limit != null && <Text style={styles.heroMeta}>{paceText(line, left)}</Text>}
-        {line?.carry != null && <Text style={styles.heroMeta}>{carryText(line.carry, month)}.</Text>}
+        {line && carryText(line, month) !== null && <Text style={styles.heroMeta}>{carryText(line, month)}.</Text>}
       </MoneyCard>
 
       {overall && (
@@ -158,6 +172,17 @@ export default function CategoryMonth() {
               onPress={() => edit('month')}
             />
           </View>
+        </>
+      )}
+
+      {!overall && month === currentMonth() && line && line.overspends.some((d) => d.left > 0) && (
+        <>
+          <SectionTitle>Overspends coming off</SectionTitle>
+          {line.overspends
+            .filter((d) => d.left > 0)
+            .map((d) => (
+              <OverspendRow key={d.id} debt={d} />
+            ))}
         </>
       )}
 
@@ -226,6 +251,52 @@ export default function CategoryMonth() {
         onClose={() => setEditing(null)}
       />
     </ScrollView>
+  );
+}
+
+/**
+ * BUD-5 (decision 0034): an overspend still to come off later budgets, with
+ * Change (as needed, or spread over 2 to 6 months) and Stop carrying the rest.
+ * Both apply from next month; what already came off stays as it was.
+ */
+function OverspendRow({ debt }: { debt: OverspendDebt }) {
+  const styles = useStyles();
+  const [picking, setPicking] = useState(false);
+  const stop = () =>
+    Alert.alert('Stop carrying the rest?', `${rupees(debt.left)} of ${monthName(debt.from)}'s overspend won't come off any later budget. What already came off stays as it was.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Stop', style: 'destructive', onPress: () => void stopOverspend(debt) },
+    ]);
+  return (
+    <View style={styles.panel}>
+      <View style={styles.budgetRow}>
+        <View style={styles.grow}>
+          <Text style={styles.name}>{rupees(debt.left)} still to come off</Text>
+          <Text style={styles.note}>
+            From {monthName(debt.from)}'s overspend, {spreadText(debt.spread)}
+            {debt.clearsBy ? `, through ${monthName(debt.clearsBy)}` : ', once a month has a budget for it'}.
+          </Text>
+        </View>
+      </View>
+      <View style={[styles.budgetRow, styles.divided, styles.actions]}>
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => setPicking(true)}>
+          <Text style={styles.link}>Change</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={stop}>
+          <Text style={styles.link}>Stop carrying the rest</Text>
+        </Pressable>
+      </View>
+      <SpreadSheet
+        visible={picking}
+        amount={debt.left}
+        value={debt.spread}
+        onPick={(spread) => {
+          setPicking(false);
+          void changeOverspend(debt, spread);
+        }}
+        onClose={() => setPicking(false)}
+      />
+    </View>
   );
 }
 
@@ -301,6 +372,7 @@ const useStyles = makeStyles((colors) => ({
   panel: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, overflow: 'hidden' },
   budgetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingHorizontal: 16, paddingVertical: 12 },
   divided: { borderTopWidth: 1, borderTopColor: colors.divider },
+  actions: { minHeight: 48, gap: 24 },
   pressed: { backgroundColor: colors.pressed },
   name: { fontSize: 15, fontWeight: '600', color: colors.text },
   note: { fontSize: 12, color: colors.muted, marginTop: 2 },
