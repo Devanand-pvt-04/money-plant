@@ -15,6 +15,9 @@ import {
   suggestBudget,
   suggestionStep,
   withCarries,
+  absorbDebts,
+  debtClearsBy,
+  type CarryDebt,
   type MonthKey,
   type BudgetSetting,
   type CurrencyCode,
@@ -82,11 +85,30 @@ export interface BudgetLine {
   pace: Pace | null;
   /** A sub-category whose parent has the budget: it counts there, not on its own (BUD-1). */
   inParentBudget: boolean;
-  /**
-   * BUD-5: carried from last month into `limit`: a leftover (positive) or an
-   * overspend taken off (negative). Null when nothing carried.
-   */
-  carry: Paise | null;
+  /** BUD-5: last month's leftover carried into `limit`, or null. */
+  carriedIn: Paise | null;
+  /** BUD-5: earlier overspends taken off `limit` this month, or null. */
+  takenOff: Paise | null;
+  /** BUD-5: overspends taken off this month or still to come off later. */
+  overspends: OverspendDebt[];
+}
+
+/** BUD-5 (decision 0034): an overspend coming off a category's budgets. */
+export interface OverspendDebt {
+  /** The carry row; changing its plan stops it and starts a row that continues it. */
+  id: string;
+  /** The month that went over. */
+  from: MonthKey;
+  /** The first month this row comes off. */
+  into: MonthKey;
+  /** Taken off the month in view. */
+  taken: Paise;
+  /** Still to come off after the month in view. */
+  left: Paise;
+  /** The last month it comes off, with today's budgets; null when no budget ahead takes it all. */
+  clearsBy: MonthKey | null;
+  /** Null as needed, else equal parts over that many months. */
+  spread: number | null;
 }
 
 export interface MonthOverview {
@@ -154,14 +176,77 @@ function budgetRows(db: Awaited<ReturnType<typeof getDb>>) {
 
 const NO_SETTING: BudgetSetting = { default: null, override: null, limit: null };
 
-/** BUD-5: every answer for carrying into `month`, keyed by category; zero is "Leave it". */
-function carryRows(db: Awaited<ReturnType<typeof getDb>>, month: MonthKey): Map<string, Paise> {
-  const rows = db
-    .select({ categoryId: budgetCarries.categoryAccountId, amount: budgetCarries.amountPaise })
-    .from(budgetCarries)
-    .where(and(eq(budgetCarries.month, month), isNull(budgetCarries.deletedAt)))
-    .all();
-  return new Map(rows.map((row) => [row.categoryId, paise(row.amount)]));
+type CarryRow = typeof budgetCarries.$inferSelect;
+
+function carryRowsAll(db: Awaited<ReturnType<typeof getDb>>): CarryRow[] {
+  return db.select().from(budgetCarries).where(isNull(budgetCarries.deletedAt)).all();
+}
+
+/** BUD-5: every answer to a month's carry question, keyed by category; zero is "Leave it". Rows continuing an earlier overspend aren't answers. */
+function carryAnswers(rows: readonly CarryRow[], month: MonthKey): Map<string, CarryRow> {
+  return new Map(rows.filter((r) => r.month === month && r.continuesId === null).map((r) => [r.categoryAccountId, r]));
+}
+
+/** How far ahead overspends are followed to say when they clear. */
+const DEBT_HORIZON = 120;
+
+/**
+ * BUD-5: what carries do to one month's counted budgets. A leftover carried in
+ * adds to its month; overspends come off month after month, as each budget
+ * allows or spread, until cleared or stopped (absorbDebts).
+ */
+function applyCarries(
+  month: MonthKey,
+  base: ReadonlyMap<string, Paise>,
+  rows: readonly CarryRow[],
+  countedIn: (m: MonthKey) => ReadonlyMap<string, Paise>,
+): { limits: Map<string, Paise>; carriedIn: Map<string, Paise>; takenOff: Map<string, Paise>; overspends: Map<string, OverspendDebt[]> } {
+  const carriedIn = new Map<string, Paise>();
+  const positive = (m: MonthKey, id: string) => {
+    const row = rows.find((r) => r.month === m && r.categoryAccountId === id && r.continuesId === null && r.amountPaise > 0);
+    return row ? row.amountPaise : 0;
+  };
+  for (const id of base.keys()) {
+    const carried = positive(month, id);
+    if (carried > 0) carriedIn.set(id, paise(carried));
+  }
+  const limits = withCarries(base, carriedIn);
+  const takenOff = new Map<string, Paise>();
+  const overspends = new Map<string, OverspendDebt[]>();
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const origin = (row: CarryRow): MonthKey => {
+    let at = row;
+    for (let hops = 0; at.continuesId && byId.has(at.continuesId) && hops < 50; hops++) at = byId.get(at.continuesId)!;
+    return addMonths(at.month, -1);
+  };
+  const next = addMonths(month, 1);
+  const categories = new Set(rows.filter((r) => r.amountPaise < 0).map((r) => r.categoryAccountId));
+  for (const id of categories) {
+    const own = rows.filter((r) => r.categoryAccountId === id && r.amountPaise < 0 && r.month <= next);
+    if (own.length === 0) continue;
+    const debts: CarryDebt[] = own.map((r) => ({ id: r.id, into: r.month, amount: paise(-r.amountPaise), spread: r.spreadMonths, stoppedFrom: r.stoppedFrom }));
+    const room = (m: MonthKey) => {
+      const budget = countedIn(m).get(id);
+      return budget === undefined ? null : Math.max(0, budget + positive(m, id));
+    };
+    const months = absorbDebts(debts, room, addMonths(month, DEBT_HORIZON));
+    const now = months.get(month);
+    const taken = now ? [...now.taken.values()].reduce((sum, v) => sum + v, 0) : 0;
+    if (taken > 0 && limits.has(id)) {
+      takenOff.set(id, paise(taken));
+      limits.set(id, paise(limits.get(id)! - taken));
+    }
+    const list: OverspendDebt[] = [];
+    for (const row of own) {
+      const takenNow = now?.taken.get(row.id) ?? paise(0);
+      const left = row.month > month ? paise(-row.amountPaise) : (now?.left.get(row.id) ?? paise(0));
+      const stopped = row.stoppedFrom !== null && row.stoppedFrom <= next;
+      if (takenNow === 0 && (left === 0 || stopped)) continue;
+      list.push({ id: row.id, from: origin(row), into: row.month, taken: takenNow, left: stopped ? paise(0) : left, clearsBy: debtClearsBy(row.id, months), spread: row.spreadMonths });
+    }
+    if (list.length > 0) overspends.set(id, list);
+  }
+  return { limits, carriedIn, takenOff, overspends };
 }
 
 /** BUD-1 and BUD-2: spend against budget for every spending category in a month. */
@@ -174,9 +259,21 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
   const limits = new Map<string, Paise>();
   for (const [key, setting] of settings) if (setting.limit !== null && ids.has(key)) limits.set(key, setting.limit);
   const base = countedBudgets(limits, parents);
-  const carries = carryRows(db, month);
-  // BUD-5: last month's leftover or overspend, where the user chose to carry it.
-  const counted = withCarries(base, carries);
+  // BUD-5: leftovers carried in and overspends coming off, where the user chose to carry them.
+  const rows = budgetRows(db);
+  const countedCache = new Map<MonthKey, Map<string, Paise>>([[month, base]]);
+  const countedIn = (m: MonthKey) => {
+    let found = countedCache.get(m);
+    if (!found) {
+      const own = new Map<string, Paise>();
+      for (const [key, setting] of budgetSettings(rows, m)) if (setting.limit !== null && ids.has(key)) own.set(key, setting.limit);
+      found = countedBudgets(own, parents);
+      countedCache.set(m, found);
+    }
+    return found;
+  };
+  const carried = applyCarries(month, base, carryRowsAll(db), countedIn);
+  const counted = carried.limits;
   const allSpending = paise(tree.reduce((sum, root) => sum + (spent.get(root.id) ?? 0), 0));
   const total = budgetTotal(counted, spent, allSpending);
   const elapsed = month === currentMonth() ? monthElapsed(month, new Date()) : month < currentMonth() ? 1 : 0;
@@ -185,8 +282,17 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
     const setting = settings.get(category.id) ?? NO_SETTING;
     const limit = counted.get(category.id) ?? null;
     const inParentBudget = category.parentId !== null && counted.has(category.parentId);
-    const carry = base.has(category.id) && (carries.get(category.id) ?? 0) !== 0 ? carries.get(category.id)! : null;
-    return { category, spent: amount, limit, setting, pace: limit === null ? null : budgetPace(amount, limit, elapsed), inParentBudget, carry };
+    return {
+      category,
+      spent: amount,
+      limit,
+      setting,
+      pace: limit === null ? null : budgetPace(amount, limit, elapsed),
+      inParentBudget,
+      carriedIn: carried.carriedIn.get(category.id) ?? null,
+      takenOff: carried.takenOff.get(category.id) ?? null,
+      overspends: carried.overspends.get(category.id) ?? [],
+    };
   };
   return {
     month,
@@ -198,7 +304,9 @@ export async function monthOverview(month: MonthKey): Promise<MonthOverview> {
       setting: NO_SETTING,
       pace: total.limit === null ? null : budgetPace(total.spent, total.limit, elapsed),
       inParentBudget: false,
-      carry: null,
+      carriedIn: null,
+      takenOff: null,
+      overspends: [],
     },
     outside: total.outside,
     lines: tree.flatMap((root) => [line(root), ...root.children.map(line)]),
@@ -215,6 +323,8 @@ export interface CarryChoice {
   amount: Paise;
   /** What the user chose, fixed when they answered: the carried amount, 0 to leave it, null not yet. */
   answer: Paise | null;
+  /** For an overspend taken off: null as needed, else equal parts over that many months. */
+  spread: number | null;
 }
 
 /**
@@ -231,13 +341,21 @@ export async function carryChoices(from: MonthKey, loaded: { from?: MonthOvervie
   const limits = new Map(counted(before).map((l) => [l.category!.id, l.limit!]));
   const spent = new Map(before.lines.map((l) => [l.category!.id, l.spent]));
   const next = new Set(counted(after).map((l) => l.category!.id));
-  const answers = carryRows(await getDb(), into);
+  const answers = carryAnswers(carryRowsAll(await getDb()), into);
   const byId = new Map(before.lines.map((l) => [l.category!.id, l.category!]));
-  return carryQuestions(limits, spent, next).map((q) => ({ category: byId.get(q.categoryId)!, into, amount: q.amount, answer: answers.get(q.categoryId) ?? null }));
+  return carryQuestions(limits, spent, next).map((q) => {
+    const row = answers.get(q.categoryId);
+    return { category: byId.get(q.categoryId)!, into, amount: q.amount, answer: row ? paise(row.amountPaise) : null, spread: row?.spreadMonths ?? null };
+  });
 }
 
-/** BUD-5: answers carry questions: carry each amount as it stands now, or with `leave`, carry nothing. */
-export async function answerCarries(choices: readonly CarryChoice[], leave = false): Promise<void> {
+/**
+ * BUD-5: answers carry questions: carry each amount as it stands now, or with
+ * `leave`, carry nothing. An overspend taken off comes off as needed, or in
+ * equal parts over `spread` months. Answering again replaces any change of
+ * plan made since.
+ */
+export async function answerCarries(choices: readonly CarryChoice[], leave = false, spread: number | null = null): Promise<void> {
   if (choices.length === 0) return;
   const db = await getDb();
   const rows = await Promise.all(
@@ -246,6 +364,9 @@ export async function answerCarries(choices: readonly CarryChoice[], leave = fal
       month: c.into,
       categoryAccountId: c.category.id,
       amountPaise: leave ? 0 : c.amount,
+      spreadMonths: !leave && c.amount < 0 ? spread : null,
+      stoppedFrom: null,
+      continuesId: null,
     })),
   );
   db.transaction((t) => {
@@ -255,15 +376,77 @@ export async function answerCarries(choices: readonly CarryChoice[], leave = fal
         .values({ ...values, createdAt: now() })
         .onConflictDoUpdate({ target: budgetCarries.id, set: { ...values, rev: sql`${budgetCarries.rev} + 1` } })
         .run();
+      t.update(budgetCarries)
+        .set({ deletedAt: now(), dirty: 1, rev: sql`${budgetCarries.rev} + 1` })
+        .where(and(eq(budgetCarries.continuesId, row.id), isNull(budgetCarries.deletedAt)))
+        .run();
     }
   });
   notifyLedgerChange();
 }
 
-/** BUD-5: what last month added to or took off a month's budget, for under its bar. */
-export function carryText(carry: Paise, month: MonthKey): string {
-  const from = formatMonth(addMonths(month, -1)).split(' ')[0];
-  return carry > 0 ? `Includes ${rupees(carry)} carried from ${from}` : `${rupees(paise(-carry))} taken off for ${from}'s overspend`;
+/**
+ * BUD-5: changes how what's left of an overspend comes off, from next month
+ * on: as needed (null) or in equal parts over `spread` months. What came off
+ * up to this month stays as it was: the row stops after this month and a new
+ * row continues it with the rest.
+ */
+export async function changeOverspend(debt: OverspendDebt, spread: number | null): Promise<void> {
+  const db = await getDb();
+  const next = addMonths(currentMonth(), 1);
+  const row = db.select().from(budgetCarries).where(eq(budgetCarries.id, debt.id)).get();
+  if (!row) return;
+  const bump = { dirty: 1, rev: sql`${budgetCarries.rev} + 1` };
+  if (row.month >= next) {
+    // Not started yet: change it in place.
+    db.update(budgetCarries).set({ spreadMonths: spread, ...bump }).where(eq(budgetCarries.id, row.id)).run();
+  } else if (debt.left > 0) {
+    const id = await derivedId(`carry:rest:${row.id}:${next}`);
+    const values = { month: next, categoryAccountId: row.categoryAccountId, amountPaise: -debt.left, spreadMonths: spread, stoppedFrom: null, continuesId: row.id, deletedAt: null, dirty: 1 };
+    db.transaction((t) => {
+      t.update(budgetCarries).set({ stoppedFrom: next, ...bump }).where(eq(budgetCarries.id, row.id)).run();
+      t.insert(budgetCarries)
+        .values({ id, ...values, createdAt: now() })
+        .onConflictDoUpdate({ target: budgetCarries.id, set: { ...values, rev: sql`${budgetCarries.rev} + 1` } })
+        .run();
+    });
+  }
+  notifyLedgerChange();
+}
+
+/** BUD-5: stops carrying what's left of an overspend from next month on; what already came off stays. */
+export async function stopOverspend(debt: OverspendDebt): Promise<void> {
+  const db = await getDb();
+  const next = addMonths(currentMonth(), 1);
+  db.update(budgetCarries)
+    .set({ stoppedFrom: debt.into > next ? debt.into : next, dirty: 1, rev: sql`${budgetCarries.rev} + 1` })
+    .where(eq(budgetCarries.id, debt.id))
+    .run();
+  notifyLedgerChange();
+}
+
+const shortMonth = (month: MonthKey) => formatMonth(month).split(' ')[0]!;
+
+/** BUD-5: how an overspend comes off, for a sheet or a note. */
+export function spreadText(spread: number | null): string {
+  return spread === null ? 'as each budget allows' : `over ${spread} months`;
+}
+
+/** BUD-5: what carries did to a month's budget, for under its bar; null when nothing. */
+export function carryText(line: BudgetLine, month: MonthKey): string | null {
+  const parts: string[] = [];
+  if (line.carriedIn !== null) parts.push(`Includes ${rupees(line.carriedIn)} carried from ${shortMonth(addMonths(month, -1))}`);
+  if (line.takenOff !== null) {
+    const origins = [...new Set(line.overspends.filter((d) => d.taken > 0).map((d) => d.from))];
+    parts.push(`${rupees(line.takenOff)} taken off for ${origins.length === 1 ? `${shortMonth(origins[0]!)}'s overspend` : 'earlier overspends'}`);
+  }
+  const left = line.overspends.reduce((sum, d) => sum + d.left, 0);
+  if (left > 0) {
+    const ends = line.overspends.filter((d) => d.left > 0).map((d) => d.clearsBy);
+    const last = ends.includes(null) ? null : ends.reduce((a, b) => (a! > b! ? a : b));
+    parts.push(`${rupees(paise(left))} more ${last ? `comes off by ${shortMonth(last)}` : 'to come off'}`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 export type BudgetConflict =

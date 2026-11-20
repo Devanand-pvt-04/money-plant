@@ -479,6 +479,10 @@ export interface RemoteBudgetCarry {
   month: string;
   category_account_id: string;
   amount_paise: number;
+  spread_months: number | null;
+  /** First day of the month the rest is dropped from. */
+  stopped_from: string | null;
+  continues_id: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -490,6 +494,9 @@ export function toRemoteBudgetCarry(row: LocalBudgetCarry): Omit<RemoteBudgetCar
     month: `${row.month}-01`,
     category_account_id: row.categoryAccountId,
     amount_paise: row.amountPaise,
+    spread_months: row.spreadMonths,
+    stopped_from: row.stoppedFrom === null ? null : `${row.stoppedFrom}-01`,
+    continues_id: row.continuesId,
     created_at: row.createdAt,
     deleted_at: row.deletedAt,
   };
@@ -501,6 +508,9 @@ export function fromRemoteBudgetCarry(row: RemoteBudgetCarry): LocalBudgetCarry 
     month: row.month.slice(0, 7),
     categoryAccountId: row.category_account_id,
     amountPaise: Number(row.amount_paise),
+    spreadMonths: row.spread_months ?? null,
+    stoppedFrom: row.stopped_from ? row.stopped_from.slice(0, 7) : null,
+    continuesId: row.continues_id ?? null,
     createdAt: iso(row.created_at),
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,

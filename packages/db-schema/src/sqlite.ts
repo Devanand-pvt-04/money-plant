@@ -234,8 +234,8 @@ export const budgets = sqliteTable(
 
 /**
  * BUD-5 (decision 0034): a leftover carried into (positive) or an overspend
- * taken off (negative) a category's budget for one month, or zero when the
- * user chose to leave it. Ids are derived from user, month and category.
+ * taken off (negative) a category's budgets from one month on, or zero when
+ * the user chose to leave it. Ids are derived from user, month and category.
  */
 export const budgetCarries = sqliteTable(
   'budget_carries',
@@ -244,6 +244,12 @@ export const budgetCarries = sqliteTable(
     month: text('month').notNull(),
     categoryAccountId: text('category_account_id').notNull(),
     amountPaise: integer('amount_paise').notNull(),
+    /** An overspend taken off: null as needed, 2 to 6 equal parts over that many months. */
+    spreadMonths: integer('spread_months'),
+    /** "2026-12": what's left of the overspend is dropped from this month on. */
+    stoppedFrom: text('stopped_from'),
+    /** A changed plan: the rest of this earlier overspend, from `month` on. Not an answer to a month's question. */
+    continuesId: text('continues_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at'),
     deletedAt: text('deleted_at'),
@@ -1024,4 +1030,8 @@ export const LOCAL_MIGRATIONS: readonly string[] = [
     rev INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX budget_carries_dirty_idx ON budget_carries (dirty);`,
+  // Decision 0034: an overspend comes off as many months as it needs, spread or stopped.
+  `ALTER TABLE budget_carries ADD COLUMN spread_months INTEGER;
+  ALTER TABLE budget_carries ADD COLUMN stopped_from TEXT;
+  ALTER TABLE budget_carries ADD COLUMN continues_id TEXT;`,
 ];

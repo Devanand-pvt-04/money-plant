@@ -391,7 +391,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
       </View>
       {line.limit !== null && <ProgressBar value={line.spent / line.limit} status={status} color={style.color} marker={props.elapsed} />}
       <PaceNote line={line} month={month} />
-      {line.carry !== null && <Text style={styles.meta}>{carryText(line.carry, month)}</Text>}
+      {carryText(line, month) !== null && <Text style={styles.meta}>{carryText(line, month)}</Text>}
       {props.childBudgets && <Text style={styles.meta}>Its sub-category budgets added up</Text>}
       {props.open && (
         <View style={styles.children}>
@@ -411,7 +411,7 @@ function CategoryCard(props: { line: BudgetLine; month: MonthKey; sub: BudgetLin
                   {child.limit !== null ? ` of ${rupees(child.limit)}` : ''}
                 </Text>
               </View>
-              {child.carry !== null && <Text style={styles.meta}>{carryText(child.carry, month)}</Text>}
+              {carryText(child, month) !== null && <Text style={styles.meta}>{carryText(child, month)}</Text>}
               {child.limit !== null && (
                 <ProgressBar value={child.spent / child.limit} status={child.pace?.status ?? 'ok'} color={style.color} marker={props.elapsed} />
               )}

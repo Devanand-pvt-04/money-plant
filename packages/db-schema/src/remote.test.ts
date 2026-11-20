@@ -210,10 +210,10 @@ describe('budget mapping', () => {
 
 describe('budget carry mapping (BUD-5)', () => {
   it('keeps the sign and stores the month as its first day', () => {
-    const remote = toRemoteBudgetCarry({ id: 'c-1', month: '2026-11', categoryAccountId: 'fuel', amountPaise: -120000, createdAt: '2026-11-01T04:00:00.000Z', updatedAt: null, deletedAt: null, dirty: 1, rev: 2 });
-    expect(remote).toMatchObject({ month: '2026-11-01', amount_paise: -120000 });
+    const remote = toRemoteBudgetCarry({ id: 'c-1', month: '2026-11', categoryAccountId: 'fuel', amountPaise: -120000, spreadMonths: 3, stoppedFrom: '2027-01', continuesId: null, createdAt: '2026-11-01T04:00:00.000Z', updatedAt: null, deletedAt: null, dirty: 1, rev: 2 });
+    expect(remote).toMatchObject({ month: '2026-11-01', amount_paise: -120000, spread_months: 3, stopped_from: '2027-01-01' });
     const back = fromRemoteBudgetCarry({ ...remote, user_id: 'u', updated_at: '2026-11-01T04:00:01+00:00', amount_paise: '-120000' as unknown as number });
-    expect(back).toMatchObject({ month: '2026-11', amountPaise: -120000, dirty: 0 });
+    expect(back).toMatchObject({ month: '2026-11', amountPaise: -120000, spreadMonths: 3, stoppedFrom: '2027-01', dirty: 0 });
   });
 });
 
