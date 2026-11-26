@@ -7,6 +7,8 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppLock } from '@/components/app-lock';
+import { refreshWidgets, startWidgetUpdates } from '@/widgets';
+import { onWidgetTarget, takePendingWidgetTarget } from '@/widgets/links';
 import { ErrorScreen } from '@/components/error-screen';
 import { UpdateBanner } from '@/components/update-banner';
 import { Button, useColors } from '@/components/ui';
@@ -123,6 +125,22 @@ export default function RootLayout() {
     Notifications.clearLastNotificationResponse();
     router.push(url as never);
   }, [lastResponse, loading, session, consented]);
+
+  // HOME-4: widgets redraw after changes while the app is open, and show "Open Money Plant" once signed out.
+  useEffect(() => (ready ? startWidgetUpdates() : undefined), [ready]);
+  useEffect(() => {
+    if (!loading && !session) void refreshWidgets();
+  }, [loading, session]);
+  // A tapped widget opens its screen over Home once the app is ready (decision 0036).
+  useEffect(() => {
+    if (!ready) return;
+    const openWaiting = () => {
+      const target = takePendingWidgetTarget();
+      if (target) setTimeout(() => router.push(target as never), 0);
+    };
+    openWaiting();
+    return onWidgetTarget(openWaiting);
+  }, [ready]);
 
   if (waitingFor) {
     return (

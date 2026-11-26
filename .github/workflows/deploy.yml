@@ -9,10 +9,15 @@ name: Deploy
 #    Windows machine. It publishes to production (Deva's daily app; preview is
 #    no longer in use, 2026-11-13), titled after the merged PR, and skips a merge
 #    that moved app.json's version: that needs a new build.
+# 4. Production APK build on EAS (decision 0036), when the merge moved
+#    app.json's version. Started with --no-wait, so the run doesn't sit in EAS's
+#    free build queue; the run's summary links the build page, where the APK
+#    appears when it's done. Install it, then share it on the Drive link.
 # A step whose part didn't change is skipped. So the server always has what an
 # edge function or the app needs before they reach it.
 # By hand: Actions → Deploy → Run workflow, for either channel. That applies any
-# pending migrations, deploys every edge function, then publishes the update.
+# pending migrations, deploys every edge function, then publishes the update;
+# tick "Build a production APK" to start a build too.
 # Migrations or functions alone: Actions → Database migrations / Edge functions.
 # Needs the repository secrets EXPO_TOKEN, SUPABASE_ACCESS_TOKEN and
 # SUPABASE_DB_PASSWORD (docs/setup.md, sections 4 and 11).
@@ -41,6 +46,10 @@ on:
         description: What changed, shown in the Expo dashboard
         type: string
         required: true
+      build:
+        description: Build a production APK
+        type: boolean
+        default: false
 
 # One deploy at a time per channel, so two runs never race.
 concurrency:
@@ -58,6 +67,7 @@ jobs:
       migrations: ${{ steps.diff.outputs.migrations }}
       functions: ${{ steps.diff.outputs.functions }}
       app: ${{ steps.diff.outputs.app }}
+      native: ${{ steps.diff.outputs.native }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -74,12 +84,16 @@ jobs:
             migrations=$(has '^(supabase/migrations/|\.github/workflows/migrate\.yml$)')
             functions=$(has '^(supabase/functions/|supabase/config\.toml$|\.github/workflows/functions\.yml$)')
             app=$(has '^(apps/mobile/|packages/|pnpm-lock\.yaml$)')
+            # A moved app.json version needs a new APK (step 4).
+            version() { node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).expo.version)"; }
+            native=false
+            if [ "$(git show "$BEFORE:apps/mobile/app.json" | version)" != "$(version < apps/mobile/app.json)" ]; then native=true; fi
           else
-            # By hand, or no earlier commit to compare with: do everything.
-            migrations=true functions=true app=true
+            # By hand, or no earlier commit to compare with: do everything, and build only when asked.
+            migrations=true functions=true app=true native=false
           fi
-          echo "Migrations: $migrations, edge functions: $functions, app: $app"
-          { echo "migrations=$migrations"; echo "functions=$functions"; echo "app=$app"; } >> "$GITHUB_OUTPUT"
+          echo "Migrations: $migrations, edge functions: $functions, app: $app, new build: $native"
+          { echo "migrations=$migrations"; echo "functions=$functions"; echo "app=$app"; echo "native=$native"; } >> "$GITHUB_OUTPUT"
 
   migrate:
     needs: changes
@@ -150,3 +164,34 @@ jobs:
             *) msg="$first" ;;
           esac
           eas update --channel "$CHANNEL" --platform android --message "$msg" --non-interactive
+
+  # Decision 0036: a merge that moves app.json's version gets its production APK
+  # without anyone running eas build on a PC. EAS's free plan has a monthly build
+  # allowance; a build only starts on a version bump or when asked.
+  build:
+    needs: [changes, migrate, functions]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && (needs.changes.outputs.native == 'true' || inputs.build) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-workspace
+      # Never build an APK that CI would reject.
+      - run: pnpm typecheck
+      - run: pnpm test
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      # The build runs on EAS; the version code goes up there (appVersionSource remote, autoIncrement).
+      - name: Start the production build
+        working-directory: apps/mobile
+        run: |
+          eas build --profile production --platform android --non-interactive --no-wait --json > "$RUNNER_TEMP/build.json"
+          node -e '
+            const [build] = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const app = require("./app.json").expo;
+            const page = `https://expo.dev/accounts/${app.owner}/projects/${app.slug}/builds/${build.id}`;
+            console.log(`::notice::Production APK ${app.version} build started: ${page}`);
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              `## Production APK ${app.version}\n\nThe build is running on EAS. The APK appears on [its build page](${page}) when it finishes (the free plan can queue for a while).\n\nInstall it over the old app, then upload it to the Drive link for friends.\n`);
+          ' "$RUNNER_TEMP/build.json"

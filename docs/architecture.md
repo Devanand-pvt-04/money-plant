@@ -201,6 +201,10 @@ Recurring payments (REC-1 to REC-4) are worked out on the phone from the ledger 
 4. **Marked paid** (REC-4) by the "Recurring match" rule below: a debit to the payee within 3 days of the due date and 10% of the amount moves the due date forward by the cadence, keeping the day of the month (31 Jan, 28 Feb, 31 Mar). The user can also mark an occurrence paid or skip it.
 5. **Reminders** (REC-3) are local notifications at 9 am, 3 days and 1 day before the due date, rebuilt after every change. When the paying account is a bank account whose balance is below everything due from it by that day, the reminder says by how much it may be short. Cards and loans get no shortfall warning.
 
+## Home screen widgets
+
+Three Android widgets (HOME-4, decision 0036) live in `apps/mobile/src/widgets/`: This month, Quick add and Coming up. `react-native-android-widget` declares them through its config plugin in `app.json` and starts a headless JS task (registered in `index.ts`) whenever Android asks for a widget to be drawn: when it is placed, resized, and every 30 minutes. The task reads the stored session and the encrypted database like the SMS capture task, works the numbers out with the same functions Home uses, and draws JSX made of the library's widget primitives. The app redraws placed widgets after ledger changes (debounced 2 s), when it goes to the background and after a background capture. Taps open `moneyplant://widget?open=<path>`; `app/+native-intent.tsx` sends the app to Home and the root layout pushes the path once the app is ready, like a tapped notification.
+
 ## Matching and reconciliation
 
 The matcher runs these rules in order and stops at the first that fits. The thresholds are starting values, to be tuned on real data.
@@ -280,6 +284,7 @@ Data gets server-side protection for now, as decided. The design keeps a later m
 | Row-level security | Every user table (including account_types and ignored_senders) has a user_id = auth.uid() policy. A shared_items row is also visible to the friend it is with (counterparty_user_id, set by the server only for an accepted friend), who can only answer a share through answer_shared_item; item_links are only ever the user's own. merchants are read-only for clients |
 | Encryption at rest | Supabase-managed for Postgres and Storage. SQLCipher on the phone, with its key in Android Keystore or iOS Keychain |
 | App lock | A full-screen cover until the user unlocks with a fingerprint, face or the phone's own screen lock: on start and after 60 seconds in the background (decision 0011) |
+| Home screen widgets | Rendered by a headless task that reads the phone's database (decision 0036); nothing is stored for them. Amounts can be hidden (Settings → App), and every tap opens the app behind the app lock through `moneyplant://widget?open=`, which only opens paths on a fixed list |
 | Raw SMS | Never synced or logged; only parsed fields leave the parser |
 | Contacts | Read and matched only on the phone; never synced or uploaded |
 | Uploaded files | Statements and CAS PDFs are read in memory and never stored; passwords are never stored |

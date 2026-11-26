@@ -1,5 +1,5 @@
 import { type ComponentProps, useEffect, useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { router, type Href } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { Avatar, useMe } from '@/components/avatar';
@@ -8,6 +8,8 @@ import { aiEnabled, setAiEnabled } from '@/lib/ai-settings';
 import { lockAvailable, lockEnabled, setLockEnabled, unlock } from '@/lib/lock';
 import { displayName } from '@/lib/me';
 import { hideInRecents, setHideInRecents } from '@/lib/privacy';
+import { setWidgetAmountsShown, widgetAmountsShown } from '@/lib/widget-settings';
+import { refreshWidgets } from '@/widgets';
 import { signOut } from '@/lib/session';
 import { fetchLatestUpdate, restartToUpdate, runningVersion, updatesOn, type UpdateCheck } from '@/lib/updates';
 import { setThemePreference, useThemePreference, type ThemePreference } from '@/lib/theme';
@@ -31,8 +33,10 @@ export default function Settings() {
   const admin = useIsAdmin();
   const [hidden, setHidden] = useState<boolean | null>(null);
   const [ai, setAi] = useState<boolean | null>(null);
+  const [widgetAmounts, setWidgetAmounts] = useState<boolean | null>(null);
   useEffect(() => {
     hideInRecents().then(setHidden).catch(() => setHidden(true));
+    widgetAmountsShown().then(setWidgetAmounts).catch(() => setWidgetAmounts(true));
     aiEnabled().then(setAi).catch(() => setAi(true));
   }, []);
 
@@ -103,6 +107,23 @@ export default function Settings() {
             }}
           />
         </View>
+        {Platform.OS === 'android' && (
+          <View style={[styles.row, styles.divided]}>
+            <Feather name="grid" size={18} color={colors.muted} />
+            <View style={styles.grow}>
+              <Text style={styles.name}>Show amounts on widgets</Text>
+              <Text style={styles.meta}>Off shows percentages and names only. The app lock can't cover the home screen.</Text>
+            </View>
+            <Switch
+              value={widgetAmounts === true}
+              disabled={widgetAmounts === null}
+              onValueChange={(next) => {
+                setWidgetAmounts(next);
+                void setWidgetAmountsShown(next).then(refreshWidgets);
+              }}
+            />
+          </View>
+        )}
       </Card>
 
       <SectionTitle>How entries are filled</SectionTitle>
