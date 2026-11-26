@@ -19,7 +19,7 @@ import { owedSummary, type OwedSummary } from '@/lib/shared';
 import { catchUpDue, usePullToRefresh } from '@/lib/refresh';
 import { setupState, type SetupState } from '@/lib/setup';
 import { useLedger } from '@/lib/use-ledger';
-import { weekAhead, type DueItem } from '@/lib/week';
+import { dueLabel, dueSoon, weekAhead, type DueItem } from '@/lib/week';
 import { hasSmsPermission, isSmsReaderAvailable } from '../../../modules/sms-reader';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -291,25 +291,11 @@ function Shortcuts({ pending }: { pending: number }) {
   );
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function dueLabel(item: DueItem, todayKey: string, tomorrowKey: string): string {
-  if (item.overdue) return 'Overdue';
-  if (item.date === todayKey) return 'Today';
-  if (item.date === tomorrowKey) return 'Tomorrow';
-  const date = new Date(`${item.date}T12:00:00`);
-  return `${WEEKDAYS[date.getDay()]}, ${date.getDate()} ${SHORT_MONTHS[date.getMonth()]}`;
-}
-
 /** HOME-1: bills, EMIs and IOUs due in the next 7 days, as small cards to scroll sideways. */
 function ComingUp({ items }: { items: DueItem[] }) {
   const colors = useColors();
   const styles = useStyles();
-  const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const now = new Date();
-  const todayKey = key(now);
-  const tomorrowKey = key(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
   return (
     <View>
       <View style={styles.sectionHead}>
@@ -323,8 +309,8 @@ function ComingUp({ items }: { items: DueItem[] }) {
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dueCards} style={styles.dueScroll}>
           {items.map((item) => {
-            const label = dueLabel(item, todayKey, tomorrowKey);
-            const soon = item.overdue || item.date === todayKey || item.date === tomorrowKey;
+            const label = dueLabel(item, now);
+            const soon = dueSoon(item, now);
             return (
               <Pressable
                 key={item.href}

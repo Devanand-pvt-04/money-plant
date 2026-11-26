@@ -1,4 +1,4 @@
-import { addDays, DEFAULT_CURRENCY, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
+import { addDays, dateKey, DEFAULT_CURRENCY, type CurrencyCode, type DateKey, type Paise } from '@money-plant/core';
 import { today, upcomingPayments } from './recurring';
 import { cardBillsDue } from './cards';
 
@@ -43,4 +43,23 @@ export async function weekAhead(): Promise<{ days: DateKey[]; items: DueItem[] }
   }
   items.sort((a, b) => a.date.localeCompare(b.date) || Number(b.overdue) - Number(a.overdue));
   return { days, items };
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Overdue", "Today", "Tomorrow" or "Mon, 30 Nov", in the phone's time zone. */
+export function dueLabel(item: Pick<DueItem, 'date' | 'overdue'>, now = new Date()): string {
+  if (item.overdue) return 'Overdue';
+  const todayKey = dateKey(now);
+  if (item.date === todayKey) return 'Today';
+  if (item.date === addDays(todayKey, 1)) return 'Tomorrow';
+  const date = new Date(`${item.date}T12:00:00`);
+  return `${WEEKDAYS[date.getDay()]}, ${date.getDate()} ${SHORT_MONTHS[date.getMonth()]}`;
+}
+
+/** Overdue, today or tomorrow: shown in the warning colour. */
+export function dueSoon(item: Pick<DueItem, 'date' | 'overdue'>, now = new Date()): boolean {
+  const todayKey = dateKey(now);
+  return item.overdue || item.date === todayKey || item.date === addDays(todayKey, 1);
 }

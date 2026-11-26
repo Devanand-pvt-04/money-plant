@@ -29,13 +29,14 @@ export default function QuickAdd() {
   const colors = useColors();
   const styles = useStyles();
   const insets = useSafeAreaInsets();
-  // "Add the missing entries" from a balance check opens on that account and time (decision 0024).
-  const params = useLocalSearchParams<{ account?: string; at?: string }>();
+  // "Add the missing entries" from a balance check opens on that account and time (decision 0024);
+  // the Got button on the Quick add widget opens it as money in (decision 0036).
+  const params = useLocalSearchParams<{ account?: string; at?: string; mode?: string }>();
   // While the note is typed, the phone's keyboard takes the keypad's place.
   const typing = useKeyboard().height > 0;
   const [defaults, setDefaults] = useState<QuickAddDefaults | null>(null);
   const [names, setNames] = useState<Map<string, string>>(new Map());
-  const [mode, setMode] = useState<Mode>('debit');
+  const [mode, setMode] = useState<Mode>(() => (params.mode === 'credit' ? 'credit' : 'debit'));
   const [text, setText] = useState('');
   const [category, setCategory] = useState<CategoryNode | null>(null);
   const [from, setFrom] = useState<AccountBalance | null>(null);
@@ -54,7 +55,7 @@ export default function QuickAdd() {
       const account = d.accounts.find((b) => b.account.id === (params.account ?? d.accountId)) ?? d.accounts.find((b) => b.account.id === d.accountId) ?? null;
       setFrom(account);
       setTo(d.accounts.find((b) => b.account.id !== account?.account.id && b.account.type === 'cash') ?? d.accounts.find((b) => b.account.id !== account?.account.id) ?? null);
-      setCategory(d.suggestions.debit[0] ?? null);
+      setCategory(d.suggestions[params.mode === 'credit' ? 'credit' : 'debit'][0] ?? null);
     });
   }, []);
 

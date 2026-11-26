@@ -7,7 +7,7 @@ import { AUTH_STORAGE_KEY, supabase } from './supabase';
 import { wipeLocal } from './wipe';
 
 /** The session supabase-js keeps on the phone, read as stored, even if its access token has expired. */
-async function storedSession(): Promise<Session | null> {
+export async function storedSession(): Promise<Session | null> {
   try {
     const raw = await authStorage.getItem(AUTH_STORAGE_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;

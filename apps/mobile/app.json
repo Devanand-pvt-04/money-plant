@@ -3,7 +3,7 @@
     "name": "Money Plant",
     "slug": "money-plant",
     "scheme": "moneyplant",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -75,6 +75,46 @@
         {
           "photosPermission": "Allow Money Plant to open a photo of a UPI QR code.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "ThisMonth",
+              "label": "This month",
+              "description": "Left to spend this month against your budget",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            },
+            {
+              "name": "QuickAdd",
+              "label": "Quick add",
+              "description": "Add a spend or money in, scan and pay, or review",
+              "minWidth": "250dp",
+              "minHeight": "50dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 1,
+              "resizeMode": "horizontal",
+              "updatePeriodMillis": 1800000
+            },
+            {
+              "name": "ComingUp",
+              "label": "Coming up",
+              "description": "Bills, EMIs and card bills due this week",
+              "minWidth": "250dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            }
+          ]
         }
       ]
     ],
