@@ -3,7 +3,7 @@
     "name": "Money Plant",
     "slug": "money-plant",
     "scheme": "moneyplant",
-    "version": "0.12.0",
+    "version": "0.12.1",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -21,7 +21,7 @@
       "package": "in.moneyplant.app",
       "allowBackup": false,
       "adaptiveIcon": {
-        "backgroundColor": "#1D1F1E",
+        "backgroundColor": "#161816",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -49,10 +49,10 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#1D1F1E",
+          "backgroundColor": "#161816",
           "dark": {
             "image": "./assets/splash-icon.png",
-            "backgroundColor": "#1D1F1E"
+            "backgroundColor": "#161816"
           }
         }
       ],
