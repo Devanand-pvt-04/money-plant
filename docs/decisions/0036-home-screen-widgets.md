@@ -21,6 +21,7 @@ Seeing whether the month is on track, what is due, or adding a cash spend means 
 | Signed out, or the database can't open | Each widget shows "Open Money Plant" and opens the app | Never stale numbers from someone else, never an error box |
 | Rounding and currency | Totals follow "Round off totals" and the home currency; each Coming up row shows its own currency (decision 0017) | Same rules as Home |
 | Release | Native code: `version` in `app.json` goes to 0.12.0 and a new production APK is needed. Over-the-air updates never reach 0.11.0 builds with this code (`runtimeVersion` policy `appVersion`) | CLAUDE.md rule for native changes |
+| Building the APK | Deploy now starts the production build on EAS after any merge that moves `app.json`'s version (also by hand: Actions → Deploy, "Build a production APK"), with `--no-wait`, and links the build page in the run's summary. Installing it and the Drive upload for friends stay by hand | Asked for by Deva on 2026-11-26. Not waiting keeps Actions minutes free and doesn't hold later deploys behind EAS's free build queue; a Drive upload would need a Google credential in GitHub |
 
 ## Not done
 
