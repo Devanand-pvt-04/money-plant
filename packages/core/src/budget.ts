@@ -339,6 +339,47 @@ export function breakdown(items: readonly SpendItem[], options: { top?: number }
   };
 }
 
+/** Days in a month, 28 to 31. */
+export function daysInMonth(month: MonthKey): number {
+  const [year, m] = month.split('-').map(Number) as [number, number];
+  return new Date(year, m, 0).getDate();
+}
+
+/**
+ * BUD-3 (decision 0038): spending added up day by day, on the phone's clock,
+ * for the pace chart: index 0 is the 1st. Runs through `throughDay` (the
+ * month's last day when left out); a refund brings the line down.
+ */
+export function runningTotals(items: readonly Pick<SpendItem, 'occurredAt' | 'amount'>[], month: MonthKey, throughDay = daysInMonth(month)): Paise[] {
+  const days = Math.max(0, Math.min(throughDay, daysInMonth(month)));
+  const perDay = new Array<number>(days).fill(0);
+  for (const item of items) {
+    const day = new Date(item.occurredAt).getDate();
+    if (day <= days) perDay[day - 1]! += item.amount;
+  }
+  let sum = 0;
+  return perDay.map((amount) => paise((sum += amount)));
+}
+
+/** Spent from the 1st through `day` of the month; a day past the month's end counts the whole month. */
+export function spentThrough(items: readonly Pick<SpendItem, 'occurredAt' | 'amount'>[], month: MonthKey, day: number): Paise {
+  return runningTotals(items, month, day).at(-1) ?? paise(0);
+}
+
+/**
+ * BUD-3 (decision 0038): one entry that makes up a large part of the month,
+ * worth calling out: at least a quarter of the total, with other entries
+ * beside it. Null otherwise.
+ */
+export function standout(items: readonly SpendItem[]): { item: SpendItem; share: number; without: Paise } | null {
+  if (items.length < 2) return null;
+  const total = items.reduce((sum, i) => sum + i.amount, 0);
+  if (total <= 0) return null;
+  const item = items.reduce((best, i) => (i.amount > best.amount ? i : best));
+  const share = item.amount / total;
+  return share >= 0.25 ? { item, share, without: paise(total - item.amount) } : null;
+}
+
 /** How the Budgets tab orders categories (BUD-2, decision 0013). */
 export type BudgetSort = 'attention' | 'used' | 'budget' | 'spent' | 'name';
 
