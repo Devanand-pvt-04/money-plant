@@ -1,4 +1,4 @@
-import { formatRupees, paise, type Paise } from '@money-plant/core';
+import { formatMoney, formatRupees, paise, type CurrencyCode, type Paise } from '@money-plant/core';
 import type { Direction, PatternMatch, PayeeKind, Rule } from './rules';
 
 /** A pattern rule (CAT-8), as opposed to a payee rule. */
@@ -179,6 +179,20 @@ export function shouldOfferPause(rule: Rule, keptAtMisses: number | null): boole
   return keptAtMisses === null || rule.misses >= keptAtMisses + PAUSE_MIN_MISSES;
 }
 
+export const TRUST_MIN_RIGHT = 8;
+
+/**
+ * Decision 0037: a pattern that still asks first but keeps being right is
+ * offered to file by itself: at least 8 right, and right at least 8 times for
+ * every correction. `askedAtRight` is the right count when the user last said
+ * keep asking; it is asked again only after 8 more right.
+ */
+export function shouldOfferAutoConfirm(rule: Rule, askedAtRight: number | null): boolean {
+  if (!isPattern(rule) || rule.status !== 'active' || rule.autoConfirm) return false;
+  if (rule.hits < TRUST_MIN_RIGHT || rule.hits < rule.misses * TRUST_MIN_RIGHT) return false;
+  return askedAtRight === null || rule.hits >= askedAtRight + TRUST_MIN_RIGHT;
+}
+
 /** The biggest set of corrections that fits one time window and one amount band. */
 function largestCluster(group: readonly Correction[]): Correction[] {
   const byTime = [...group].sort((a, b) => a.minuteOfDay - b.minuteOfDay);
@@ -265,4 +279,25 @@ export function describePattern(match: PatternMatch, accountName: string | null)
   if (accountName) parts.push(`${match.direction === 'debit' ? 'from' : 'into'} ${accountName}`);
   if (match.payeeKind) parts.push(match.payeeKind === 'person' ? 'with people' : 'with businesses');
   return `${parts.join(' ')}, ${days(match.weekdays)} ${clock(match.startMinute)} to ${clock(match.endMinute)}`;
+}
+
+/** A pattern's conditions as short labels, one per chip on the Rules screen (decision 0037). */
+export interface PatternParts {
+  time: string;
+  days: string;
+  amount: string;
+  payee: string | null;
+  account: string | null;
+}
+
+export function patternParts(match: PatternMatch, account: { name: string; currency: CurrencyCode } | null): PatternParts {
+  const money = (amount: Paise) => (account ? formatMoney(amount, account.currency) : formatRupees(amount)).replace(/\.00$/, '');
+  const dayLabel = days(match.weekdays);
+  return {
+    time: `${clock(match.startMinute)} to ${clock(match.endMinute)}`,
+    days: dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1),
+    amount: `${money(match.minAmount)} to ${money(match.maxAmount)}`,
+    payee: match.payeeKind === 'person' ? (match.direction === 'debit' ? 'To a person' : 'From a person') : match.payeeKind === 'business' ? 'Businesses' : null,
+    account: account ? `${match.direction === 'debit' ? 'From' : 'Into'} ${account.name}` : null,
+  };
 }

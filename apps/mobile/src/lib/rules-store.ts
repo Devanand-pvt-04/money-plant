@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   localTime,
   proposePatterns,
@@ -18,14 +18,39 @@ import { loadTransactions } from './ledger-store';
 const now = () => new Date().toISOString();
 const DAY = 24 * 60 * 60 * 1000;
 
-export function toRule(row: LocalRule): Rule {
+/**
+ * Decision 0037: how many entries each rule or pattern categorised that the
+ * user kept, counted from the entries themselves. Entries still carrying the
+ * rule's guess and confirmed (by the user in Review, or directly) are right;
+ * a correction clears the link. Nothing is stored, so rules that confirm
+ * directly count too, and so do entries from before this was counted.
+ */
+type Db = Awaited<ReturnType<typeof getDb>>;
+function keptCounts(db: Db): Map<string, number> {
+  const rows = db
+    .select({ ruleId: transactions.categoryRuleId, kept: sql<number>`count(*)` })
+    .from(transactions)
+    .where(
+      and(
+        isNull(transactions.deletedAt),
+        isNotNull(transactions.categoryRuleId),
+        inArray(transactions.categoryReason, ['rule', 'pattern']),
+        eq(transactions.status, 'confirmed'),
+      ),
+    )
+    .groupBy(transactions.categoryRuleId)
+    .all();
+  return new Map(rows.map((r) => [r.ruleId!, Number(r.kept)]));
+}
+
+export function toRule(row: LocalRule, kept?: ReadonlyMap<string, number>): Rule {
   return {
     id: row.id,
     match: JSON.parse(row.match) as RuleMatch | PatternMatch,
     categoryId: row.categoryAccountId,
     status: row.status,
     autoConfirm: row.autoConfirm === 1,
-    hits: row.hits,
+    hits: kept?.get(row.id) ?? 0,
     misses: row.misses,
     note: row.note,
   };
@@ -34,19 +59,20 @@ export function toRule(row: LocalRule): Rule {
 /** CAT-7: every rule and pattern, including proposals. Declined patterns are kept only so they aren't proposed again. */
 export async function listRules(): Promise<Rule[]> {
   const db = await getDb();
+  const kept = keptCounts(db);
   return db
     .select()
     .from(rules)
     .where(isNull(rules.deletedAt))
     .all()
-    .map(toRule)
+    .map((row) => toRule(row, kept))
     .filter((rule) => rule.status !== 'declined');
 }
 
 export async function getRule(id: string): Promise<Rule | null> {
   const db = await getDb();
   const row = db.select().from(rules).where(eq(rules.id, id)).get();
-  return row && !row.deletedAt ? toRule(row) : null;
+  return row && !row.deletedAt ? toRule(row, keptCounts(db)) : null;
 }
 
 export async function createRule(input: { match: RuleMatch | PatternMatch; categoryId: string; status?: RuleStatus; autoConfirm?: boolean }): Promise<string> {
@@ -98,12 +124,14 @@ export async function deleteRule(id: string): Promise<void> {
   notifyLedgerChange();
 }
 
-/** Counts a confirmation (hit) or a correction (miss) for the rule or pattern that categorised an entry. */
-export async function countRuleOutcome(ruleId: string, outcome: 'hit' | 'miss'): Promise<void> {
+/**
+ * Counts a correction for the rule or pattern that categorised an entry. Right
+ * answers aren't stored: they are counted from the entries (decision 0037).
+ */
+export async function countCorrection(ruleId: string): Promise<void> {
   const db = await getDb();
-  const count = outcome === 'hit' ? { hits: sql`${rules.hits} + 1` } : { misses: sql`${rules.misses} + 1` };
   db.update(rules)
-    .set({ ...count, dirty: 1, rev: sql`${rules.rev} + 1` })
+    .set({ misses: sql`${rules.misses} + 1`, dirty: 1, rev: sql`${rules.rev} + 1` })
     .where(eq(rules.id, ruleId))
     .run();
 }
@@ -132,7 +160,7 @@ export async function learnPatterns(
     const local = localTime(tx.occurredAt, -new Date(tx.occurredAt).getTimezoneOffset());
     corrections.push({ ...f, ...local, transactionId: tx.id, categoryId, occurredAt: tx.occurredAt });
   }
-  const existing = db.select().from(rules).where(isNull(rules.deletedAt)).all().map(toRule);
+  const existing = db.select().from(rules).where(isNull(rules.deletedAt)).all().map((row) => toRule(row));
   const proposals = proposePatterns(corrections, existing, new Date());
   for (const proposal of proposals) {
     await createRule({ match: proposal.match, categoryId: proposal.categoryId, status: 'proposed', autoConfirm: false });

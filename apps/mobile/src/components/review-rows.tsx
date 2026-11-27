@@ -10,7 +10,7 @@ import { formatAmount, formatDate, formatDateTime } from './format';
 import { OptionRow } from './option-row';
 import { Sheet } from './sheet';
 import { Button, figures, radius, useColors, makeStyles } from './ui';
-import { acceptPattern, acceptWidening, declinePattern, keepPattern, pausePattern } from '@/lib/entries';
+import { acceptPattern, acceptWidening, askFirst, declinePattern, keepAsking, keepPattern, pausePattern, trustPattern } from '@/lib/entries';
 import { adoptBankBalance, setCurrentBalance, type AccountBalance } from '@/lib/ledger';
 import { acceptCardCredit, beforePayment, recordUnrecorded, type CardInCredit } from '@/lib/cards';
 import { setRecurringStatus } from '@/lib/recurring';
@@ -37,12 +37,14 @@ export interface ReviewQuestions {
   inCredit: CardInCredit[];
   proposals: Proposal[];
   pauses: PauseOffer[];
+  /** Decision 0037: patterns that ask first but keep being right. */
+  trusts: PauseOffer[];
   suggested: RecurringPayment[];
   questions: CaptureQuestions;
 }
 
 export function questionCount(q: ReviewQuestions): number {
-  return q.gaps.length + q.inCredit.length + q.proposals.length + q.pauses.length + q.suggested.length + q.questions.senders.length;
+  return q.gaps.length + q.inCredit.length + q.proposals.length + q.pauses.length + q.trusts.length + q.suggested.length + q.questions.senders.length;
 }
 
 type FeatherName = ComponentProps<typeof Feather>['name'];
@@ -54,6 +56,7 @@ type Open =
   | { kind: 'sender'; sender: string }
   | { kind: 'pattern'; rule: string }
   | { kind: 'pause'; rule: string }
+  | { kind: 'trust'; rule: string }
   | { kind: 'recurring'; id: string };
 
 /**
@@ -122,9 +125,17 @@ export function QuestionsPanel({ data, onError }: { data: ReviewQuestions; onErr
       key: `pause:${p.rule.id}`,
       icon: 'pause-circle' as const,
       title: `Pattern often corrected: ${p.category}`,
-      meta: `Corrected ${p.rule.misses} times, right ${p.rule.hits}`,
+      meta: `Changed ${p.rule.misses} times, kept ${p.rule.hits}`,
       action: 'See',
       open: { kind: 'pause' as const, rule: p.rule.id },
+    })),
+    ...data.trusts.map((p) => ({
+      key: `trust:${p.rule.id}`,
+      icon: 'check-circle' as const,
+      title: `Pattern often right: ${p.category}`,
+      meta: `Kept ${p.rule.hits} times, changed ${p.rule.misses}`,
+      action: 'See',
+      open: { kind: 'trust' as const, rule: p.rule.id },
     })),
     ...data.suggested.map((item) => ({
       key: `recurring:${item.id}`,
@@ -141,6 +152,7 @@ export function QuestionsPanel({ data, onError }: { data: ReviewQuestions; onErr
   const sender = open?.kind === 'sender' ? data.questions.senders.find((s) => s.sender === open.sender) : undefined;
   const pattern = open?.kind === 'pattern' ? data.proposals.find((p) => p.rule.id === open.rule) : undefined;
   const pause = open?.kind === 'pause' ? data.pauses.find((p) => p.rule.id === open.rule) : undefined;
+  const trust = open?.kind === 'trust' ? data.trusts.find((p) => p.rule.id === open.rule) : undefined;
   const recurring = open?.kind === 'recurring' ? data.suggested.find((r) => r.id === open.id) : undefined;
 
   return (
@@ -203,12 +215,28 @@ export function QuestionsPanel({ data, onError }: { data: ReviewQuestions; onErr
         {pause && (
           <>
             <Text style={styles.body}>
-              You corrected this pattern {pause.rule.misses} times and kept its guess {pause.rule.hits} {pause.rule.hits === 1 ? 'time' : 'times'}: {pause.text}. Pause it so it
-              stops guessing? You can turn it back on or change it in Rules.
+              You changed this pattern&apos;s category {pause.rule.misses} times and kept it {pause.rule.hits} {pause.rule.hits === 1 ? 'time' : 'times'}: {pause.text}.{' '}
+              {pause.rule.autoConfirm ? 'Have it ask you first, or pause it?' : 'Pause it so it stops guessing?'} You can change this later in Rules.
             </Text>
+            {pause.rule.autoConfirm && (
+              <OptionRow icon="help-circle" title="Ask me first" meta="It still guesses, and matching entries wait in Review" disabled={busy} onPress={() => run(() => askFirst(pause.rule))} />
+            )}
             <OptionRow icon="pause" title="Pause it" meta="Matching entries wait in Review without a guess" disabled={busy} onPress={() => run(() => pausePattern(pause.rule.id))} />
             <OptionRow icon="edit-2" title="Change it" meta="Adjust the amounts or hours" disabled={busy} onPress={() => { close(); router.push(`/rule/${pause.rule.id}`); }} />
             <OptionRow icon="check" title="Keep it as it is" meta="Asked again only after 3 more corrections" disabled={busy} onPress={() => run(() => keepPattern(pause.rule))} />
+          </>
+        )}
+      </Sheet>
+
+      <Sheet visible={!!trust} onClose={close} title={trust ? `${trust.category} pattern` : undefined}>
+        {trust && (
+          <>
+            <Text style={styles.body}>
+              You kept this pattern&apos;s category {trust.rule.hits} times and changed it {trust.rule.misses} {trust.rule.misses === 1 ? 'time' : 'times'}: {trust.text}. Let it
+              file matching entries by itself, without asking?
+            </Text>
+            <OptionRow icon="check" title="File by itself" meta="Entries waiting with its guess are confirmed too" disabled={busy} onPress={() => run(() => trustPattern(trust.rule.id))} />
+            <OptionRow icon="help-circle" title="Keep asking me" meta="Asked again after 8 more kept" disabled={busy} onPress={() => run(() => keepAsking(trust.rule))} />
           </>
         )}
       </Sheet>

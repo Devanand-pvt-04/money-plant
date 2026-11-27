@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Feather from '@expo/vector-icons/Feather';
 import { REVIEW_REASON_LABELS } from '@money-plant/matcher';
-import { describePattern, shouldOfferPause, widenedPattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
+import { describePattern, shouldOfferAutoConfirm, shouldOfferPause, widenedPattern, type PatternMatch, type Rule } from '@money-plant/categoriser';
 import type { RecurringPayment } from '@money-plant/matcher';
 import { SwipeRow } from '@/components/swipe-row';
 import { Button, Initial, MoneyCard, ProgressBar, figures, radius, useColors, makeStyles } from '@/components/ui';
@@ -14,7 +14,7 @@ import { whyLabel } from '@/components/why';
 import { useCategoryChange } from '@/components/use-category-change';
 import { QuestionsPanel, questionCount, type PauseOffer, type Proposal } from '@/components/review-rows';
 import { categoryNames } from '@/lib/categories';
-import { confirmEntries, confirmEntry, keptAtMisses } from '@/lib/entries';
+import { askedAtRight, confirmEntries, confirmEntry, keptAtMisses } from '@/lib/entries';
 import { deleteTransaction, listAccountBalances, listTransactions, splitTransfer, type AccountBalance, type TransactionRow } from '@/lib/ledger';
 import { itemGuesses, linkEntry, type ItemGuess } from '@/lib/shared';
 import { listRecurring } from '@/lib/recurring';
@@ -52,10 +52,15 @@ async function load() {
     if (rule.match.kind !== 'pattern' || !shouldOfferPause(rule, await keptAtMisses(rule.id))) continue;
     pauses.push({ rule, text: describe(rule.match), category: names.get(rule.categoryId) ?? 'a category' });
   }
+  const trusts: PauseOffer[] = [];
+  for (const rule of rules) {
+    if (rule.match.kind !== 'pattern' || !shouldOfferAutoConfirm(rule, await askedAtRight(rule.id))) continue;
+    trusts.push({ rule, text: describe(rule.match), category: names.get(rule.categoryId) ?? 'a category' });
+  }
   const suggested = recurring.filter((r) => r.status === 'proposed');
   const guesses = await itemGuesses(pending.map((r) => r.tx)).catch(() => new Map<string, ItemGuess>());
   const inCredit = await cardsInCredit(balances).catch(() => [] as CardInCredit[]);
-  return { pending, gaps: balances.filter((b) => gapIsDue(b)), inCredit, proposals, pauses, suggested, guesses, questions };
+  return { pending, gaps: balances.filter((b) => gapIsDue(b)), inCredit, proposals, pauses, trusts, suggested, guesses, questions };
 }
 
 /** The question for an entry that is probably the user's side of an item (decision 0026). */
@@ -141,6 +146,7 @@ export default function Review() {
       inCredit: [] as CardInCredit[],
       proposals: [] as Proposal[],
       pauses: [] as PauseOffer[],
+      trusts: [] as PauseOffer[],
       suggested: [] as RecurringPayment[],
       guesses: new Map<string, ItemGuess>(),
       questions: { senders: [] } as CaptureQuestions,

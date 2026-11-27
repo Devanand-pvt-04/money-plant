@@ -12,6 +12,8 @@ import {
   normaliseMerchant,
   parentKey,
   proposePatterns,
+  patternParts,
+  shouldOfferAutoConfirm,
   shouldOfferPause,
   widenedPattern,
   ruleFromEntry,
@@ -315,6 +317,26 @@ describe('widening patterns (decision 0033)', () => {
     expect(shouldOfferPause({ ...existing, hits: 1, misses: 4 }, 3)).toBe(false);
     expect(shouldOfferPause({ ...existing, hits: 1, misses: 6 }, 3)).toBe(true);
     expect(shouldOfferPause({ ...existing, status: 'paused', hits: 0, misses: 9 }, null)).toBe(false);
+  });
+
+  it('offers to file by itself a pattern that asks first and keeps being right (decision 0037)', () => {
+    const asking = { ...existing, autoConfirm: false };
+    expect(shouldOfferAutoConfirm({ ...asking, hits: 8, misses: 0 }, null)).toBe(true);
+    expect(shouldOfferAutoConfirm({ ...asking, hits: 7, misses: 0 }, null)).toBe(false);
+    expect(shouldOfferAutoConfirm({ ...asking, hits: 15, misses: 2 }, null)).toBe(false);
+    expect(shouldOfferAutoConfirm({ ...asking, hits: 16, misses: 2 }, null)).toBe(true);
+    expect(shouldOfferAutoConfirm({ ...asking, hits: 12, misses: 0 }, 8)).toBe(false);
+    expect(shouldOfferAutoConfirm({ ...asking, hits: 16, misses: 0 }, 8)).toBe(true);
+    expect(shouldOfferAutoConfirm({ ...existing, autoConfirm: true, hits: 20, misses: 0 }, null)).toBe(false);
+    expect(shouldOfferAutoConfirm({ ...asking, status: 'paused', hits: 20, misses: 0 }, null)).toBe(false);
+  });
+
+  it('splits a pattern into chip labels', () => {
+    const parts = patternParts(
+      { kind: 'pattern', direction: 'debit', minAmount: paise(2200), maxAmount: paise(3800), startMinute: 9 * 60, endMinute: 10 * 60, weekdays: [1, 2, 3, 4, 5], accountId: 'icici', payeeKind: 'person' },
+      { name: 'ICICI Bank ••798', currency: 'INR' },
+    );
+    expect(parts).toEqual({ time: '9 am to 10 am', days: 'Weekdays', amount: '₹22 to ₹38', payee: 'To a person', account: 'From ICICI Bank ••798' });
   });
 });
 

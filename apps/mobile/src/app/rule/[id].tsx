@@ -134,7 +134,7 @@ export default function RuleDetail() {
         <Switch value={autoConfirm} onValueChange={setAutoConfirm} />
       </View>
       <Text style={styles.meta}>
-        Right {rule.hits} times, corrected {rule.misses} times.
+        Kept {rule.hits} {rule.hits === 1 ? 'time' : 'times'}, changed {rule.misses} {rule.misses === 1 ? 'time' : 'times'}.
       </Text>
       {error && <ErrorText>{error}</ErrorText>}
       <View style={styles.actions}>

@@ -287,7 +287,7 @@ function activeRules(db: Database): Rule[] {
     .from(rules)
     .where(and(isNull(rules.deletedAt), eq(rules.status, 'active')))
     .all()
-    .map(toRule);
+    .map((row) => toRule(row));
 }
 
 function categoriserContext(db: Database, tree: readonly CategoryNode[]) {
