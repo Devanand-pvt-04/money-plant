@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { paise } from './money';
-import { OVERALL, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, suggestionStep, sortBudgets, combineBudgets, withCarries, carryQuestions, absorbDebts, debtClearsBy, type CarryDebt } from './budget';
+import { OVERALL, daysInMonth, runningTotals, spentThrough, standout, addMonths, breakdown, budgetPace, budgetSettings, budgetTotal, countedBudgets, effectiveBudgets, rollUp, suggestBudget, suggestionStep, sortBudgets, combineBudgets, withCarries, carryQuestions, absorbDebts, debtClearsBy, type CarryDebt } from './budget';
 
 describe('effectiveBudgets', () => {
   const rows = [
@@ -284,5 +284,40 @@ describe('absorbDebts (BUD-5)', () => {
 
   it('never clears with no budget ahead', () => {
     expect(debtClearsBy('d1', absorbDebts([debt()], () => null, '2027-12'))).toBeNull();
+  });
+});
+
+describe('runningTotals, spentThrough and standout (decision 0038)', () => {
+  const at = (day: number, amount: number, id = `t${day}-${amount}`) => ({
+    transactionId: id,
+    categoryId: 'c',
+    counterparty: null,
+    occurredAt: new Date(2026, 10, day, 12).toISOString(),
+    amount: paise(amount),
+  });
+  const items = [at(5, 893), at(12, 99), at(20, 2765), at(21, 1404), at(21, 248), at(22, -100)];
+
+  it('adds spending up day by day, refunds bringing it down', () => {
+    const totals = runningTotals(items, '2026-11', 22);
+    expect(totals).toHaveLength(22);
+    expect(totals[3]).toBe(0);
+    expect(totals[4]).toBe(893);
+    expect(totals[20]).toBe(893 + 99 + 2765 + 1404 + 248);
+    expect(totals[21]).toBe(893 + 99 + 2765 + 1404 + 248 - 100);
+    expect(runningTotals(items, '2026-11')).toHaveLength(30);
+  });
+
+  it('counts the whole month when the day is past its end', () => {
+    expect(daysInMonth('2026-02')).toBe(28);
+    expect(spentThrough(items, '2026-11', 12)).toBe(992);
+    expect(spentThrough(items, '2026-11', 31)).toBe(5309);
+  });
+
+  it('calls out an entry that is at least a quarter of the month', () => {
+    const found = standout(items);
+    expect(found?.item.amount).toBe(2765);
+    expect(found?.without).toBe(5309 - 2765);
+    expect(standout([at(1, 100), at(2, 100), at(3, 100), at(4, 100), at(5, 100)])).toBeNull();
+    expect(standout([at(1, 500)])).toBeNull();
   });
 });

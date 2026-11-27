@@ -12,6 +12,9 @@ import {
   monthOf,
   paise,
   rollUp,
+  runningTotals,
+  spentThrough,
+  dateKey,
   suggestBudget,
   suggestionStep,
   withCarries,
@@ -21,11 +24,14 @@ import {
   type MonthKey,
   type BudgetSetting,
   type CurrencyCode,
+  type DateKey,
   type Pace,
   type Paise,
   type SpendBreakdown,
 } from '@money-plant/core';
+import { groupPlaces, type Place } from '@money-plant/categoriser';
 import { budgetCarries, budgets, postings, transactions } from '@money-plant/db-schema';
+import { cleanCounterparty } from '@money-plant/parser';
 import { formatAmount as rupees, formatMonth } from '@/components/format';
 import { flatten, listCategories, type CategoryNode } from './categories';
 import { getDb } from './db';
@@ -34,6 +40,8 @@ import { homeConverter } from './home-money';
 import { notifyLedgerChange } from './events';
 import { derivedId } from './ids';
 import { kvGet, kvSet } from './kv';
+import { listTransactions } from './ledger';
+import { listRecurring } from './recurring';
 import { notify } from './notifications';
 
 const now = () => new Date().toISOString();
@@ -523,15 +531,48 @@ export async function suggestBudgets(month: MonthKey): Promise<Map<string, Paise
 export interface CategoryBreakdown extends SpendBreakdown {
   /** Average over the 3 months before, for comparison (BUD-3). */
   previousAverage: Paise;
-  /** The month and the 3 before it, oldest first. */
+  /** The month and the 5 before it (3 for the month review), oldest first. */
   history: { month: MonthKey; total: Paise }[];
+  /** BUD-3 (decision 0038): the month's entries in this budget, newest first. */
+  entries: BudgetEntry[];
+  /** Spending added up day by day through today (or the whole month once it's over); index 0 is the 1st. */
+  running: Paise[];
+  /** This month only: spent last month by the same day of the month. */
+  lastMonthByNow: Paise | null;
+  /** This month only: recurring payments in this budget still due before the month ends. */
+  stillDue: { id: string; name: string; due: DateKey; amount: Paise; currency: CurrencyCode }[];
 }
 
+/** One entry on a budget page (decision 0038), at the amount it counts against the budget. */
+export interface BudgetEntry {
+  /** Unique per entry and category, as an entry can count in two sub-categories. */
+  key: string;
+  transactionId: string;
+  occurredAt: string;
+  /** In the home currency; positive for spending (or, on an income category, money in). */
+  amount: Paise;
+  /** The payee as the bank wrote it, or null when none was read. */
+  payee: string | null;
+  /** The shop, with every spelling of its name grouped (BUD-3). */
+  place: Place;
+  categoryId: string;
+  /** The user's own account the money moved in, when one did. */
+  account: { id: string; name: string } | null;
+  note: string | null;
+}
+
+/** How many months the budget page's history shows, this one included. */
+const HISTORY_MONTHS = 6;
+
 /**
- * BUD-3: where a category's (or with null, all) spending went in a month. An
- * income category works too, with what came in counted as positive.
+ * BUD-3: where a category's (or with null, all) spending went in a month, and
+ * the entries behind it. An income category works too, with what came in
+ * counted as positive. Payee spellings of one shop count as one place
+ * (decision 0038), here and in the month review.
  */
-export async function categoryBreakdown(month: MonthKey, categoryId: string | null): Promise<CategoryBreakdown> {
+export async function categoryBreakdown(month: MonthKey, categoryId: string | null, options: { page?: boolean } = {}): Promise<CategoryBreakdown> {
+  // The month review needs only the totals and places; the budget page also wants accounts, 6 months and payments due.
+  const page = options.page ?? false;
   const db = await getDb();
   const { ids } = await spendingTree();
   const all = flatten(await listCategories());
@@ -547,6 +588,7 @@ export async function categoryBreakdown(month: MonthKey, categoryId: string | nu
         categoryId: postings.accountId,
         counterparty: transactions.counterparty,
         occurredAt: transactions.occurredAt,
+        note: transactions.note,
         amount: postings.amountPaise,
         currency: postings.currency,
       })
@@ -563,13 +605,66 @@ export async function categoryBreakdown(month: MonthKey, categoryId: string | nu
       return amount === null ? [] : [{ ...row, amount: paise(income ? -amount : amount) }];
     });
   };
+  const items = await itemsFor(month);
+  const placeOf = groupPlaces(items.map((i) => i.counterparty));
   // Every payee, so the screen can list all of them on request (BUD-3).
-  const result = breakdown(await itemsFor(month), { top: Number.POSITIVE_INFINITY });
-  const history = await Promise.all(
-    [3, 2, 1].map((n) => addMonths(month, -n)).map(async (m) => ({ month: m, total: breakdown(await itemsFor(m)).total })),
+  const result = breakdown(
+    items.map((i) => ({ ...i, counterparty: i.counterparty === null ? null : placeOf(i.counterparty).name })),
+    { top: Number.POSITIVE_INFINITY },
   );
-  const previousAverage = paise(Math.round(history.reduce((sum, h) => sum + h.total, 0) / history.length));
-  return { ...result, previousAverage, history: [...history, { month, total: result.total }] };
+  const before = (page ? HISTORY_MONTHS : 4) - 1;
+  const earlier = await Promise.all(
+    Array.from({ length: before }, (_, i) => addMonths(month, i - before)).map(async (m) => ({ month: m, items: await itemsFor(m) })),
+  );
+  const history = earlier.map((h) => ({ month: h.month, total: breakdown(h.items).total }));
+  const lastThree = history.slice(-3);
+  const previousAverage = paise(Math.round(lastThree.reduce((sum, h) => sum + h.total, 0) / lastThree.length));
+
+  const current = month === currentMonth();
+  const today = new Date();
+  const lastMonth = earlier.at(-1)!;
+  const lastMonthByNow = current ? spentThrough(lastMonth.items, lastMonth.month, today.getDate()) : null;
+  const running = runningTotals(items, month, current ? today.getDate() : undefined);
+
+  // The account each entry's money moved in, from the same month's ledger rows.
+  const { start, end } = monthBounds(month);
+  const accountOf = new Map(
+    (page ? await listTransactions({ from: start, to: end }) : [])
+      .filter((row) => row.legs[0])
+      .map((row) => [row.tx.id, { id: row.legs[0]!.accountId, name: row.legs[0]!.accountName }]),
+  );
+  const entries: BudgetEntry[] = items
+    .map((i) => ({
+      key: `${i.transactionId}:${i.categoryId}`,
+      transactionId: i.transactionId,
+      occurredAt: i.occurredAt,
+      amount: i.amount,
+      payee: i.counterparty ? cleanCounterparty(i.counterparty) : null,
+      place: placeOf(i.counterparty),
+      categoryId: i.categoryId,
+      account: accountOf.get(i.transactionId) ?? null,
+      note: i.note?.trim() || null,
+    }))
+    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+
+  const monthEnd = dateKey(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+  const home = homeCurrency();
+  const stillDue = current && page
+    ? (await listRecurring())
+        .filter((r) => r.status === 'active' && r.categoryId !== null && inTree.has(r.categoryId) && r.nextDue >= dateKey(today) && r.nextDue <= monthEnd)
+        .map((r) => ({ id: r.id, name: r.name, due: r.nextDue, amount: r.amount, currency: r.currency ?? home }))
+        .sort((a, b) => a.due.localeCompare(b.due))
+    : [];
+
+  return {
+    ...result,
+    previousAverage,
+    history: [...history, { month, total: result.total }],
+    entries,
+    running,
+    lastMonthByNow,
+    stillDue,
+  };
 }
 
 /** Money in per top-level income category in a month, sub-categories included, largest first. */
