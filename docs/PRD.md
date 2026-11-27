@@ -97,8 +97,8 @@ The MVP has 73 requirements across 11 areas. "Must" items block the first releas
 | CAT-4 | For payments to people, ask once and remember per person; offer to create an IOU. Learned patterns run first, so a matched payment to a person (a bus conductor's UPI ID) is not asked about | Must |
 | CAT-5 | Categories have two levels (Food > Lunch). An entry can sit on a parent; reports and budgets roll children up into the parent. Moving, renaming or merging a category keeps its history | Must |
 | CAT-6 | Each entry shows why it got its category: a rule, a learned pattern, the merchant dictionary, or AI with its confidence | Must |
-| CAT-7 | One screen lists all rules and learned patterns, each of which can be edited, paused or deleted. A rule or pattern can carry a default note, added to entries it categorises that have no note of their own | Must |
-| CAT-8 | Learn patterns from corrections: when 3 or more corrections in 30 days agree on time of day, weekday, amount band, account and payee kind, propose a pattern the user accepts or edits. Matches start as suggestions and can auto-confirm once the user allows it. When the habit drifts (a new price, a later time), propose widening the existing pattern; offer to pause one the user keeps correcting (decision 0033) | Must |
+| CAT-7 | One screen lists all rules and learned patterns, each of which can be edited, paused or deleted, grouped by category with how often its category was kept or changed (decision 0037). A rule or pattern can carry a default note, added to entries it categorises that have no note of their own | Must |
+| CAT-8 | Learn patterns from corrections: when 3 or more corrections in 30 days agree on time of day, weekday, amount band, account and payee kind, propose a pattern the user accepts or edits. Matches start as suggestions and can auto-confirm once the user allows it. When the habit drifts (a new price, a later time), propose widening the existing pattern; offer to pause one the user keeps correcting (decision 0033), or to make it ask first; offer to let one that keeps being right file by itself (decision 0037) | Must |
 
 ### Budgets and month review
 

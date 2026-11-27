@@ -10,7 +10,7 @@ import { derivedId } from './ids';
 import { notifyLedgerChange } from './events';
 import { loadTransactions, SqliteLedgerStore, writeTransaction } from './ledger-store';
 import { kvGet, kvSet } from './kv';
-import { countRuleOutcome, createRule, deleteRule, getRule, learnPatterns, listRules, updateRule } from './rules-store';
+import { countCorrection, createRule, deleteRule, getRule, learnPatterns, listRules, updateRule } from './rules-store';
 import { supabase } from './supabase';
 
 /** Review reasons that are about the category, so picking or accepting one settles them. */
@@ -73,14 +73,15 @@ export async function setCategoryForEntries(ids: readonly string[], categoryId: 
     }
     first ??= { tx, features };
     const previous = tx.postings[features.categoryPostingIndex]!.accountId;
-    if (tx.categoryRuleId && (tx.categoryReason === 'rule' || tx.categoryReason === 'pattern')) {
-      await countRuleOutcome(tx.categoryRuleId, previous === categoryId ? 'hit' : 'miss');
-    }
+    const guessed = tx.categoryRuleId !== null && (tx.categoryReason === 'rule' || tx.categoryReason === 'pattern');
+    // Picking the category the rule already chose keeps its guess, so it counts as right (decision 0037).
+    const kept = guessed && previous === categoryId;
+    if (guessed && !kept) await countCorrection(tx.categoryRuleId!);
     const settles = tx.status === 'pending' && tx.reviewReason !== null && CATEGORY_REVIEWS.has(tx.reviewReason);
     writeTransaction(db, {
       ...tx,
-      categoryReason: 'user',
-      categoryRuleId: null,
+      categoryReason: kept ? tx.categoryReason : 'user',
+      categoryRuleId: kept ? tx.categoryRuleId : null,
       userSetFields: withField(tx.userSetFields, 'category'),
       postings: tx.postings.map((p, i) => (i === features.categoryPostingIndex ? { ...p, accountId: categoryId } : p)),
       ...(settles ? { status: 'confirmed' as const, reviewReason: null } : {}),
@@ -154,14 +155,53 @@ export async function keepPattern(rule: Pick<Rule, 'id' | 'misses'>): Promise<vo
   notifyLedgerChange();
 }
 
+/**
+ * Decision 0037: a much-corrected pattern that files by itself steps down to
+ * suggesting in Review. Like keeping it, the pause question comes back only
+ * after 3 more corrections.
+ */
+export async function askFirst(rule: Pick<Rule, 'id' | 'misses'>): Promise<void> {
+  await kvSet(KEPT_KEY(rule.id), String(rule.misses));
+  await updateRule(rule.id, { autoConfirm: false });
+}
+
+const ASKED_KEY = (ruleId: string) => `patterns.askedAt.${ruleId}`;
+
+/** The right count when the user last said "keep asking" to filing by itself (decision 0037). */
+export async function askedAtRight(ruleId: string): Promise<number | null> {
+  const saved = await kvGet(ASKED_KEY(ruleId));
+  return saved !== null && /^\d+$/.test(saved) ? Number(saved) : null;
+}
+
+/**
+ * Decision 0037: the user lets a pattern that keeps being right file by
+ * itself. Entries waiting in Review with its guess are confirmed too.
+ */
+export async function trustPattern(ruleId: string): Promise<void> {
+  await updateRule(ruleId, { autoConfirm: true });
+  const db = await getDb();
+  const waiting = db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(and(isNull(transactions.deletedAt), eq(transactions.categoryRuleId, ruleId), eq(transactions.status, 'pending'), eq(transactions.reviewReason, 'pattern')))
+    .all();
+  if (waiting.length > 0) await confirmEntries(waiting.map((row) => row.id));
+}
+
+/** Decision 0037: the user wants a trusted pattern to keep asking; asked again after 8 more right. */
+export async function keepAsking(rule: Pick<Rule, 'id' | 'hits'>): Promise<void> {
+  await kvSet(ASKED_KEY(rule.id), String(rule.hits));
+  notifyLedgerChange();
+}
+
 export async function declinePattern(ruleId: string): Promise<void> {
   // Kept as declined, so the same idea is not proposed again.
   await updateRule(ruleId, { status: 'declined' });
 }
 
 /**
- * The user confirms an entry as it is. A pattern's guess counts as a hit; an
- * AI guess the AI was unsure about is shared, so the next person gets it from
+ * The user confirms an entry as it is. A rule's or pattern's guess then counts
+ * as right (decision 0037: counted from the entries); an AI guess the AI was unsure about is shared, so the next person gets it from
  * the dictionary.
  */
 export async function confirmEntry(id: string): Promise<void> {
@@ -174,7 +214,6 @@ export async function confirmEntries(ids: readonly string[]): Promise<void> {
   const confirmations = new Map<string, { merchant: string; key: string; name: string }>();
   for (const id of ids) {
     const tx = await load(id);
-    if (tx.categoryRuleId && (tx.categoryReason === 'pattern' || tx.categoryReason === 'rule')) await countRuleOutcome(tx.categoryRuleId, 'hit');
     writeTransaction(db, { ...tx, status: 'confirmed', reviewReason: null });
     if (tx.categoryReason === 'ai' && tx.reviewReason === 'category_unsure' && tx.counterparty) {
       const features = entryFeatures(tx, ownedAccountIds(db));
