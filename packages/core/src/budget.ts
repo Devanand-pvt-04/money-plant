@@ -352,7 +352,7 @@ export function daysInMonth(month: MonthKey): number {
  */
 export function runningTotals(items: readonly Pick<SpendItem, 'occurredAt' | 'amount'>[], month: MonthKey, throughDay = daysInMonth(month)): Paise[] {
   const days = Math.max(0, Math.min(throughDay, daysInMonth(month)));
-  const perDay = new Array<number>(days).fill(0);
+  const perDay = Array.from({ length: days }, () => 0);
   for (const item of items) {
     const day = new Date(item.occurredAt).getDate();
     if (day <= days) perDay[day - 1]! += item.amount;

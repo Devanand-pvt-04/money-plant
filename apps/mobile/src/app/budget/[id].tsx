@@ -83,8 +83,10 @@ export default function CategoryMonth() {
   const colors = useColors();
   const styles = useStyles();
   const params = useLocalSearchParams<{ id: string; month?: string }>();
-  const month = (params.month ?? currentMonth()) as MonthKey;
-  const { data, reload } = useLedger(() => load(params.id, month), null as Data | null);
+  // The month asked for; the screen draws the month its data was loaded for, so
+  // stepping months never mixes one month's numbers with another's length.
+  const wanted = (params.month ?? currentMonth()) as MonthKey;
+  const { data, reload } = useLedger(() => load(params.id, wanted), null as Data | null);
   const [editing, setEditing] = useState<'default' | 'month' | null>(null);
   const [start, setStart] = useState<Paise | null>(null);
   const [tab, setTab] = useState<Tab>('entries');
@@ -93,11 +95,11 @@ export default function CategoryMonth() {
   const [allPlaces, setAllPlaces] = useState(false);
 
   useEffect(() => {
-    if (data && data.month !== month) {
+    if (data && data.month !== wanted) {
       setFilter(null);
       void reload();
     }
-  }, [month, data, reload]);
+  }, [wanted, data, reload]);
 
   const entries = data?.detail.entries ?? [];
   const shown = useMemo(
@@ -116,7 +118,7 @@ export default function CategoryMonth() {
 
   if (!data) return null;
 
-  const { category, line, detail, names } = data;
+  const { month, category, line, detail, names } = data;
   const overall = params.id === 'overall';
   const categoryId = overall ? null : params.id;
   const income = category?.flow === 'income';
@@ -562,14 +564,15 @@ function PaceChart(props: { running: Paise[]; limit: Paise; month: MonthKey; pro
   const colors = useColors();
   const styles = useStyles();
   const days = daysInMonth(props.month);
-  const today = props.running.length;
+  const running = props.running.slice(0, days);
+  const today = running.length;
   const color = props.status === 'over' ? colors.heroDanger : props.status === 'pace' ? colors.heroWarning : colors.heroAccent;
   // Point 0 is the start of the 1st; point d is the end of day d.
-  const spent = [0, ...props.running, ...new Array<null>(days - today).fill(null)];
+  const spent = [0, ...running, ...Array.from({ length: days - today }, () => null)];
   const even = Array.from({ length: days + 1 }, (_, d) => Math.round((props.limit * d) / days));
-  const budget = new Array<number>(days + 1).fill(props.limit);
+  const budget = Array.from({ length: days + 1 }, () => props.limit);
   const end = props.projected;
-  const last = props.running.at(-1) ?? 0;
+  const last = running.at(-1) ?? 0;
   const ahead =
     end !== null && today < days
       ? Array.from({ length: days + 1 }, (_, d) => (d < today ? null : Math.round(last + ((end - last) * (d - today)) / (days - today))))
