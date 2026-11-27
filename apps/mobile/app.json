@@ -3,7 +3,7 @@
     "name": "Money Plant",
     "slug": "money-plant",
     "scheme": "moneyplant",
-    "version": "0.12.1",
+    "version": "0.12.2",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -83,6 +83,7 @@
           "widgets": [
             {
               "name": "ThisMonth",
+              "previewImage": "./assets/widget-preview/this-month.png",
               "label": "This month",
               "description": "Left to spend this month against your budget",
               "minWidth": "250dp",
@@ -94,6 +95,7 @@
             },
             {
               "name": "QuickAdd",
+              "previewImage": "./assets/widget-preview/quick-add.png",
               "label": "Quick add",
               "description": "Add a spend or money in, scan and pay, or review",
               "minWidth": "250dp",
@@ -105,6 +107,7 @@
             },
             {
               "name": "ComingUp",
+              "previewImage": "./assets/widget-preview/coming-up.png",
               "label": "Coming up",
               "description": "Bills, EMIs and card bills due this week",
               "minWidth": "250dp",
