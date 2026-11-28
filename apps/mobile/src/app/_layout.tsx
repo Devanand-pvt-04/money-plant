@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router } from 'expo-router';
-import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { ActivityIndicator, Text, View } from 'react-native';
@@ -10,6 +9,7 @@ import { AppLock } from '@/components/app-lock';
 import { refreshWidgets, startWidgetUpdates } from '@/widgets';
 import { onWidgetTarget, takePendingWidgetTarget } from '@/widgets/links';
 import { ErrorScreen } from '@/components/error-screen';
+import { DEFAULT_ACTION_IDENTIFIER, clearLastNotificationResponse, useLastNotificationResponse } from '@/lib/notification-response';
 import { UpdateBanner } from '@/components/update-banner';
 import { Button, useColors } from '@/components/ui';
 import { useConsent } from '@/lib/consent';
@@ -77,7 +77,7 @@ export default function RootLayout() {
   }, [scheme, colors]);
   const { session, loading } = useSession();
   const insets = useSafeAreaInsets();
-  const lastResponse = Notifications.useLastNotificationResponse();
+  const lastResponse = useLastNotificationResponse();
   const handledResponse = useRef<string | null>(null);
 
   useEffect(() => {
@@ -116,13 +116,13 @@ export default function RootLayout() {
   // A tapped reminder or budget alert opens the screen it is about.
   useEffect(() => {
     if (loading || !session || !consented || !lastResponse) return;
-    if (lastResponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    if (lastResponse.actionIdentifier !== DEFAULT_ACTION_IDENTIFIER) return;
     const { identifier, content } = lastResponse.notification.request;
     const url = content.data?.url;
     if (typeof url !== 'string' || handledResponse.current === identifier) return;
     handledResponse.current = identifier;
     // Android keeps the last tapped notification across launches; clearing it stops every cold start reopening that screen.
-    Notifications.clearLastNotificationResponse();
+    clearLastNotificationResponse();
     router.push(url as never);
   }, [lastResponse, loading, session, consented]);
 

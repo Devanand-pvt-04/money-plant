@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './secure-store';
 import { notifyLedgerChange } from './events';
 
 /**

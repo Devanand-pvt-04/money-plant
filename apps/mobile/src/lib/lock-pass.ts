@@ -1,5 +1,5 @@
 import { AppState } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './secure-store';
 
 /**
  * Back from the background after this long, the app locks again. Paying in a

@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './secure-store';
 
 /**
  * The app restarts its own JavaScript for an update or "Try again". Each restart is noted here just before it happens, so the next start

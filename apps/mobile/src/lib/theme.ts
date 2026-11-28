@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { AppState, Appearance } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './secure-store';
 import * as SystemUI from 'expo-system-ui';
 
 export type ThemePreference = 'system' | 'light' | 'dark';

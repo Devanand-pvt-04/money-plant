@@ -244,7 +244,7 @@ Accuracy and privacy rank above speed of delivery. A fast app with wrong totals 
 | UX | One design system across all screens, in light and dark mode. Text scales with the phone's font size, and tap targets are at least 48dp |
 | Performance | The home screen opens in under 1 second with 2 years of data. An SMS becomes an entry within 5 seconds |
 | Battery | No constant background service. Work is triggered by incoming SMS and notifications |
-| Platforms | Android 10 and later. iOS 17 and later (needed for the Shortcuts message trigger) |
+| Platforms | Android 10 and later. iPhone: the web app added to the home screen from Safari, iOS 16.4 and later (decision 0039). Native iOS 17 and later (needed for the Shortcuts message trigger) |
 | Data residency | Backend hosted in India (Supabase, Mumbai region) |
 | Compliance | Consent, data export and account deletion in line with India's DPDP Act. No investment advice. The app never moves money |
 

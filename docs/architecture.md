@@ -36,7 +36,7 @@ Everything is TypeScript except a few small native modules. The parser and ledge
 | --- | --- | --- |
 | Mobile app | React Native with Expo (development builds), TypeScript | One codebase for Android and iOS; Expo modules make custom native code manageable |
 | Navigation and UI | Expo Router; a small in-house component set | File-based routes; keeps the bundle lean |
-| Local database | expo-sqlite with SQLCipher (`useSQLCipher` config plugin); key in SecureStore | Encrypted at rest, works offline, maintained with the Expo SDK, and also stores the auth session |
+| Local database | expo-sqlite with SQLCipher (`useSQLCipher` config plugin); key in SecureStore. The web build uses expo-sqlite's WebAssembly version without SQLCipher (decision 0039) | Encrypted at rest, works offline, maintained with the Expo SDK, and also stores the auth session |
 | Local queries | Drizzle ORM | Typed schema shared with the server's Postgres schema |
 | State | TanStack Query for server data; Zustand for UI state | Simple, well-known patterns |
 | Native modules | Kotlin: SMS receiver and notification listener. Swift (later): App Intent for Shortcuts | The only platform-specific code |
@@ -204,6 +204,10 @@ Recurring payments (REC-1 to REC-4) are worked out on the phone from the ledger 
 ## Home screen widgets
 
 Three Android widgets (HOME-4, decision 0036) live in `apps/mobile/src/widgets/`: This month, Quick add and Coming up. `react-native-android-widget` declares them through its config plugin in `app.json` and starts a headless JS task (registered in `index.ts`) whenever Android asks for a widget to be drawn: when it is placed, resized, and every 30 minutes. The task reads the stored session and the encrypted database like the SMS capture task, works the numbers out with the same functions Home uses, and draws JSX made of the library's widget primitives. The app redraws placed widgets after ledger changes (debounced 2 s), when it goes to the background and after a background capture. Taps open `moneyplant://widget?open=<path>`; `app/+native-intent.tsx` sends the app to Home and the root layout pushes the path once the app is ready, like a tapped notification.
+
+## iPhone web app
+
+Decision 0039: iPhones get the same app built for the web and added to the home screen from Safari. It keeps the local-first design: the ledger lives in expo-sqlite's WebAssembly version in the site's private file storage (not encrypted; SQLCipher has no browser version), and sync, offline changes and edge functions work as on the phone. Web-only code sits in `.web.ts` files the Android bundle never loads. The page must be served with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` (`apps/mobile/public/_headers`) so the database can wait on its worker. Capture, widgets, contacts, scan and pay and local notifications aren't available on the web.
 
 ## Matching and reconciliation
 
