@@ -19,6 +19,7 @@
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
+import { serveWithCors } from '../_shared/cors.ts';
 
 /** Answers at or above this are shared with everyone through the merchants table. */
 const SHARE_CONFIDENCE = 0.8;
@@ -85,7 +86,7 @@ function validCategories(value: unknown): Category[] | null {
   return categories.length > 0 ? categories : null;
 }
 
-Deno.serve(async (request) => {
+serveWithCors(async (request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
   if (!token) return json({ error: 'unauthorised' }, 401);

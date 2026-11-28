@@ -12,6 +12,7 @@
 // gets the nearest earlier one, and says which day that was in `rate_date`.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
+import { serveWithCors } from '../_shared/cors.ts';
 
 const FRANKFURTER = 'https://api.frankfurter.dev/v1';
 const FALLBACK = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api';
@@ -145,7 +146,7 @@ async function fromFallback(currencies: string[], dates: string[], today: string
   return out;
 }
 
-Deno.serve(async (request) => {
+serveWithCors(async (request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
   if (!token) return json({ error: 'unauthorised' }, 401);

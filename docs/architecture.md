@@ -207,7 +207,7 @@ Three Android widgets (HOME-4, decision 0036) live in `apps/mobile/src/widgets/`
 
 ## iPhone web app
 
-Decision 0039: iPhones get the same app built for the web and added to the home screen from Safari. It keeps the local-first design: the ledger lives in expo-sqlite's WebAssembly version in the site's private file storage (not encrypted; SQLCipher has no browser version), and sync, offline changes and edge functions work as on the phone. Web-only code sits in `.web.ts` files the Android bundle never loads. The page must be served with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` (`apps/mobile/public/_headers`) so the database can wait on its worker. Capture, widgets, contacts, scan and pay and local notifications aren't available on the web.
+Decision 0039: iPhones get the same app built for the web and added to the home screen from Safari. It keeps the local-first design: the ledger lives in expo-sqlite's WebAssembly version in the site's private file storage (not encrypted; SQLCipher has no browser version), and sync, offline changes and edge functions work as on the phone. Web-only code sits in `.web.ts` files the Android bundle never loads. The page must be served with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` (`apps/mobile/public/_headers`) so the database can wait on its worker. A service worker (`public/sw.js`) stores the built files so the app opens with no signal, and the edge functions the app calls answer CORS through `supabase/functions/_shared/cors.ts`. Capture, widgets, contacts, scan and pay, app lock and local notifications aren't available on the web.
 
 ## Matching and reconciliation
 

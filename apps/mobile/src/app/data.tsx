@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
 import { FormScroll } from '@/components/keyboard';
@@ -61,7 +61,8 @@ export default function YourData() {
         <SectionTitle>Export</SectionTitle>
         <Card style={styles.card}>
           <Text style={styles.body}>
-            Saves your entries, accounts, budgets, recurring payments and IOUs as CSV files in a folder you pick, such as Downloads.
+            Saves your entries, accounts, budgets, recurring payments and IOUs as CSV files{' '}
+            {Platform.OS === 'web' ? 'in one zip file in your Downloads.' : 'in a folder you pick, such as Downloads.'}
             They open in Excel or Google Sheets. SMS text is not included.
           </Text>
           {exported && (

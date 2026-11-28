@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { File } from 'expo-file-system';
+import { pickPdf } from '@/lib/pick-pdf';
 import { FormScroll } from '@/components/keyboard';
 import { AccountPicker, accountLabel } from '@/components/account-picker';
 import { formatDay, formatAmount as rupees } from '@/components/format';
 import { Button, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { listAccountBalances } from '@/lib/ledger';
-import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
+import { PdfError, type PdfErrorCode, type PdfFile } from '@/lib/pdf-service';
 import { importStatement, previewStatement, readStatement, type StatementImportResult, type StatementPreview } from '@/lib/statements';
 import { errorText } from '@/lib/errors';
 
@@ -37,7 +37,7 @@ export default function StatementImport() {
   const colors = useColors();
   const styles = useStyles();
   const params = useLocalSearchParams<{ account?: string }>();
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<PdfFile | null>(null);
   const [password, setPassword] = useState('');
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -58,9 +58,9 @@ export default function StatementImport() {
   async function pick() {
     setError(null);
     try {
-      const picked = await File.pickFileAsync({ mimeTypes: ['application/pdf'] });
-      if (picked.canceled) return;
-      setFile(picked.result);
+      const picked = await pickPdf();
+      if (!picked) return;
+      setFile(picked);
       setPreview(null);
     } catch {
       setError("Couldn't open the file picker.");
