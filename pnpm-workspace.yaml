@@ -22,3 +22,9 @@ overrides:
 auditConfig:
   ignoreGhsas:
     - GHSA-fc5q-39xc-vjpf
+
+# Web build (decision 0039): expo-sqlite's browser version gave up on a
+# synchronous query after about 56 ms of waiting; the patch waits up to 30 s.
+# Touches only web/WorkerChannel.ts, never the Android code.
+patchedDependencies:
+  expo-sqlite: patches/expo-sqlite.patch

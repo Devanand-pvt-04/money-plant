@@ -1,0 +1,8 @@
+# Web build (decision 0039), read by Cloudflare Pages. The database runs SQLite
+# in a worker and waits on it with SharedArrayBuffer, which browsers allow only
+# on a cross-origin isolated page: these two headers make it one.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer

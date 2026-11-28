@@ -1,0 +1,46 @@
+diff --git a/web/WorkerChannel.ts b/web/WorkerChannel.ts
+index 2c5ff82614a692a5e4e69c43a640ba43e5a68a9c..25e52601740911aa8bce6cbf3b03d1265bfd05fd 100644
+--- a/web/WorkerChannel.ts
++++ b/web/WorkerChannel.ts
+@@ -93,6 +93,9 @@ export async function invokeWorkerAsync<T extends SQLiteWorkerMessageType & keyo
+   return deferred.getPromise();
+ }
+ 
++/** Money Plant patch: how long a synchronous call may wait for the worker. */
++const SYNC_TIMEOUT_MS = 30_000;
++
+ /**
+  * For main thread to invoke worker function synchronously.
+  */
+@@ -124,24 +127,20 @@ export function invokeWorkerSync<T extends SQLiteWorkerMessageType & keyof Resul
+     resultBuffer,
+   });
+ 
++  // Money Plant patch: give up after a time, not a count of spins. A count of
++  // 1,000,000 Atomics.pause() calls is about 56 ms in Chromium, so any query
++  // slower than that failed with "Sync operation timeout".
++  const deadline = performance.now() + SYNC_TIMEOUT_MS;
+   let i = 0;
+   // @ts-expect-error: Remove this when TypeScript supports Atomics.pause
+   const useAtomicsPause = typeof Atomics.pause === 'function';
+   while (Atomics.load(lock, 0) === PENDING) {
+-    ++i;
+-
++    if ((++i & 0x3ff) === 0 && performance.now() > deadline) {
++      throw new Error('Sync operation timeout');
++    }
+     if (useAtomicsPause) {
+-      if (i > 1_000_000) {
+-        throw new Error('Sync operation timeout');
+-      }
+       // @ts-expect-error: Remove this when TypeScript supports Atomics.pause
+       Atomics.pause();
+-    } else {
+-      // NOTE(kudo): Unfortunate for the busy loop,
+-      // because we don't have a way for main thread to yield its execution to other callbacks.
+-      if (i > 1000_000_000) {
+-        throw new Error('Sync operation timeout');
+-      }
+     }
+   }
+ 
