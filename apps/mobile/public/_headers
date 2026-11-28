@@ -6,3 +6,12 @@
   Cross-Origin-Embedder-Policy: require-corp
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+
+# The service worker and its file list must be fetched fresh, so a new build
+# reaches the phone on its next open.
+/sw.js
+  Cache-Control: no-cache
+/precache.json
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache

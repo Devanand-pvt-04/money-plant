@@ -181,6 +181,26 @@ The AI runs on your PC (decisions 0006 and 0012). Follow [services/ai-worker/REA
 
 Build 3 (AI categorising): `npx supabase db push`, `npx supabase functions deploy categorise` and `npx supabase functions deploy ai-worker`, restart the worker (`schtasks /End` then `/Run`, or sign out and in), then ship the app as an OTA update. Everyone sees the consent screen once more, because its AI point changed.
 
+## 14. iPhone web app (decision 0039)
+
+iPhones use the same app as a web app, published free on Cloudflare Pages by the **Deploy** action after each merge that changes the app.
+
+Once:
+
+1. Make a free account at [dash.cloudflare.com](https://dash.cloudflare.com/sign-up). No card is needed for Pages.
+2. Copy the **Account ID**: Workers & Pages (left menu) shows it on the right, or it is the long code in the dashboard's address bar.
+3. Make an API token: My Profile → API Tokens → Create Token → **Create Custom Token**. Give it one permission, **Account → Cloudflare Pages → Edit**, for your account, then Create and copy the token (it is shown once).
+4. In GitHub: Settings → Secrets and variables → Actions → New repository secret. Add `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (the ID).
+5. Publish the first time: **Actions → Deploy → Run workflow** (message: "First web app"). This also applies migrations, redeploys the edge functions and publishes the Android update, all of which are safe to repeat. The run makes the Pages project `money-plant`; its address is `https://money-plant.pages.dev` unless that name is taken, in which case Cloudflare shows the address under Workers & Pages. To use another name, add the repository variable `CLOUDFLARE_PAGES_PROJECT`.
+
+On each iPhone (iOS 16.4 or later):
+
+1. Open the address in **Safari** (not Chrome; only Safari can add web apps to the home screen).
+2. Tap Share → **Add to Home Screen** → Add.
+3. Open **Money Plant** from the home screen and sign in with the email code. Always open it from the home screen: Safari's own tab keeps separate data.
+
+Build it yourself: `pnpm --filter @money-plant/mobile web:build`, then serve `apps/mobile/dist` with the headers in `apps/mobile/public/_headers`. Without them the database can't start.
+
 ## Troubleshooting
 
 | Symptom | Fix |
