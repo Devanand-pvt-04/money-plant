@@ -13,6 +13,9 @@ name: Deploy
 #    app.json's version. Started with --no-wait, so the run doesn't sit in EAS's
 #    free build queue; the run's summary links the build page, where the APK
 #    appears when it's done. Install it, then share it on the Drive link.
+# 5. iPhone web app (decision 0039) to Cloudflare Pages, when the app or a
+#    shared package changed. Skipped with a notice until the secrets
+#    CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID exist (docs/setup.md, 14).
 # A step whose part didn't change is skipped. So the server always has what an
 # edge function or the app needs before they reach it.
 # By hand: Actions → Deploy → Run workflow, for either channel. That applies any
@@ -195,3 +198,46 @@ jobs:
             require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY,
               `## Production APK ${app.version}\n\nThe build is running on EAS. The APK appears on [its build page](${page}) when it finishes (the free plan can queue for a while).\n\nInstall it over the old app, then upload it to the Drive link for friends.\n`);
           ' "$RUNNER_TEMP/build.json"
+
+  # Decision 0039: the iPhone web app, built from the same code and published to
+  # Cloudflare Pages (free). Runs beside the OTA update; the web app only talks
+  # to Supabase, which steps 1 and 2 have already updated.
+  web:
+    needs: [changes, migrate, functions]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && needs.changes.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Its address is https://<project>.pages.dev.
+      PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'money-plant' }}
+    steps:
+      - name: Cloudflare set up?
+        id: ready
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::No Cloudflare secrets yet, so the web app wasn't published (docs/setup.md, section 14)."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        if: steps.ready.outputs.go == 'true'
+      - uses: ./.github/actions/setup-workspace
+        if: steps.ready.outputs.go == 'true'
+      # Never publish a build that CI would reject.
+      - run: pnpm typecheck
+        if: steps.ready.outputs.go == 'true'
+      - run: pnpm test
+        if: steps.ready.outputs.go == 'true'
+      - name: Build the web app
+        if: steps.ready.outputs.go == 'true'
+        run: pnpm --filter @money-plant/mobile web:build
+      - name: Publish to Cloudflare Pages
+        if: steps.ready.outputs.go == 'true'
+        working-directory: apps/mobile
+        run: |
+          # The first run makes the project; later runs find it there already.
+          npx --yes wrangler@4 pages project create "$PROJECT" --production-branch main 2>/dev/null || true
+          npx --yes wrangler@4 pages deploy dist --project-name "$PROJECT" --branch main --commit-dirty=true
+          printf '## iPhone web app\n\nPublished to the Cloudflare Pages project %s, usually at https://%s.pages.dev (the address is in the Cloudflare dashboard under Workers & Pages).\n' "$PROJECT" "$PROJECT" >> "$GITHUB_STEP_SUMMARY"

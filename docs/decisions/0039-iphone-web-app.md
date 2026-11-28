@@ -46,7 +46,10 @@ Web-only code lives in `.web.ts` files that the Android bundle never loads: `lib
 
 Build with `pnpm --filter @money-plant/mobile web:build` (export, then the precache list).
 
-## Later PRs
+## Part 3: hosting
 
-1. Hosting: Cloudflare Pages and a web step in Deploy.
-2. Web push for budget alerts and reminders.
+The `web` job in `.github/workflows/deploy.yml` runs beside the OTA update when the app or a shared package changed: typecheck, tests, `web:build`, then `wrangler pages deploy` to the Cloudflare Pages project `money-plant` (or the repository variable `CLOUDFLARE_PAGES_PROJECT`). It needs the secrets `CLOUDFLARE_API_TOKEN` (Pages Edit only) and `CLOUDFLARE_ACCOUNT_ID`, and skips with a notice without them. `_headers` keeps `sw.js`, `precache.json` and `index.html` uncached, so a new build reaches the phone the next time it's opened. Setup and the iPhone install steps: `docs/setup.md`, section 14.
+
+## Later
+
+Web push for budget alerts and reminders.
