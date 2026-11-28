@@ -19,6 +19,7 @@
 // phone asks again later instead of taking a wrong day.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
+import { serveWithCors } from '../_shared/cors.ts';
 
 const REPORT_URL = 'https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx';
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
@@ -78,7 +79,7 @@ async function navsOn(day: Date, wanted: (nav: Nav) => boolean): Promise<Nav[]> 
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
-Deno.serve(async (request) => {
+serveWithCors(async (request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
   if (!token) return json({ error: 'unauthorised' }, 401);

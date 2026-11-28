@@ -1,9 +1,9 @@
-import { Directory } from 'expo-file-system';
 import { asc, isNull } from 'drizzle-orm';
 import { ACCOUNT_TYPE_LABELS, dateKey, DEFAULT_CURRENCY, minorDecimal, toCsv, type AccountType } from '@money-plant/core';
 import { accountTypes, accounts, budgets, postings, recurring, transactions } from '@money-plant/db-schema';
 import { getDb } from './db';
 import { homeCurrency } from './home-currency';
+import { saveCsvFiles } from './save-csv';
 import { itemTitle, listItems, statusText } from './shared';
 
 export interface ExportResult {
@@ -25,24 +25,12 @@ const localTime = (iso: string) => {
  * exactly. SMS text is never written: only the fields the app read from it.
  * Every amount sits next to its currency (decision 0017); budgets are in the
  * home currency.
- * Returns null when the user closes the folder picker.
+ * Returns null when the user closes the folder picker. The web build saves
+ * one zip file instead (save-csv.web.ts).
  */
 export async function exportData(): Promise<ExportResult | null> {
-  let folder: Directory;
-  try {
-    folder = await Directory.pickDirectoryAsync();
-  } catch {
-    return null;
-  }
-  const files = await buildFiles();
   const stamp = dateKey(new Date());
-  const written: string[] = [];
-  for (const [name, csv] of files) {
-    const file = folder.createFile(`money-plant-${name}-${stamp}.csv`, 'text/csv');
-    await file.write(csv);
-    written.push(file.name);
-  }
-  return { folder: folder.name, files: written };
+  return saveCsvFiles(stamp, () => buildFiles());
 }
 
 async function buildFiles(): Promise<[string, string][]> {

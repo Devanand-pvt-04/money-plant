@@ -54,7 +54,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'no mobile tests yet'"
+    "test": "echo 'no mobile tests yet'",
+    "web:build": "expo export --platform web && node scripts/web-precache.mjs dist"
   },
   "private": true
 }

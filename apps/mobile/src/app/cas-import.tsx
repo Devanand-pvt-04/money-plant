@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { Linking, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { File } from 'expo-file-system';
+import { pickPdf } from '@/lib/pick-pdf';
 import { dematGroups, paise, type CasStatement, type DematGroup, type DematStatement } from '@money-plant/core';
 import { FormScroll } from '@/components/keyboard';
 import { formatDay, formatAmount as rupees } from '@/components/format';
 import { Button, Card, ErrorText, Field, radius, useColors, makeStyles } from '@/components/ui';
 import { casHoldings, importCas, readCas, shortSchemeName, type CasHolding } from '@/lib/funds';
 import { heldFundIsins, importDemat } from '@/lib/demat';
-import { PdfError, type PdfErrorCode } from '@/lib/pdf-service';
+import { PdfError, type PdfErrorCode, type PdfFile } from '@/lib/pdf-service';
 import { errorText } from '@/lib/errors';
 
 const KFINTECH_CAS_URL = 'https://mfs.kfintech.com/investor/General/ConsolidatedAccountStatement';
@@ -36,7 +36,7 @@ const KIND_LABEL: Record<string, string> = { share: 'Share', etf: 'ETF', gold_bo
 export default function CasImport() {
   const colors = useColors();
   const styles = useStyles();
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<PdfFile | null>(null);
   const [password, setPassword] = useState('');
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -48,9 +48,9 @@ export default function CasImport() {
   async function pick() {
     setError(null);
     try {
-      const picked = await File.pickFileAsync({ mimeTypes: ['application/pdf'] });
-      if (picked.canceled) return;
-      setFile(picked.result);
+      const picked = await pickPdf();
+      if (!picked) return;
+      setFile(picked);
       setStatement(null);
     } catch {
       setError("Couldn't open the file picker.");

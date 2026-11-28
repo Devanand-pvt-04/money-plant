@@ -9,6 +9,7 @@
 // SUPABASE_SERVICE_ROLE_KEY are provided by Supabase; no other secrets.
 
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
+import { serveWithCors } from '../_shared/cors.ts';
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false },
@@ -16,7 +17,7 @@ const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-Deno.serve(async (request) => {
+serveWithCors(async (request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
   if (!token) return json({ error: 'unauthorised' }, 401);

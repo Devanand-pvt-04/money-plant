@@ -1,40 +1,12 @@
-import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import { dateKey, type DateKey } from '@money-plant/core';
 import { formatDay, formatTime } from './format';
+import { openPicker } from './date-picker';
 import { radius, useColors, makeStyles } from './ui';
 
 /** A date key at noon, so a time zone shift never moves it to another day. */
 const fromKey = (key: DateKey) => new Date(`${key}T12:00:00`);
-
-/**
- * The phone's own date picker, then its time picker when `withTime` is set.
- * Dismissing the time picker keeps the new date with the old time.
- * Android only for now; iOS gets its inline picker with the iOS milestone.
- */
-function openPicker(value: Date, withTime: boolean, onChange: (next: Date) => void, limits: { min?: Date; max?: Date }) {
-  if (Platform.OS !== 'android') return;
-  DateTimePickerAndroid.open({
-    value,
-    mode: 'date',
-    minimumDate: limits.min,
-    maximumDate: limits.max,
-    onChange: (event, date) => {
-      if (event.type !== 'set' || !date) return;
-      const day = new Date(date.getFullYear(), date.getMonth(), date.getDate(), value.getHours(), value.getMinutes());
-      if (!withTime) return onChange(day);
-      DateTimePickerAndroid.open({
-        value: day,
-        mode: 'time',
-        onChange: (timeEvent, time) => {
-          if (timeEvent.type !== 'set' || !time) return onChange(day);
-          onChange(new Date(day.getFullYear(), day.getMonth(), day.getDate(), time.getHours(), time.getMinutes()));
-        },
-      });
-    },
-  });
-}
 
 /** Opens the date then time pickers for a timestamp; future times are refused. */
 export function pickDateTime(iso: string, onChange: (iso: string) => void) {

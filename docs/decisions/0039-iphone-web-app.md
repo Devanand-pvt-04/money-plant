@@ -32,8 +32,21 @@ Web-only code lives in `.web.ts` files that the Android bundle never loads: `lib
 - `apps/mobile/metro.config.js`: accepts `.wasm` files.
 - `apps/mobile/public/`: page template (iPhone notch, home screen meta), `manifest.json`, icons and `_headers`.
 
+## Part 2: core screens on the web
+
+| Part | Choice | Why |
+| --- | --- | --- |
+| Dates and times | `components/date-picker.web.ts` opens the browser's own picker (the wheel sheet on an iPhone) for the same `DateField` and `DateTimeField` | The Android picker did nothing elsewhere, so no entry's date could change |
+| Statement and CAS import | `lib/pick-pdf.web.ts`: the browser's file picker (Files, iCloud Drive, Downloads), read as base64 for the same parser functions | expo-file-system's picker has no browser version |
+| Edge functions | `supabase/functions/_shared/cors.ts` answers the browser's OPTIONS request and adds CORS headers to `categorise`, `delete-account`, `fx-rates`, `nav-history`, `nav-prices`, `parse-cas`, `parse-statement` and `stock-prices`. Any origin: the functions are guarded by the caller's sign-in token, and no cookies are used | A browser refuses a response without them |
+| Export | `lib/save-csv.web.ts`: the same CSV files in one zip, downloaded to Downloads | Android's folder picker has no browser version, and Safari asks before each of several downloads |
+| Opening with no signal | `public/sw.js`, a service worker that stores every built file on install (listed by `scripts/web-precache.mjs`) and serves the page from the store when offline. Supabase calls are never stored | The ledger already works offline; the app's own files didn't |
+| UPI | Copy the UPI ID, as on Android. PhonePe and Paytm open by their links; Google Pay and BHIM say to open the app by hand | iPhone UPI apps don't take Android's app launch |
+| App lock | Not offered on the web | No Face ID or passcode prompt in a browser |
+
+Build with `pnpm --filter @money-plant/mobile web:build` (export, then the precache list).
+
 ## Later PRs
 
-1. Core screens on the web: date and time inputs, PDF picker for statement and CAS import, CORS on the edge functions the app calls, CSV export as downloads, a service worker so the app opens with no signal.
-2. Hosting: Cloudflare Pages and a web step in Deploy.
-3. Web push for budget alerts and reminders.
+1. Hosting: Cloudflare Pages and a web step in Deploy.
+2. Web push for budget alerts and reminders.
